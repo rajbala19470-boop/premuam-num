@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Complete Final Version)
+# bot.py — RGX NUMBER BOT (All Features + Safe Custom Emojis)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -17,8 +17,8 @@ from telegram.ext import (
 from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"
-ADMIN_IDS = [8744359777]
+BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"          # ← Replace with your bot token
+ADMIN_IDS = [8744359777]              # ← Replace with admin user IDs
 
 OTP_GROUP_URL = "https://t.me/RgxOtp"
 
@@ -114,20 +114,25 @@ COUNTRIES_DATA = load_countries_db()
 def get_country_info(country_name):
     return COUNTRIES_DATA.get(country_name, {"emoji_id": ""})
 
-# ==================== CUSTOM EMOJI HTML HELPER ====================
-def emoji_tag(emoji_id: str, fallback: str = " ") -> str:
-    if not emoji_id or not emoji_id.isdigit() or len(emoji_id) < 10:
+# ==================== CUSTOM EMOJI HELPERS ====================
+def safe_emoji_tag(emoji_id: str, fallback: str = " ") -> str:
+    """Returns <tg-emoji> tag only if ID looks valid; otherwise fallback."""
+    if not emoji_id or not isinstance(emoji_id, str) or not emoji_id.isdigit() or len(emoji_id) < 10:
         return fallback
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
+def emoji_tag(emoji_id: str, fallback: str = " ") -> str:
+    # Keep original helper for backward compatibility; we'll use safe_emoji_tag in most places
+    return safe_emoji_tag(emoji_id, fallback)
+
 def country_flag_emoji(country_name: str) -> str:
     eid = get_country_info(country_name).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-    return emoji_tag(eid, "🏁")
+    return safe_emoji_tag(eid, "🏁")
 
 def service_emoji_tag(service_name: str) -> str:
     row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service_name,))
     eid = row[0] if row and row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
-    return emoji_tag(eid, "⚙️")
+    return safe_emoji_tag(eid, "⚙️")
 
 # ==================== KEYBOARD BUILDERS ====================
 BTN_GET_NUMBER = "Get Number"
@@ -254,51 +259,36 @@ def db_fetch_all(query, params=()):
         return c.fetchall()
 
 def extract_country_from_filename(filename):
-    """Extract country name from filename - handles spaces, dashes, multiple words"""
     try:
         name = filename.replace('.txt', '')
-        # Split by underscore to separate country from service
         if '_' in name:
             country_part = name.split('_')[0].strip()
         else:
             country_part = name.strip()
-        
-        # Try exact match first
         for country_name in COUNTRIES_DATA.keys():
             if country_name.lower() == country_part.lower():
                 return country_name
-        
-        # Try partial match - check if country_part starts with any known country
         for country_name in COUNTRIES_DATA.keys():
             if country_part.lower().startswith(country_name.lower()) or country_name.lower().startswith(country_part.lower()):
                 return country_name
-        
-        # Try contains match
         for country_name in COUNTRIES_DATA.keys():
             if country_name.lower() in country_part.lower() or country_part.lower() in country_name.lower():
                 return country_name
-        
-        # If no match found, return the raw country part
         return country_part
     except Exception:
         return None
 
 def extract_service_from_filename(filename):
-    """Extract service name from filename - everything after underscore"""
     try:
         name = filename.replace('.txt', '').lower()
         if '_' in name:
             service_part = name.split('_', 1)[1].strip()
         else:
             return "Unknown"
-        
-        # Try to match with known services
         services = [row[0] for row in db_fetch_all("SELECT name FROM services WHERE active = 1")]
         for service in services:
             if service.lower() in service_part:
                 return service
-        
-        # If no match, return the raw service part
         return service_part
     except Exception:
         return "Unknown"
@@ -392,7 +382,7 @@ def format_numbers_message(country, service, numbers, first_name=None):
     if first_name is None:
         first_name = "User"
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-    message = f"This Is your Activated Number {emoji_tag(CUSTOM_EMOJIS['GET_NUMBER'], '📱')}\n\n"
+    message = f"This Is your Activated Number {safe_emoji_tag(CUSTOM_EMOJIS['GET_NUMBER'], '📱')}\n\n"
     rows = []
     for number in numbers:
         if not number.startswith('+'):
@@ -416,29 +406,25 @@ def format_numbers_message(country, service, numbers, first_name=None):
     return message, InlineKeyboardMarkup(rows)
 
 def stock_added_message(country, service, count):
-    """New format - shown to admin first"""
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
     svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
-    
     return (
-        f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
-        f'<b>NUMBER</b> {emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
-        f'<b>COUNTRY</b> {emoji_tag("5188540541922480562", "🌍")} : {emoji_tag(flag_eid, "🏁")}\n'
-        f'<b>SERVICE</b> {emoji_tag("5465590345108589516", "🔧")} : {emoji_tag(svc_eid, "⚙️")}'
+        f'{safe_emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {safe_emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {safe_emoji_tag("4956721670690702265", "✅")}\n\n'
+        f'<b>NUMBER</b> {safe_emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
+        f'<b>COUNTRY</b> {safe_emoji_tag("5188540541922480562", "🌍")} : {safe_emoji_tag(flag_eid, "🏁")}\n'
+        f'<b>SERVICE</b> {safe_emoji_tag("5465590345108589516", "🔧")} : {safe_emoji_tag(svc_eid, "⚙️")}'
     )
 
 def stock_added_broadcast(country, service, count):
-    """Broadcast message for all users"""
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
     svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
-    
     return (
-        f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
-        f'<b>NUMBER</b> {emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
-        f'<b>COUNTRY</b> {emoji_tag("5188540541922480562", "🌍")} : {emoji_tag(flag_eid, "🏁")}\n'
-        f'<b>SERVICE</b> {emoji_tag("5465590345108589516", "🔧")} : {emoji_tag(svc_eid, "⚙️")}'
+        f'{safe_emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {safe_emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {safe_emoji_tag("4956721670690702265", "✅")}\n\n'
+        f'<b>NUMBER</b> {safe_emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
+        f'<b>COUNTRY</b> {safe_emoji_tag("5188540541922480562", "🌍")} : {safe_emoji_tag(flag_eid, "🏁")}\n'
+        f'<b>SERVICE</b> {safe_emoji_tag("5465590345108589516", "🔧")} : {safe_emoji_tag(svc_eid, "⚙️")}'
     )
 
 # ==================== WELCOME HTML ====================
@@ -449,11 +435,11 @@ def welcome_html(user_id, first_name):
     check = CUSTOM_EMOJIS["CHECK_MARK"]
     gamepad = CUSTOM_EMOJIS["GAMEPAD"]
     return (
-        f'{emoji_tag(spark, "✨")} Welcome to Developer RGX NUMBER BOT Bot, {first_name}! {emoji_tag(spark, "✨")}\n\n'
-        f'{emoji_tag(rocket, "🚀")} Your Premium Platform for Virtual Numbers.\n\n'
-        f'{emoji_tag(id_icon, "🆔")} Your ID: <code>{user_id}</code>\n'
-        f'{emoji_tag(check, "✅")} You are a Verified Member!\n\n'
-        f'{emoji_tag(gamepad, "🎮")} Tap a button below to navigate.\n\n'
+        f'{safe_emoji_tag(spark, "✨")} Welcome to Developer RGX NUMBER BOT Bot, {first_name}! {safe_emoji_tag(spark, "✨")}\n\n'
+        f'{safe_emoji_tag(rocket, "🚀")} Your Premium Platform for Virtual Numbers.\n\n'
+        f'{safe_emoji_tag(id_icon, "🆔")} Your ID: <code>{user_id}</code>\n'
+        f'{safe_emoji_tag(check, "✅")} You are a Verified Member!\n\n'
+        f'{safe_emoji_tag(gamepad, "🎮")} Tap a button below to navigate.\n\n'
         '━━━━━━━━━━━━━━━━━━━━\n'
         '👨‍💻 Developer: RGX NUMBER BOT'
     )
@@ -551,7 +537,7 @@ async def select_country_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer("Allocating 3 numbers...")
     try:
         parts = query.data.split('|', 2)
-        if len(parts) < 3: 
+        if len(parts) < 3:
             await query.answer("Invalid selection.", show_alert=True)
             return
         country = parts[1]
@@ -561,10 +547,7 @@ async def select_country_callback(update: Update, context: ContextTypes.DEFAULT_
         return
 
     stock_result = db_fetch_one("SELECT stock FROM countries WHERE name = ? AND service = ? AND active = 1", (country, service))
-    if not stock_result:
-        await query.answer("This service is not available!", show_alert=True)
-        return
-    if stock_result[0] <= 0:
+    if not stock_result or stock_result[0] <= 0:
         await query.answer("No numbers left for this service! Try another.", show_alert=True)
         countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 AND stock > 0 ORDER BY name")
         if countries:
@@ -672,26 +655,30 @@ async def show_admin_stats(query, user_id):
     total_stock = db_fetch_one("SELECT SUM(stock) FROM countries")[0] or 0
     available_numbers = db_fetch_one("SELECT COUNT(*) FROM available_numbers WHERE used = 0")[0]
     active_countries = db_fetch_one("SELECT COUNT(*) FROM countries WHERE active = 1")[0]
+
     text = (
-        f'{emoji_tag(CUSTOM_EMOJIS["STATS"], "📊")} BOT STATISTICS {emoji_tag(CUSTOM_EMOJIS["STATS"], "📊")}\n\n'
-        f'{emoji_tag(CUSTOM_EMOJIS["GIVEAWAY"], "👥")} USERS {emoji_tag(CUSTOM_EMOJIS["GIVEAWAY"], "👥")}\n\n'
+        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("STATS", ""), "📊")} BOT STATISTICS {safe_emoji_tag(CUSTOM_EMOJIS.get("STATS", ""), "📊")}\n\n'
+        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("GIVEAWAY", ""), "👥")} USERS {safe_emoji_tag(CUSTOM_EMOJIS.get("GIVEAWAY", ""), "👥")}\n\n'
         f'Total Users: {total_users}\n'
-        f'Active {emoji_tag(CUSTOM_EMOJIS["GREEN_CIRCLE"], "🟢")}: {active_users}\n'
-        f'Inactive {emoji_tag(CUSTOM_EMOJIS["RED_CIRCLE"], "🔴")}: {total_users - active_users}\n\n'
-        f'{emoji_tag(CUSTOM_EMOJIS["GET_NUMBER"], "📱")} NUMBERS {emoji_tag(CUSTOM_EMOJIS["GET_NUMBER"], "📱")}\n\n'
-        f'Active {emoji_tag(CUSTOM_EMOJIS["GREEN_CIRCLE"], "🟢")}: {active_numbers}\n'
-        f'Total Stock {emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")}: {total_stock}\n'
-        f'Available {emoji_tag(CUSTOM_EMOJIS["GEAR"], "⚙️")}: {available_numbers}\n\n'
-        f'{emoji_tag(CUSTOM_EMOJIS["CHANGE_COUNTRY"], "🌍")} COUNTRIES {emoji_tag(CUSTOM_EMOJIS["CHANGE_COUNTRY"], "🌍")}\n'
-        f'{emoji_tag(CUSTOM_EMOJIS["GREEN_CIRCLE"], "🟢")} Active Services {emoji_tag(CUSTOM_EMOJIS["SERVICE_MANAGER"], "🔧")}: {active_countries}\n\n'
-        f'{datetime.now().strftime("%I:%M %p | %d %b %Y")} {emoji_tag(CUSTOM_EMOJIS["CLOCK"], "🕐")}'
+        f'Active {safe_emoji_tag(CUSTOM_EMOJIS.get("GREEN_CIRCLE", ""), "🟢")}: {active_users}\n'
+        f'Inactive {safe_emoji_tag(CUSTOM_EMOJIS.get("RED_CIRCLE", ""), "🔴")}: {total_users - active_users}\n\n'
+        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("GET_NUMBER", ""), "📱")} NUMBERS {safe_emoji_tag(CUSTOM_EMOJIS.get("GET_NUMBER", ""), "📱")}\n\n'
+        f'Active {safe_emoji_tag(CUSTOM_EMOJIS.get("GREEN_CIRCLE", ""), "🟢")}: {active_numbers}\n'
+        f'Total Stock {safe_emoji_tag(CUSTOM_EMOJIS.get("PACKAGE", ""), "📦")}: {total_stock}\n'
+        f'Available {safe_emoji_tag(CUSTOM_EMOJIS.get("GEAR", ""), "⚙️")}: {available_numbers}\n\n'
+        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""), "🌍")} COUNTRIES {safe_emoji_tag(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""), "🌍")}\n'
+        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("GREEN_CIRCLE", ""), "🟢")} Active Services {safe_emoji_tag(CUSTOM_EMOJIS.get("SERVICE_MANAGER", ""), "🔧")}: {active_countries}\n\n'
+        f'{datetime.now().strftime("%I:%M %p | %d %b %Y")} {safe_emoji_tag(CUSTOM_EMOJIS.get("CLOCK", ""), "🕐")}'
     )
+
     countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
     if countries:
-        text += f'\n\n{emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")} STOCK DETAILS {emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")}:\n'
+        text += f'\n\n{safe_emoji_tag(CUSTOM_EMOJIS.get("PACKAGE", ""), "📦")} STOCK DETAILS {safe_emoji_tag(CUSTOM_EMOJIS.get("PACKAGE", ""), "📦")}:\n'
         for name, service, stock_count in countries:
             text += f'In stock {country_flag_emoji(name)} {name} — {service_emoji_tag(service)}: {stock_count}\n'
+
     await query.edit_message_text(text, reply_markup=admin_back_button(), parse_mode='HTML')
+
 async def show_delete_options(query, user_id):
     countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
     if not countries:
@@ -774,7 +761,7 @@ async def country_add_start(query, user_id):
     await query.edit_message_text("ADD NEW COUNTRY\n\nFormat: CountryName | Code | ISO | emoji_id\n\nExample: Pakistan | +92 | PK | 6204108584381322968", reply_markup=admin_cancel_keyboard())
 
 async def country_list_show(query):
-    lines = [f'ALL COUNTRIES {emoji_tag(CUSTOM_EMOJIS["CHANGE_COUNTRY"], "🌍")}', '']
+    lines = [f'ALL COUNTRIES {safe_emoji_tag(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""), "🌍")}', '']
     for name, info in COUNTRIES_DATA.items():
         lines.append(f'• {country_flag_emoji(name)} {name}')
         lines.append(f'  Code: {info["code"]} | ISO: {info["iso"]} | Emoji ID: {info.get("emoji_id") or "Not set"}')
@@ -990,7 +977,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_countries_db(COUNTRIES_DATA)
             admin_panel_state[user_id] = "country_manager"
             flag_id = emoji_id or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-            await update.message.reply_text(f'{emoji_tag(flag_id, "🏁")} {name} ADDED SUCCESSFULLY {emoji_tag("4956721670690702265", "✅")}', parse_mode='HTML')
+            await update.message.reply_text(f'{safe_emoji_tag(flag_id, "🏁")} {name} ADDED SUCCESSFULLY {safe_emoji_tag("4956721670690702265", "✅")}', parse_mode='HTML')
             await country_manager_menu(update, user_id)
         except Exception as e: await update.message.reply_text(f"Error: {e}")
         return True
@@ -1083,17 +1070,20 @@ async def cleanup_expired_job(context: ContextTypes.DEFAULT_TYPE):
 
 def stock_text():
     data = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
-    live_emoji = emoji_tag(CUSTOM_EMOJIS["LIVE_STOCK"], "📊")
+    live_emoji = safe_emoji_tag(CUSTOM_EMOJIS.get("LIVE_STOCK", ""), "📊")
     lines = [f'{live_emoji} CURRENT LIVE STOCK {live_emoji}', '━━━━━━━━━━━━━━━━━━━━', '']
     if not data:
         lines.append('No stock available.')
     else:
         for name, service, stock_count in data:
-            circle = CUSTOM_EMOJIS["GREEN_CIRCLE"] if stock_count > 0 else CUSTOM_EMOJIS["RED_CIRCLE"]
-            lines.append(f'{emoji_tag(circle, "⚪")} {country_flag_emoji(name)} {name} — {service_emoji_tag(service)}: {stock_count}')
-    clock_emoji = emoji_tag(CUSTOM_EMOJIS["CLOCK"], "🕐")
+            circle_id = CUSTOM_EMOJIS["GREEN_CIRCLE"] if stock_count > 0 else CUSTOM_EMOJIS["RED_CIRCLE"]
+            circle_tag = safe_emoji_tag(circle_id, "⚪")
+            flag_tag = country_flag_emoji(name)
+            svc_tag = service_emoji_tag(service)
+            lines.append(f'{circle_tag} {flag_tag} {name} — {svc_tag}: {stock_count}')
+    clock_tag = safe_emoji_tag(CUSTOM_EMOJIS.get("CLOCK", ""), "🕐")
     lines.append('')
-    lines.append(f'Updated {clock_emoji}: {datetime.now().strftime("%H:%M:%S | %d %B %Y")}')
+    lines.append(f'Updated {clock_tag}: {datetime.now().strftime("%H:%M:%S | %d %B %Y")}')
     return '\n'.join(lines)
 
 # ==================== BOTTOM MENU TEXT ROUTERS ====================
@@ -1158,7 +1148,7 @@ def main():
         job_queue.run_repeating(cleanup_expired_job, interval=60, first=60)
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
-    print("✅ Custom Emoji System Active")
+    print("✅ Custom Emoji System Active (Safe Mode)")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
