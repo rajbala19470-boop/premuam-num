@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (All Features + Safe Custom Emojis)
+# bot.py — RGX NUMBER BOT (Complete Final Version with Balance & OTP API)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -17,13 +17,18 @@ from telegram.ext import (
 from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"          # ← Replace with your bot token
-ADMIN_IDS = [8744359777]              # ← Replace with admin user IDs
+BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"
+ADMIN_IDS = [8744359777]
 
 OTP_GROUP_URL = "https://t.me/RgxOtp"
+OTP_API_URL = "http://127.0.0.1:5080/all_otp"
+OTP_API_TOKEN = "a02e16156f3e9493026fcbcf07c1500b"
+OTP_POLL_INTERVAL = 4  # seconds
 
-API_URL = "put your panel api url"
-API_TOKEN = "Put your panel api token"
+MIN_WITHDRAW = 0.1  # USD
+
+ADMIN_WHATSAPP = "https://wa.me/8801962636806"
+ADMIN_TELEGRAM = "t.me/WONER_OF_RHT"
 
 # ==================== DATABASE SETUP ====================
 conn = sqlite3.connect('mrisbrand_master.db', check_same_thread=False)
@@ -63,6 +68,20 @@ c.execute('''CREATE TABLE IF NOT EXISTS services
              (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE,
               display_name TEXT, active INTEGER DEFAULT 1, emoji_id TEXT DEFAULT '')''')
 
+# Add balance columns to users if not exists
+try:
+    c.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0")
+except sqlite3.OperationalError:
+    pass
+try:
+    c.execute("ALTER TABLE users ADD COLUMN withdrawn REAL DEFAULT 0")
+except sqlite3.OperationalError:
+    pass
+try:
+    c.execute("ALTER TABLE users ADD COLUMN total_otp INTEGER DEFAULT 0")
+except sqlite3.OperationalError:
+    pass
+
 try:
     c.execute("ALTER TABLE services ADD COLUMN emoji_id TEXT DEFAULT ''")
 except sqlite3.OperationalError:
@@ -85,6 +104,20 @@ def safe_url(url: str) -> str | None:
         return url
     return None
 
+# ==================== CUSTOM EMOJI SAFETY ====================
+def safe_icon(emoji_id: str) -> str | None:
+    """Return a valid custom emoji ID or None to omit the icon."""
+    if emoji_id and isinstance(emoji_id, str) and emoji_id.isdigit() and len(emoji_id) > 9:
+        return emoji_id
+    return None
+
+# ==================== PAYOUT HELPER ====================
+def parse_payout(payout_str: str) -> float:
+    """Extract numeric value from payout string like '0.001$'."""
+    if not payout_str:
+        return 0.001
+    return float(payout_str.replace('$', '').strip())
+
 # ==================== LOAD COUNTRIES FROM JSON ====================
 def load_countries_db():
     try:
@@ -93,13 +126,15 @@ def load_countries_db():
             for name, info in data.items():
                 if "emoji_id" not in info:
                     info["emoji_id"] = ""
+                if "payout" not in info:
+                    info["payout"] = "0.001$"
             return data
     except FileNotFoundError:
         default = {
-            "Pakistan": {"code": "+92", "iso": "PK", "emoji_id": ""},
-            "India": {"code": "+91", "iso": "IN", "emoji_id": ""},
-            "Venezuela": {"code": "+58", "iso": "VE", "emoji_id": ""},
-            "Nigeria": {"code": "+234", "iso": "NG", "emoji_id": ""},
+            "Pakistan": {"code": "+92", "iso": "PK", "payout": "0.001$", "emoji_id": ""},
+            "India": {"code": "+91", "iso": "IN", "payout": "0.001$", "emoji_id": ""},
+            "Venezuela": {"code": "+58", "iso": "VE", "payout": "0.001$", "emoji_id": ""},
+            "Nigeria": {"code": "+234", "iso": "NG", "payout": "0.001$", "emoji_id": ""},
         }
         with open('countries.json', 'w', encoding='utf-8') as f:
             json.dump(default, f, indent=2, ensure_ascii=False)
@@ -112,78 +147,73 @@ def save_countries_db(data):
 COUNTRIES_DATA = load_countries_db()
 
 def get_country_info(country_name):
-    return COUNTRIES_DATA.get(country_name, {"emoji_id": ""})
+    return COUNTRIES_DATA.get(country_name, {"emoji_id": "", "payout": "0.001$"})
 
-# ==================== CUSTOM EMOJI HELPERS ====================
-def safe_emoji_tag(emoji_id: str, fallback: str = " ") -> str:
-    """Returns <tg-emoji> tag only if ID looks valid; otherwise fallback."""
-    if not emoji_id or not isinstance(emoji_id, str) or not emoji_id.isdigit() or len(emoji_id) < 10:
+# ==================== CUSTOM EMOJI HTML HELPER ====================
+def emoji_tag(emoji_id: str, fallback: str = " ") -> str:
+    if not emoji_id or not emoji_id.isdigit() or len(emoji_id) < 10:
         return fallback
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
-def emoji_tag(emoji_id: str, fallback: str = " ") -> str:
-    # Keep original helper for backward compatibility; we'll use safe_emoji_tag in most places
-    return safe_emoji_tag(emoji_id, fallback)
-
 def country_flag_emoji(country_name: str) -> str:
     eid = get_country_info(country_name).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-    return safe_emoji_tag(eid, "🏁")
+    return emoji_tag(eid, "🏁")
 
 def service_emoji_tag(service_name: str) -> str:
     row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service_name,))
     eid = row[0] if row and row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
-    return safe_emoji_tag(eid, "⚙️")
+    return emoji_tag(eid, "⚙️")
 
 # ==================== KEYBOARD BUILDERS ====================
 BTN_GET_NUMBER = "Get Number"
-BTN_LIVE_STOCK = "Live Stock"
+BTN_BALANCE = "Balance"
 BTN_SUPPORT = "Support"
 BTN_ADMIN = "Admin Panel"
 
 def bottom_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     rows = [
         [
-            KeyboardButton(BTN_GET_NUMBER, style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["GET_NUMBER"]),
-            KeyboardButton(BTN_LIVE_STOCK, style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["LIVE_STOCK"])
+            KeyboardButton(BTN_GET_NUMBER, style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("GET_NUMBER", ""))),
+            KeyboardButton(BTN_BALANCE, style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon("5312123810638483121")),
         ],
         [
-            KeyboardButton(BTN_SUPPORT, style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["SUPPORT"])
+            KeyboardButton(BTN_SUPPORT, style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SUPPORT", "")))
         ],
     ]
     if user_id in ADMIN_IDS:
-        rows.append([KeyboardButton(BTN_ADMIN, style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["ADMIN"])])
+        rows.append([KeyboardButton(BTN_ADMIN, style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADMIN", "")))])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True,
                                input_field_placeholder="Choose an option...")
 
 def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Get Number", callback_data="menu_get_number", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["GET_NUMBER"]),
-            InlineKeyboardButton("Live Stock", callback_data="menu_live_stock", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["LIVE_STOCK"]),
+            InlineKeyboardButton("Get Number", callback_data="menu_get_number", style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("GET_NUMBER", ""))),
+            InlineKeyboardButton("Balance", callback_data="menu_balance", style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon("5312123810638483121")),
         ],
         [
-            InlineKeyboardButton("Support", callback_data="menu_support", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["SUPPORT"]),
+            InlineKeyboardButton("Support", callback_data="menu_support", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SUPPORT", ""))),
         ],
     ] + ([
-        [InlineKeyboardButton("Admin Panel", callback_data="menu_admin", style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["ADMIN"])],
+        [InlineKeyboardButton("Admin Panel", callback_data="menu_admin", style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADMIN", "")))],
     ] if user_id in ADMIN_IDS else []))
 
 def back_to_main_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"]),
+        InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))),
     ]])
 
 def number_action_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["NEW_NUMBER"]),
-            InlineKeyboardButton("Change Country", callback_data="back_to_countries", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["CHANGE_COUNTRY"]),
+            InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
+            InlineKeyboardButton("Change Country", callback_data="back_to_countries", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
         ],
         [
-            InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["JOIN_OTP_GROUP"]),
+            InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("JOIN_OTP_GROUP", ""))),
         ],
         [
-            InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["HOME"]),
+            InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("HOME", ""))),
         ],
     ])
 
@@ -192,54 +222,63 @@ def countries_keyboard(countries: list) -> InlineKeyboardMarkup:
     for name, service, stock in countries:
         label = f"{name} — {service} ({stock})"
         cb = f"sel|{name}|{service}"[:60]
-        flag_eid = get_country_info(name).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-        rows.append([InlineKeyboardButton(label, callback_data=cb, style=KBS.SUCCESS, icon_custom_emoji_id=flag_eid)])
-    rows.append([InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"])])
+        flag_eid = get_country_info(name).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+        rows.append([InlineKeyboardButton(label, callback_data=cb, style=KBS.SUCCESS,
+                                          icon_custom_emoji_id=safe_icon(flag_eid))])
+    rows.append([InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     return InlineKeyboardMarkup(rows)
-
-def stock_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Refresh", callback_data="refresh_stock", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["REFRESH"])],
-        [InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["HOME"])]
-    ])
 
 def support_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Contact Admin Support", url="t.me/BloodyV0id", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["CONTACT_SUPPORT"])],
-        [InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["HOME"])]
+        [InlineKeyboardButton("Contact Admin Support", url="t.me/BloodyV0id", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CONTACT_SUPPORT", "")))],
+        [InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("HOME", "")))]
     ])
 
 def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Statistics", callback_data="admin_stats", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["STATS"]),
-            InlineKeyboardButton("Upload Stock", callback_data="admin_upload", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["UPLOAD"]),
+            InlineKeyboardButton("Statistics", callback_data="admin_stats", style=KBS.PRIMARY,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("STATS", ""))),
+            InlineKeyboardButton("Upload Stock", callback_data="admin_upload", style=KBS.SUCCESS,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("UPLOAD", ""))),
         ],
         [
-            InlineKeyboardButton("Delete Stock", callback_data="admin_delete", style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["DELETE"]),
-            InlineKeyboardButton("Broadcast", callback_data="admin_broadcast", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BROADCAST"]),
+            InlineKeyboardButton("Delete Stock", callback_data="admin_delete", style=KBS.DANGER,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", ""))),
+            InlineKeyboardButton("Broadcast", callback_data="admin_broadcast", style=KBS.PRIMARY,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BROADCAST", ""))),
         ],
         [
-            InlineKeyboardButton("Give Account", callback_data="admin_giveaway", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["GIVEAWAY"]),
-            InlineKeyboardButton("Country Manager", callback_data="admin_country_manager", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["COUNTRY_MANAGER"]),
+            InlineKeyboardButton("Give Account", callback_data="admin_giveaway", style=KBS.SUCCESS,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("GIVEAWAY", ""))),
+            InlineKeyboardButton("Country Manager", callback_data="admin_country_manager", style=KBS.PRIMARY,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", ""))),
         ],
         [
-            InlineKeyboardButton("Service Manager", callback_data="admin_service_manager", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["SERVICE_MANAGER"]),
-            InlineKeyboardButton("Exit Admin", callback_data="admin_exit", style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["EXIT"]),
+            InlineKeyboardButton("Service Manager", callback_data="admin_service_manager", style=KBS.PRIMARY,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", ""))),
+            InlineKeyboardButton("Exit Admin", callback_data="admin_exit", style=KBS.DANGER,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EXIT", ""))),
         ],
         [
-            InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"]),
+            InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))),
         ],
     ])
 
 def admin_back_button() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"]),
+        InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))),
     ]])
 
 def admin_cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Cancel", callback_data="admin_back", style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["CANCEL"]),
+        InlineKeyboardButton("Cancel", callback_data="admin_back", style=KBS.DANGER,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", ""))),
     ]])
 
 # ==================== DATABASE HELPERS ====================
@@ -381,8 +420,8 @@ def extract_otp_from_message(message_text):
 def format_numbers_message(country, service, numbers, first_name=None):
     if first_name is None:
         first_name = "User"
-    flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-    message = f"This Is your Activated Number {safe_emoji_tag(CUSTOM_EMOJIS['GET_NUMBER'], '📱')}\n\n"
+    flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+    message = f"This Is your Activated Number {emoji_tag(CUSTOM_EMOJIS['GET_NUMBER'], '📱')}\n\n"
     rows = []
     for number in numbers:
         if not number.startswith('+'):
@@ -391,40 +430,44 @@ def format_numbers_message(country, service, numbers, first_name=None):
             text=number,
             copy_text=CopyTextButton(text=number),
             style=KBS.PRIMARY,
-            icon_custom_emoji_id=flag_eid
+            icon_custom_emoji_id=safe_icon(flag_eid)
         )])
     rows.append([
-        InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["NEW_NUMBER"]),
-        InlineKeyboardButton("Change Country", callback_data="back_to_countries", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["CHANGE_COUNTRY"]),
+        InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
+        InlineKeyboardButton("Change Country", callback_data="back_to_countries", style=KBS.SUCCESS,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
     ])
     rows.append([
-        InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["JOIN_OTP_GROUP"]),
+        InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=KBS.DANGER,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("JOIN_OTP_GROUP", ""))),
     ])
     rows.append([
-        InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["HOME"]),
+        InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("HOME", ""))),
     ])
     return message, InlineKeyboardMarkup(rows)
 
 def stock_added_message(country, service, count):
-    flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
+    flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
     svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
-    svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
+    svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     return (
-        f'{safe_emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {safe_emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {safe_emoji_tag("4956721670690702265", "✅")}\n\n'
-        f'<b>NUMBER</b> {safe_emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
-        f'<b>COUNTRY</b> {safe_emoji_tag("5188540541922480562", "🌍")} : {safe_emoji_tag(flag_eid, "🏁")}\n'
-        f'<b>SERVICE</b> {safe_emoji_tag("5465590345108589516", "🔧")} : {safe_emoji_tag(svc_eid, "⚙️")}'
+        f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
+        f'<b>NUMBER</b> {emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
+        f'<b>COUNTRY</b> {emoji_tag("5188540541922480562", "🌍")} : {emoji_tag(flag_eid, "🏁")}\n'
+        f'<b>SERVICE</b> {emoji_tag("5465590345108589516", "🔧")} : {emoji_tag(svc_eid, "⚙️")}'
     )
 
 def stock_added_broadcast(country, service, count):
-    flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
+    flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
     svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
-    svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
+    svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     return (
-        f'{safe_emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {safe_emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {safe_emoji_tag("4956721670690702265", "✅")}\n\n'
-        f'<b>NUMBER</b> {safe_emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
-        f'<b>COUNTRY</b> {safe_emoji_tag("5188540541922480562", "🌍")} : {safe_emoji_tag(flag_eid, "🏁")}\n'
-        f'<b>SERVICE</b> {safe_emoji_tag("5465590345108589516", "🔧")} : {safe_emoji_tag(svc_eid, "⚙️")}'
+        f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
+        f'<b>NUMBER</b> {emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
+        f'<b>COUNTRY</b> {emoji_tag("5188540541922480562", "🌍")} : {emoji_tag(flag_eid, "🏁")}\n'
+        f'<b>SERVICE</b> {emoji_tag("5465590345108589516", "🔧")} : {emoji_tag(svc_eid, "⚙️")}'
     )
 
 # ==================== WELCOME HTML ====================
@@ -435,11 +478,11 @@ def welcome_html(user_id, first_name):
     check = CUSTOM_EMOJIS["CHECK_MARK"]
     gamepad = CUSTOM_EMOJIS["GAMEPAD"]
     return (
-        f'{safe_emoji_tag(spark, "✨")} Welcome to Developer RGX NUMBER BOT Bot, {first_name}! {safe_emoji_tag(spark, "✨")}\n\n'
-        f'{safe_emoji_tag(rocket, "🚀")} Your Premium Platform for Virtual Numbers.\n\n'
-        f'{safe_emoji_tag(id_icon, "🆔")} Your ID: <code>{user_id}</code>\n'
-        f'{safe_emoji_tag(check, "✅")} You are a Verified Member!\n\n'
-        f'{safe_emoji_tag(gamepad, "🎮")} Tap a button below to navigate.\n\n'
+        f'{emoji_tag(spark, "✨")} Welcome to Developer RGX NUMBER BOT Bot, {first_name}! {emoji_tag(spark, "✨")}\n\n'
+        f'{emoji_tag(rocket, "🚀")} Your Premium Platform for Virtual Numbers.\n\n'
+        f'{emoji_tag(id_icon, "🆔")} Your ID: <code>{user_id}</code>\n'
+        f'{emoji_tag(check, "✅")} You are a Verified Member!\n\n'
+        f'{emoji_tag(gamepad, "🎮")} Tap a button below to navigate.\n\n'
         '━━━━━━━━━━━━━━━━━━━━\n'
         '👨‍💻 Developer: RGX NUMBER BOT'
     )
@@ -479,11 +522,54 @@ async def show_get_number(query, context, user_id, first_name):
     except Exception:
         pass
 
-async def show_live_stock(query):
-    try:
-        await query.edit_message_text(stock_text(), reply_markup=stock_keyboard(), parse_mode='HTML')
-    except Exception:
-        pass
+async def show_balance(query, user_id):
+    user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
+    if not user:
+        await query.answer("User not found.", show_alert=True)
+        return
+    first_name, balance, withdrawn, total_otp = user
+    balance = balance or 0.0
+    withdrawn = withdrawn or 0.0
+    total_otp = total_otp or 0
+    text = (
+        f'{emoji_tag("4958534696645428119", "👤")} {first_name} YOUR DETAILS {emoji_tag("4958506272551863292", "📋")}\n'
+        f'------------------------------------------------\n'
+        f'{emoji_tag("5197269100878907942", "🆔")} USER ID: {user_id}\n'
+        f'{emoji_tag("4958926882994127612", "💰")} BALANCE: ${balance:.3f}\n'
+        f'{emoji_tag("5445221832074483553", "💸")} WITHDRAWED: ${withdrawn:.3f}\n'
+        f'{emoji_tag("4958534696645428119", "⚠️")} MINIMUM WITHDRAW: $0.1\n'
+        f'{emoji_tag("5197288647275071607", "📨")} TOTAL OTP: {total_otp}'
+    )
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(f"WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
+                             icon_custom_emoji_id=safe_icon("5445353829304387411"))
+    ]])
+    await query.edit_message_text(text, reply_markup=kb, parse_mode='HTML')
+
+async def show_withdraw(query, user_id):
+    balance = db_fetch_one("SELECT balance FROM users WHERE user_id = ?", (user_id,))[0] or 0.0
+    if balance >= MIN_WITHDRAW:
+        text = (
+            f'{emoji_tag("4956290155326473271", "📞")} PLEASE CONTACT TO ADMIN {emoji_tag("4956420911310832630", "👨‍💼")}\n\n'
+            f'{emoji_tag("4958926882994127612", "💰")} BALANCE: ${balance:.3f}\n'
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("ADMIN WH", url=ADMIN_WHATSAPP, style=KBS.SUCCESS,
+                                  icon_custom_emoji_id=safe_icon("5334998226636390258"))],
+            [InlineKeyboardButton("ADMIN TG", url=ADMIN_TELEGRAM, style=KBS.PRIMARY,
+                                  icon_custom_emoji_id=safe_icon("5330237710655306682"))]
+        ])
+    else:
+        need = round(MIN_WITHDRAW - balance, 3)
+        text = (
+            f'{emoji_tag("4956611513369494230", "🔻")} YOUR MAIN BALANCE IS LOW{emoji_tag("4956387556594811916", "😞")}\n\n'
+            f'{emoji_tag("4958534696645428119", "⚠️")} MINIMUM WITHDRAW: $0.1\n'
+            f'{emoji_tag("4958926882994127612", "💰")} YOUR CURRENT BALANCE: ${balance:.3f}\n'
+            f'{emoji_tag("4958642964181025908", "🧾")} NEED: ${need:.3f}\n\n'
+            f'{emoji_tag("4958503072801228000", "📢")} KINDLY GRAB SOME OTP TO WITHDRAW YOU BALANCE {emoji_tag("4956721670690702265", "✅")}'
+        )
+        kb = None
+    await query.edit_message_text(text, reply_markup=kb, parse_mode='HTML')
 
 async def show_support(query):
     try:
@@ -510,9 +596,24 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     action = data[len("menu_"):]
     if action == "get_number": await show_get_number(query, context, user_id, first_name)
-    elif action == "live_stock": await show_live_stock(query)
+    elif action == "balance": await show_balance(query, user_id)
     elif action == "support": await show_support(query)
     elif action == "admin": await show_admin_panel_menu(query, user_id)
+
+async def balance_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+    await show_balance(query, user_id)
+
+async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+    await show_withdraw(query, user_id)
+
+async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
 
 async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -522,14 +623,6 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await show_main_menu(query, user_id, first_name)
 
 # ==================== NUMBER FLOW ====================
-async def refresh_stock_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("Refreshed!")
-    try:
-        await query.edit_message_text(stock_text(), reply_markup=stock_keyboard(), parse_mode='HTML')
-    except Exception:
-        pass
-
 async def select_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -537,7 +630,7 @@ async def select_country_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer("Allocating 3 numbers...")
     try:
         parts = query.data.split('|', 2)
-        if len(parts) < 3:
+        if len(parts) < 3: 
             await query.answer("Invalid selection.", show_alert=True)
             return
         country = parts[1]
@@ -547,7 +640,10 @@ async def select_country_callback(update: Update, context: ContextTypes.DEFAULT_
         return
 
     stock_result = db_fetch_one("SELECT stock FROM countries WHERE name = ? AND service = ? AND active = 1", (country, service))
-    if not stock_result or stock_result[0] <= 0:
+    if not stock_result:
+        await query.answer("This service is not available!", show_alert=True)
+        return
+    if stock_result[0] <= 0:
         await query.answer("No numbers left for this service! Try another.", show_alert=True)
         countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 AND stock > 0 ORDER BY name")
         if countries:
@@ -655,28 +751,25 @@ async def show_admin_stats(query, user_id):
     total_stock = db_fetch_one("SELECT SUM(stock) FROM countries")[0] or 0
     available_numbers = db_fetch_one("SELECT COUNT(*) FROM available_numbers WHERE used = 0")[0]
     active_countries = db_fetch_one("SELECT COUNT(*) FROM countries WHERE active = 1")[0]
-
     text = (
-        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("STATS", ""), "📊")} BOT STATISTICS {safe_emoji_tag(CUSTOM_EMOJIS.get("STATS", ""), "📊")}\n\n'
-        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("GIVEAWAY", ""), "👥")} USERS {safe_emoji_tag(CUSTOM_EMOJIS.get("GIVEAWAY", ""), "👥")}\n\n'
+        f'{emoji_tag(CUSTOM_EMOJIS["STATS"], "📊")} BOT STATISTICS {emoji_tag(CUSTOM_EMOJIS["STATS"], "📊")}\n\n'
+        f'{emoji_tag(CUSTOM_EMOJIS["GIVEAWAY"], "👥")} USERS {emoji_tag(CUSTOM_EMOJIS["GIVEAWAY"], "👥")}\n\n'
         f'Total Users: {total_users}\n'
-        f'Active {safe_emoji_tag(CUSTOM_EMOJIS.get("GREEN_CIRCLE", ""), "🟢")}: {active_users}\n'
-        f'Inactive {safe_emoji_tag(CUSTOM_EMOJIS.get("RED_CIRCLE", ""), "🔴")}: {total_users - active_users}\n\n'
-        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("GET_NUMBER", ""), "📱")} NUMBERS {safe_emoji_tag(CUSTOM_EMOJIS.get("GET_NUMBER", ""), "📱")}\n\n'
-        f'Active {safe_emoji_tag(CUSTOM_EMOJIS.get("GREEN_CIRCLE", ""), "🟢")}: {active_numbers}\n'
-        f'Total Stock {safe_emoji_tag(CUSTOM_EMOJIS.get("PACKAGE", ""), "📦")}: {total_stock}\n'
-        f'Available {safe_emoji_tag(CUSTOM_EMOJIS.get("GEAR", ""), "⚙️")}: {available_numbers}\n\n'
-        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""), "🌍")} COUNTRIES {safe_emoji_tag(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""), "🌍")}\n'
-        f'{safe_emoji_tag(CUSTOM_EMOJIS.get("GREEN_CIRCLE", ""), "🟢")} Active Services {safe_emoji_tag(CUSTOM_EMOJIS.get("SERVICE_MANAGER", ""), "🔧")}: {active_countries}\n\n'
-        f'{datetime.now().strftime("%I:%M %p | %d %b %Y")} {safe_emoji_tag(CUSTOM_EMOJIS.get("CLOCK", ""), "🕐")}'
+        f'Active {emoji_tag(CUSTOM_EMOJIS["GREEN_CIRCLE"], "🟢")}: {active_users}\n'
+        f'Inactive {emoji_tag(CUSTOM_EMOJIS["RED_CIRCLE"], "🔴")}: {total_users - active_users}\n\n'
+        f'{emoji_tag(CUSTOM_EMOJIS["GET_NUMBER"], "📱")} NUMBERS {emoji_tag(CUSTOM_EMOJIS["GET_NUMBER"], "📱")}\n\n'
+        f'Active {emoji_tag(CUSTOM_EMOJIS["GREEN_CIRCLE"], "🟢")}: {active_numbers}\n'
+        f'Total Stock {emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")}: {total_stock}\n'
+        f'Available {emoji_tag(CUSTOM_EMOJIS["GEAR"], "⚙️")}: {available_numbers}\n\n'
+        f'{emoji_tag(CUSTOM_EMOJIS["CHANGE_COUNTRY"], "🌍")} COUNTRIES {emoji_tag(CUSTOM_EMOJIS["CHANGE_COUNTRY"], "🌍")}\n'
+        f'{emoji_tag(CUSTOM_EMOJIS["GREEN_CIRCLE"], "🟢")} Active Services {emoji_tag(CUSTOM_EMOJIS["SERVICE_MANAGER"], "🔧")}: {active_countries}\n\n'
+        f'{datetime.now().strftime("%I:%M %p | %d %b %Y")} {emoji_tag(CUSTOM_EMOJIS["CLOCK"], "🕐")}'
     )
-
     countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
     if countries:
-        text += f'\n\n{safe_emoji_tag(CUSTOM_EMOJIS.get("PACKAGE", ""), "📦")} STOCK DETAILS {safe_emoji_tag(CUSTOM_EMOJIS.get("PACKAGE", ""), "📦")}:\n'
+        text += f'\n\n{emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")} STOCK DETAILS {emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")}:\n'
         for name, service, stock_count in countries:
             text += f'In stock {country_flag_emoji(name)} {name} — {service_emoji_tag(service)}: {stock_count}\n'
-
     await query.edit_message_text(text, reply_markup=admin_back_button(), parse_mode='HTML')
 
 async def show_delete_options(query, user_id):
@@ -686,8 +779,12 @@ async def show_delete_options(query, user_id):
         return
     rows = []
     for name, service, stock_count in countries:
-        rows.append([InlineKeyboardButton(f"Delete {name} — {service} (Stock: {stock_count})", callback_data=f"admin_del|{name}|{service}", style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["DELETE"])])
-    rows.append([InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"])])
+        rows.append([InlineKeyboardButton(f"Delete {name} — {service} (Stock: {stock_count})",
+                                          callback_data=f"admin_del|{name}|{service}",
+                                          style=KBS.DANGER,
+                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))])
+    rows.append([InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await query.edit_message_text("DELETE STOCK\n\nSelect a country/service to delete all its numbers:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def request_upload(query, user_id):
@@ -748,45 +845,62 @@ async def country_manager_menu(query, user_id):
     if user_id not in admin_mode: await query.answer("Admin mode required!", show_alert=True); return
     admin_panel_state[user_id] = "country_manager"
     rows = [
-        [InlineKeyboardButton("Add New Country", callback_data="country_add", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["COUNTRY_MANAGER"])],
-        [InlineKeyboardButton("List All Countries", callback_data="country_list", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["COUNTRY_MANAGER"])],
-        [InlineKeyboardButton("Edit Country", callback_data="country_edit_select", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["COUNTRY_MANAGER"])],
-        [InlineKeyboardButton("Delete Country", callback_data="country_delete_select", style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["DELETE"])],
-        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"])],
+        [InlineKeyboardButton("Add New Country", callback_data="country_add", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", "")))],
+        [InlineKeyboardButton("List All Countries", callback_data="country_list", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", "")))],
+        [InlineKeyboardButton("Edit Country", callback_data="country_edit_select", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", "")))],
+        [InlineKeyboardButton("Delete Country", callback_data="country_delete_select", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))],
+        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ]
     await query.edit_message_text("COUNTRY MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def country_add_start(query, user_id):
     admin_panel_state[user_id] = "waiting_country_add"
-    await query.edit_message_text("ADD NEW COUNTRY\n\nFormat: CountryName | Code | ISO | emoji_id\n\nExample: Pakistan | +92 | PK | 6204108584381322968", reply_markup=admin_cancel_keyboard())
+    await query.edit_message_text(
+        "ADD NEW COUNTRY\n\nFormat: CountryName | Code | ISO | payout | emoji_id\n"
+        "Example: Bangladesh | +880 | BD | 0.001$ | 5911365056594973179",
+        reply_markup=admin_cancel_keyboard())
 
 async def country_list_show(query):
-    lines = [f'ALL COUNTRIES {safe_emoji_tag(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""), "🌍")}', '']
+    lines = [f'ALL COUNTRIES {emoji_tag(CUSTOM_EMOJIS["CHANGE_COUNTRY"], "🌍")}', '']
     for name, info in COUNTRIES_DATA.items():
         lines.append(f'• {country_flag_emoji(name)} {name}')
-        lines.append(f'  Code: {info["code"]} | ISO: {info["iso"]} | Emoji ID: {info.get("emoji_id") or "Not set"}')
+        lines.append(f'  Code: {info["code"]} | ISO: {info["iso"]} | Payout: {info.get("payout", "0.001$")} | Emoji ID: {info.get("emoji_id") or "Not set"}')
         lines.append('')
     await query.edit_message_text('\n'.join(lines), reply_markup=admin_back_button(), parse_mode='HTML')
 
 async def country_edit_select(query):
     rows = []
     for name, info in COUNTRIES_DATA.items():
-        icon = info.get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-        rows.append([InlineKeyboardButton(f"{name} (ID: {info.get('emoji_id') or 'none'})", callback_data=f"country_edit|{name}", style=KBS.PRIMARY, icon_custom_emoji_id=icon)])
-    rows.append([InlineKeyboardButton("Back", callback_data="admin_country_manager", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"])])
+        icon = info.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+        rows.append([InlineKeyboardButton(f"{name} (Payout: {info.get('payout','0.001$')})",
+                                          callback_data=f"country_edit|{name}",
+                                          style=KBS.PRIMARY,
+                                          icon_custom_emoji_id=safe_icon(icon))])
+    rows.append([InlineKeyboardButton("Back", callback_data="admin_country_manager", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await query.edit_message_text("Select country to edit:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def country_edit_start(query, user_id, country_name):
     admin_temp_data[user_id] = {"edit_country": country_name}
     admin_panel_state[user_id] = "waiting_country_edit"
     info = COUNTRIES_DATA[country_name]
-    await query.edit_message_text(f"EDIT COUNTRY: {country_name}\n\nCurrent:\nCode: {info['code']}\nISO: {info['iso']}\nEmoji ID: {info.get('emoji_id', 'Not set')}\n\nSend new details: Code | ISO | emoji_id\nSend /skip to keep.", reply_markup=admin_cancel_keyboard())
+    await query.edit_message_text(
+        f"EDIT COUNTRY: {country_name}\n\nCurrent:\nCode: {info['code']}\nISO: {info['iso']}\nPayout: {info.get('payout','0.001$')}\nEmoji ID: {info.get('emoji_id', 'Not set')}\n\nSend new details: Code | ISO | payout | emoji_id\nSend /skip to keep.",
+        reply_markup=admin_cancel_keyboard())
 
 async def country_delete_select(query):
     rows = []
     for name in COUNTRIES_DATA:
-        rows.append([InlineKeyboardButton(f"Delete {name}", callback_data=f"country_delete|{name}", style=KBS.DANGER, icon_custom_emoji_id=CUSTOM_EMOJIS["DELETE"])])
-    rows.append([InlineKeyboardButton("Back", callback_data="admin_country_manager", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"])])
+        rows.append([InlineKeyboardButton(f"Delete {name}", callback_data=f"country_delete|{name}",
+                                          style=KBS.DANGER,
+                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))])
+    rows.append([InlineKeyboardButton("Back", callback_data="admin_country_manager", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await query.edit_message_text("Select country to delete:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def country_delete_direct(query, user_id, country_name):
@@ -819,11 +933,16 @@ async def service_manager_menu(query, user_id):
     if user_id not in admin_mode: await query.answer("Admin mode required!", show_alert=True); return
     admin_panel_state[user_id] = "service_manager"
     rows = [
-        [InlineKeyboardButton("Add New Service", callback_data="service_add", style=KBS.SUCCESS, icon_custom_emoji_id=CUSTOM_EMOJIS["SERVICE_MANAGER"])],
-        [InlineKeyboardButton("List All Services", callback_data="service_list", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["SERVICE_MANAGER"])],
-        [InlineKeyboardButton("Toggle Service Active", callback_data="service_toggle", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["SERVICE_MANAGER"])],
-        [InlineKeyboardButton("Set Service Emoji", callback_data="service_set_emoji", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["SERVICE_MANAGER"])],
-        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"])],
+        [InlineKeyboardButton("Add New Service", callback_data="service_add", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))],
+        [InlineKeyboardButton("List All Services", callback_data="service_list", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))],
+        [InlineKeyboardButton("Toggle Service Active", callback_data="service_toggle", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))],
+        [InlineKeyboardButton("Set Service Emoji", callback_data="service_set_emoji", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))],
+        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ]
     await query.edit_message_text("SERVICE MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows))
 
@@ -842,8 +961,12 @@ async def service_toggle_select(query):
     services = db_fetch_all("SELECT name, display_name, active FROM services ORDER BY name")
     rows = []
     for s in services:
-        rows.append([InlineKeyboardButton(f"{s[1]} ({'Active' if s[2] else 'Inactive'})", callback_data=f"service_toggle|{s[0]}", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["SERVICE_MANAGER"])])
-    rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"])])
+        rows.append([InlineKeyboardButton(f"{s[1]} ({'Active' if s[2] else 'Inactive'})",
+                                          callback_data=f"service_toggle|{s[0]}",
+                                          style=KBS.PRIMARY,
+                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))])
+    rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await query.edit_message_text("Select service to toggle:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def service_toggle_execute(query, service_name):
@@ -859,8 +982,12 @@ async def service_set_emoji_select(query, user_id):
     services = db_fetch_all("SELECT name, display_name FROM services WHERE active = 1 ORDER BY name")
     rows = []
     for s in services:
-        rows.append([InlineKeyboardButton(f"{s[1]} ({s[0]})", callback_data=f"service_emoji_set|{s[0]}", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["SERVICE_MANAGER"])])
-    rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY, icon_custom_emoji_id=CUSTOM_EMOJIS["BACK"])])
+        rows.append([InlineKeyboardButton(f"{s[1]} ({s[0]})",
+                                          callback_data=f"service_emoji_set|{s[0]}",
+                                          style=KBS.PRIMARY,
+                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))])
+    rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await query.edit_message_text("Select service to set emoji:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def service_set_emoji_start(query, user_id, service_name):
@@ -971,13 +1098,14 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif state == "waiting_country_add":
         try:
             parts = [p.strip() for p in text.split('|')]
-            if len(parts) < 3: await update.message.reply_text("Format: CountryName | Code | ISO | emoji_id"); return True
-            name, code, iso, emoji_id = parts[0], parts[1], parts[2].upper(), parts[3] if len(parts) >= 4 else ""
-            COUNTRIES_DATA[name] = {"code": code, "iso": iso, "flag": "🏁", "emoji_id": emoji_id}
+            if len(parts) < 4: await update.message.reply_text("Format: CountryName | Code | ISO | payout | emoji_id"); return True
+            name, code, iso, payout = parts[0], parts[1], parts[2].upper(), parts[3]
+            emoji_id = parts[4] if len(parts) >= 5 else ""
+            COUNTRIES_DATA[name] = {"code": code, "iso": iso, "payout": payout, "emoji_id": emoji_id}
             save_countries_db(COUNTRIES_DATA)
             admin_panel_state[user_id] = "country_manager"
             flag_id = emoji_id or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-            await update.message.reply_text(f'{safe_emoji_tag(flag_id, "🏁")} {name} ADDED SUCCESSFULLY {safe_emoji_tag("4956721670690702265", "✅")}', parse_mode='HTML')
+            await update.message.reply_text(f'{emoji_tag(flag_id, "🏁")} {name} ADDED SUCCESSFULLY {emoji_tag("4956721670690702265", "✅")}', parse_mode='HTML')
             await country_manager_menu(update, user_id)
         except Exception as e: await update.message.reply_text(f"Error: {e}")
         return True
@@ -990,10 +1118,11 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return True
         try:
             parts = [p.strip() for p in text.split('|')]
-            if len(parts) < 2: await update.message.reply_text("At least Code | ISO required."); return True
-            code, iso, emoji_id = parts[0], parts[1].upper(), parts[2] if len(parts) >= 3 else ""
+            if len(parts) < 3: await update.message.reply_text("At least Code | ISO | payout required."); return True
+            code, iso, payout = parts[0], parts[1].upper(), parts[2]
+            emoji_id = parts[3] if len(parts) >= 4 else ""
             country_name = admin_temp_data.get(user_id, {}).get("edit_country")
-            COUNTRIES_DATA[country_name].update({"code": code, "iso": iso, "emoji_id": emoji_id})
+            COUNTRIES_DATA[country_name].update({"code": code, "iso": iso, "payout": payout, "emoji_id": emoji_id})
             save_countries_db(COUNTRIES_DATA)
             admin_panel_state[user_id] = "country_manager"
             await update.message.reply_text(f"Country {country_name} updated!")
@@ -1040,51 +1169,94 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return False
 
-# ==================== OTP & CLEANUP ====================
-async def monitor_otp_job(context: ContextTypes.DEFAULT_TYPE):
+# ==================== OTP API MONITOR ====================
+async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     try:
-        if "put your panel api url" in API_URL: return
-        response = requests.get(f"{API_URL}?token={API_TOKEN}", timeout=15)
-        if response.status_code != 200: return
+        response = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
+        if response.status_code != 200:
+            return
         data = response.json()
-        if not isinstance(data, list): return
-        active_numbers = {row[0].replace('+', ''): row[1] for row in db_fetch_all("SELECT number, user_id FROM numbers WHERE status = 'active' AND expiry_time > ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))}
-        for item in data:
-            if isinstance(item, list) and len(item) >= 3:
-                number_clean = item[1].replace('+', '')
-                if number_clean in active_numbers:
-                    otp = extract_otp_from_message(item[2])
-                    if otp and not db_fetch_one('SELECT id FROM otps WHERE number = ? AND otp = ?', (item[1], otp)):
-                        db_exec('''INSERT INTO otps (number, otp, message, timestamp, user_id) VALUES (?, ?, ?, ?, ?)''',
-                                (item[1], otp, item[2][:200], item[3] if len(item) > 3 else datetime.now().strftime("%Y-%m-%d %H:%M:%S"), active_numbers[number_clean]))
-                        try: await context.bot.send_message(active_numbers[number_clean], f"OTP RECEIVED\n\nNumber: {item[1]}\nOTP CODE: {otp}\nService: {item[0]}\nTime: {item[3]}")
-                        except: pass
-    except Exception as e: print(f"OTP Error: {e}")
+        if data.get("status") != "success":
+            return
+        otps = data.get("data", {}).get("otps", [])
+        now = datetime.now()
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Get all active numbers (not yet expired)
+        active_rows = db_fetch_all(
+            "SELECT number, user_id, country FROM numbers WHERE status='active' AND expiry_time > ?",
+            (now_str,))
+        # Map clean number -> list of (user_id, country)
+        num_map = {}
+        for num, uid, country in active_rows:
+            clean = num.replace('+', '')
+            num_map.setdefault(clean, []).append((uid, country))
+        
+        for otp_entry in otps:
+            number = otp_entry.get("number", "")
+            otp_code = otp_entry.get("otp", "")
+            service = otp_entry.get("service", "Unknown")
+            timestamp = otp_entry.get("timestamp", now_str)
+            message = otp_entry.get("message", "")[:200]
+            
+            if not number or not otp_code:
+                continue
+            # Check if this exact OTP (number+otp) was already forwarded
+            exists = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=?", (number, otp_code))
+            if exists:
+                continue
+            
+            if number in num_map:
+                # For each user assigned this number
+                for user_id, country in num_map[number]:
+                    # Get reward
+                    country_data = get_country_info(country)
+                    payout_str = country_data.get("payout", "0.001$")
+                    try:
+                        reward = parse_payout(payout_str)
+                    except:
+                        reward = 0.001
+                    # Update user balance & total_otp
+                    db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
+                            (reward, user_id))
+                    # Save OTP record
+                    db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
+                            (number, otp_code, message, timestamp, user_id))
+                    
+                    # Send notification
+                    flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+                    svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE name=?", (service,))
+                    if svc_row and svc_row[0]:
+                        svc_icon = emoji_tag(svc_row[0], "🔧")
+                    else:
+                        svc_icon = emoji_tag(CUSTOM_EMOJIS.get("DEFAULT_SERVICE", ""), "⚙️")
+                    
+                    header = (
+                        f'{emoji_tag("5278576134622056695", "🆕")} NEW OTP '
+                        f'{country_flag_emoji(country)}{svc_icon} +{number}'
+                    )
+                    buttons = InlineKeyboardMarkup([
+                        [InlineKeyboardButton(
+                            f'{emoji_tag("5330115548900501467", "🔢")} {otp_code}',
+                            callback_data="noop", style=KBS.SUCCESS)],
+                        [InlineKeyboardButton(
+                            f'{emoji_tag("5197434882321567830", "💰")} +{reward}$',
+                            callback_data="noop", style=KBS.PRIMARY)]
+                    ])
+                    try:
+                        await context.bot.send_message(user_id, header, reply_markup=buttons, parse_mode='HTML')
+                    except Exception as e:
+                        print(f"OTP notify failed for {user_id}: {e}")
+    except Exception as e:
+        print(f"OTP API Error: {e}")
 
 async def cleanup_expired_job(context: ContextTypes.DEFAULT_TYPE):
     try:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         db_exec("UPDATE numbers SET status = 'expired' WHERE expiry_time < ? AND status = 'active'", (now,))
         db_exec("UPDATE users SET current_number=NULL, current_country=NULL, current_service=NULL, number_expiry=NULL WHERE number_expiry < ?", (now,))
-    except Exception as e: print(f"Cleanup Error: {e}")
-
-def stock_text():
-    data = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
-    live_emoji = safe_emoji_tag(CUSTOM_EMOJIS.get("LIVE_STOCK", ""), "📊")
-    lines = [f'{live_emoji} CURRENT LIVE STOCK {live_emoji}', '━━━━━━━━━━━━━━━━━━━━', '']
-    if not data:
-        lines.append('No stock available.')
-    else:
-        for name, service, stock_count in data:
-            circle_id = CUSTOM_EMOJIS["GREEN_CIRCLE"] if stock_count > 0 else CUSTOM_EMOJIS["RED_CIRCLE"]
-            circle_tag = safe_emoji_tag(circle_id, "⚪")
-            flag_tag = country_flag_emoji(name)
-            svc_tag = service_emoji_tag(service)
-            lines.append(f'{circle_tag} {flag_tag} {name} — {svc_tag}: {stock_count}')
-    clock_tag = safe_emoji_tag(CUSTOM_EMOJIS.get("CLOCK", ""), "🕐")
-    lines.append('')
-    lines.append(f'Updated {clock_tag}: {datetime.now().strftime("%H:%M:%S | %d %B %Y")}')
-    return '\n'.join(lines)
+    except Exception as e:
+        print(f"Cleanup Error: {e}")
 
 # ==================== BOTTOM MENU TEXT ROUTERS ====================
 async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1094,8 +1266,30 @@ async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TY
     if not countries: await update.message.reply_text("No numbers available.", reply_markup=back_to_main_keyboard()); return
     await update.message.reply_text("Select a Country & Service:", reply_markup=countries_keyboard(countries))
 
-async def send_live_stock_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(stock_text(), reply_markup=stock_keyboard(), parse_mode='HTML')
+async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
+    if not user:
+        await update.message.reply_text("User not found.")
+        return
+    first_name, balance, withdrawn, total_otp = user
+    balance = balance or 0.0
+    withdrawn = withdrawn or 0.0
+    total_otp = total_otp or 0
+    text = (
+        f'{emoji_tag("4958534696645428119", "👤")} {first_name} YOUR DETAILS {emoji_tag("4958506272551863292", "📋")}\n'
+        f'------------------------------------------------\n'
+        f'{emoji_tag("5197269100878907942", "🆔")} USER ID: {user_id}\n'
+        f'{emoji_tag("4958926882994127612", "💰")} BALANCE: ${balance:.3f}\n'
+        f'{emoji_tag("5445221832074483553", "💸")} WITHDRAWED: ${withdrawn:.3f}\n'
+        f'{emoji_tag("4958534696645428119", "⚠️")} MINIMUM WITHDRAW: $0.1\n'
+        f'{emoji_tag("5197288647275071607", "📨")} TOTAL OTP: {total_otp}'
+    )
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(f"WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
+                             icon_custom_emoji_id=safe_icon("5445353829304387411"))
+    ]])
+    await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
 
 async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nContact admin directly.\n\nDeveloper: RGX NUMBER BOT", reply_markup=support_keyboard())
@@ -1113,7 +1307,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await handle_admin_text(update, context): return
     text = update.message.text.strip()
     if text == BTN_GET_NUMBER: await send_get_number_panel(update, context)
-    elif text == BTN_LIVE_STOCK: await send_live_stock_panel(update, context)
+    elif text == BTN_BALANCE: await send_balance_panel(update, context)
     elif text == BTN_SUPPORT: await send_support_panel(update, context)
     elif text == BTN_ADMIN: await send_admin_panel_msg(update, context)
 
@@ -1127,7 +1321,6 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("enteradmin", enter_admin_command))
     application.add_handler(CommandHandler("exitadmin", exit_admin_command))
-    application.add_handler(CallbackQueryHandler(refresh_stock_callback, pattern="^refresh_stock$"))
     application.add_handler(CallbackQueryHandler(select_country_callback, pattern=r"^sel\|"))
     application.add_handler(CallbackQueryHandler(next_number_callback, pattern="^next_number$"))
     application.add_handler(CallbackQueryHandler(back_to_countries_callback, pattern="^back_to_countries$"))
@@ -1139,16 +1332,22 @@ def main():
     application.add_handler(CallbackQueryHandler(service_callback, pattern="^service_"))
     application.add_handler(CallbackQueryHandler(service_callback, pattern="^service_set_emoji$"))
     application.add_handler(CallbackQueryHandler(service_callback, pattern=r"^service_emoji_set\|"))
+    application.add_handler(CallbackQueryHandler(balance_menu_callback, pattern="^menu_balance$"))
+    application.add_handler(CallbackQueryHandler(withdraw_callback, pattern="^withdraw$"))
+    application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file_upload))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
+    
     job_queue = application.job_queue
     if job_queue:
-        job_queue.run_repeating(monitor_otp_job, interval=5, first=5)
+        job_queue.run_repeating(monitor_otp_api, interval=OTP_POLL_INTERVAL, first=OTP_POLL_INTERVAL)
         job_queue.run_repeating(cleanup_expired_job, interval=60, first=60)
+    
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
-    print("✅ Custom Emoji System Active (Safe Mode)")
+    print("✅ Custom Emoji System Active")
+    print("✅ OTP API Polling Active")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
