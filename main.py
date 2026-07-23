@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Complete Final Version with All Fixes)
+# bot.py — RGX NUMBER BOT (Complete Final Version with All Fixes & Updated Service Manager)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -254,7 +254,6 @@ def countries_for_service_keyboard(service: str) -> InlineKeyboardMarkup:
         info = get_country_info(name)
         flag_eid = info.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
         payout = info.get("payout", "0.001$")
-        # Using plain text for button, no HTML to avoid raw tags
         label = f"{name} — {payout} — ({stock})"
         rows.append([InlineKeyboardButton(
             label,
@@ -699,7 +698,7 @@ async def back_to_services_callback(update: Update, context: ContextTypes.DEFAUL
     db_exec("UPDATE users SET current_service = NULL, current_country = NULL, current_number = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
     await query.edit_message_text("Select a Service:", reply_markup=services_keyboard())
 
-# ==================== NUMBER FLOW (existing) ====================
+# ==================== NUMBER FLOW ====================
 async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -940,7 +939,7 @@ async def country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("country_delete|"): await country_delete_direct(query, user_id, data.split('|', 1)[1])
 
 # ==================== SERVICE SELECTION AFTER COUNTRY ADD ====================
-async def country_add_service_selection(query, user_id, country_name):
+async def country_add_service_selection(update, user_id, country_name):
     services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     rows = []
     for s in services:
@@ -952,7 +951,13 @@ async def country_add_service_selection(query, user_id, country_name):
         )])
     rows.append([InlineKeyboardButton("Skip", callback_data="admin_back", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await query.edit_message_text(f"Country '{country_name}' added. Select a service to link (or Skip):", reply_markup=InlineKeyboardMarkup(rows))
+    kb = InlineKeyboardMarkup(rows)
+    text = f"Country '{country_name}' added. Select a service to link (or Skip):"
+    # Handle both callback query and direct message
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=kb)
+    else:
+        await update.message.reply_text(text, reply_markup=kb)
 
 async def country_add_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -966,34 +971,45 @@ async def country_add_service_callback(update: Update, context: ContextTypes.DEF
     admin_panel_state[user_id] = "main"
     await query.edit_message_text("Country linked successfully.", reply_markup=admin_panel_keyboard())
 
-# ==================== SERVICE MANAGER ====================
+# ==================== SERVICE MANAGER (UPDATED) ====================
 async def service_manager_menu(query, user_id):
     if user_id not in admin_mode: await query.answer("Admin mode required!", show_alert=True); return
     admin_panel_state[user_id] = "service_manager"
     rows = [
         [InlineKeyboardButton("Add New Service", callback_data="service_add", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))],
-        [InlineKeyboardButton("List All Services", callback_data="service_list", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))],
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD", "")))],
+        [InlineKeyboardButton("Remove Service", callback_data="service_remove", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))],
         [InlineKeyboardButton("Toggle Service Active", callback_data="service_toggle", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))],
+                              icon_custom_emoji_id=safe_icon("4956583802240500602"))],
         [InlineKeyboardButton("Set Service Emoji", callback_data="service_set_emoji", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))],
+                              icon_custom_emoji_id=safe_icon("4956214413578207998"))],
         [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ]
     await query.edit_message_text("SERVICE MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows))
 
+async def service_remove_select(query):
+    services = db_fetch_all("SELECT name, display_name FROM services ORDER BY name")
+    rows = []
+    for s in services:
+        rows.append([InlineKeyboardButton(f"Remove {s[1]}",
+                                          callback_data=f"service_remove|{s[0]}",
+                                          style=KBS.DANGER,
+                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))])
+    rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
+    await query.edit_message_text("Select service to remove:", reply_markup=InlineKeyboardMarkup(rows))
+
+async def service_remove_execute(query, service_name):
+    db_exec("DELETE FROM services WHERE name = ?", (service_name,))
+    db_exec("DELETE FROM countries WHERE service = ?", (service_name,))
+    await query.answer(f"Service '{service_name}' removed!")
+    await service_manager_menu(query, query.from_user.id)
+
 async def service_add_start(query, user_id):
     admin_panel_state[user_id] = "waiting_service_name"
     await query.edit_message_text("Send the service name.", reply_markup=admin_cancel_keyboard())
-
-async def service_list_show(query):
-    services = db_fetch_all("SELECT name, display_name, active, emoji_id FROM services ORDER BY name")
-    text = "ALL SERVICES\n\n"
-    for s in services:
-        text += f"• {s[1]} (keyword: {s[0]}) - {'Active' if s[2] else 'Inactive'} | Emoji: {s[3] or 'Not set'}\n"
-    await query.edit_message_text(text, reply_markup=admin_back_button())
 
 async def service_toggle_select(query):
     services = db_fetch_all("SELECT name, display_name, active FROM services ORDER BY name")
@@ -1002,7 +1018,7 @@ async def service_toggle_select(query):
         rows.append([InlineKeyboardButton(f"{s[1]} ({'Active' if s[2] else 'Inactive'})",
                                           callback_data=f"service_toggle|{s[0]}",
                                           style=KBS.PRIMARY,
-                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))])
+                                          icon_custom_emoji_id=safe_icon("4956583802240500602"))])
     rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await query.edit_message_text("Select service to toggle:", reply_markup=InlineKeyboardMarkup(rows))
@@ -1023,7 +1039,7 @@ async def service_set_emoji_select(query, user_id):
         rows.append([InlineKeyboardButton(f"{s[1]} ({s[0]})",
                                           callback_data=f"service_emoji_set|{s[0]}",
                                           style=KBS.PRIMARY,
-                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SERVICE_MANAGER", "")))])
+                                          icon_custom_emoji_id=safe_icon("4956214413578207998"))])
     rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await query.edit_message_text("Select service to set emoji:", reply_markup=InlineKeyboardMarkup(rows))
@@ -1052,7 +1068,8 @@ async def service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in admin_mode: await query.answer("Admin mode required!", show_alert=True); return
     await query.answer()
     if data == "service_add": await service_add_start(query, user_id)
-    elif data == "service_list": await service_list_show(query)
+    elif data == "service_remove": await service_remove_select(query)
+    elif data.startswith("service_remove|"): await service_remove_execute(query, data.split('|', 1)[1])
     elif data == "service_toggle": await service_toggle_select(query)
     elif data == "service_set_emoji": await service_set_emoji_select(query, user_id)
     elif data.startswith("service_toggle|"): await service_toggle_execute(query, data.split('|', 1)[1])
@@ -1141,6 +1158,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji_id = parts[4] if len(parts) >= 5 else ""
             COUNTRIES_DATA[name] = {"code": code, "iso": iso, "payout": payout, "emoji_id": emoji_id}
             save_countries_db(COUNTRIES_DATA)
+            # Now show service selection menu
             await country_add_service_selection(update, user_id, name)
             return True
         except Exception as e: await update.message.reply_text(f"Error: {e}")
