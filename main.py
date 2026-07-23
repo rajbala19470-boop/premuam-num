@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Complete Final Version with Balance & OTP API)
+# bot.py — RGX NUMBER BOT (Complete Final Version with All Fixes)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -207,7 +207,7 @@ def number_action_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
-            InlineKeyboardButton("Change Country", callback_data="back_to_countries", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
+            InlineKeyboardButton("Change Service", callback_data="back_to_services", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
         ],
         [
             InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("JOIN_OTP_GROUP", ""))),
@@ -217,15 +217,52 @@ def number_action_keyboard() -> InlineKeyboardMarkup:
         ],
     ])
 
-def countries_keyboard(countries: list) -> InlineKeyboardMarkup:
+def services_keyboard() -> InlineKeyboardMarkup:
+    """Show all active services (2 per row)."""
+    services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
+    if not services:
+        return back_to_main_keyboard()
     rows = []
-    for name, service, stock in countries:
-        label = f"{name} — {service} ({stock})"
-        cb = f"sel|{name}|{service}"[:60]
-        flag_eid = get_country_info(name).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
-        rows.append([InlineKeyboardButton(label, callback_data=cb, style=KBS.SUCCESS,
-                                          icon_custom_emoji_id=safe_icon(flag_eid))])
+    row = []
+    for s in services:
+        btn = InlineKeyboardButton(
+            text=s[1],
+            callback_data=f"svc_sel|{s[0]}",
+            style=KBS.PRIMARY,
+            icon_custom_emoji_id=safe_icon(s[2]) if s[2] else None
+        )
+        row.append(btn)
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
     rows.append([InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
+    return InlineKeyboardMarkup(rows)
+
+def countries_for_service_keyboard(service: str) -> InlineKeyboardMarkup:
+    """Show countries that have stock for a given service."""
+    countries = db_fetch_all(
+        "SELECT name, stock FROM countries WHERE service = ? AND active = 1 AND stock > 0 ORDER BY name",
+        (service,)
+    )
+    if not countries:
+        return back_to_main_keyboard()
+    rows = []
+    for name, stock in countries:
+        info = get_country_info(name)
+        flag_eid = info.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+        payout = info.get("payout", "0.001$")
+        # Using plain text for button, no HTML to avoid raw tags
+        label = f"{name} — {payout} — ({stock})"
+        rows.append([InlineKeyboardButton(
+            label,
+            callback_data=f"cnt_sel|{name}|{service}",
+            style=KBS.SUCCESS,
+            icon_custom_emoji_id=safe_icon(flag_eid)
+        )])
+    rows.append([InlineKeyboardButton("Back to Services", callback_data="menu_get_number", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     return InlineKeyboardMarkup(rows)
 
@@ -385,9 +422,10 @@ def get_numbers_from_stock(country, service, count=3):
             if not available or available[0] == 0:
                 return []
             take = min(count, available[0])
+            # Sequential allocation: order by id ASC (first in, first out)
             c.execute('''SELECT id, number FROM available_numbers
                          WHERE country = ? AND service = ? AND used = 0
-                         ORDER BY RANDOM() LIMIT ?''', (country, service, take))
+                         ORDER BY id ASC LIMIT ?''', (country, service, take))
             results = c.fetchall()
             if not results:
                 return []
@@ -435,7 +473,7 @@ def format_numbers_message(country, service, numbers, first_name=None):
     rows.append([
         InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
-        InlineKeyboardButton("Change Country", callback_data="back_to_countries", style=KBS.SUCCESS,
+        InlineKeyboardButton("Change Service", callback_data="back_to_services", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
     ])
     rows.append([
@@ -510,17 +548,7 @@ async def show_main_menu(query, user_id, first_name):
 
 async def show_get_number(query, context, user_id, first_name):
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
-    countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 AND stock > 0 ORDER BY name")
-    if not countries:
-        try:
-            await query.edit_message_text("No numbers available at the moment.\n\nPlease check back later or contact admin.", reply_markup=back_to_main_keyboard())
-        except Exception:
-            pass
-        return
-    try:
-        await query.edit_message_text("Select a Country & Service:\n\nChoose from the list below to get your virtual number.", reply_markup=countries_keyboard(countries))
-    except Exception:
-        pass
+    await query.edit_message_text("Select a Service:", reply_markup=services_keyboard())
 
 async def show_balance(query, user_id):
     user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
@@ -622,39 +650,31 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     await show_main_menu(query, user_id, first_name)
 
-# ==================== NUMBER FLOW ====================
-async def select_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ==================== NEW SERVICE→COUNTRY FLOW ====================
+async def service_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+    service = query.data.split('|', 1)[1]
+    db_exec("UPDATE users SET current_service = ? WHERE user_id = ?", (service, user_id))
+    await query.edit_message_text(f"Select a Country for {service}:", reply_markup=countries_for_service_keyboard(service))
+
+async def country_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer("Allocating 3 numbers...")
-    try:
-        parts = query.data.split('|', 2)
-        if len(parts) < 3: 
-            await query.answer("Invalid selection.", show_alert=True)
-            return
-        country = parts[1]
-        service = parts[2]
-    except Exception:
-        await query.answer("Error parsing selection.", show_alert=True)
+    parts = query.data.split('|')
+    if len(parts) < 3:
+        await query.answer("Invalid selection.", show_alert=True)
         return
-
-    stock_result = db_fetch_one("SELECT stock FROM countries WHERE name = ? AND service = ? AND active = 1", (country, service))
-    if not stock_result:
-        await query.answer("This service is not available!", show_alert=True)
-        return
-    if stock_result[0] <= 0:
-        await query.answer("No numbers left for this service! Try another.", show_alert=True)
-        countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 AND stock > 0 ORDER BY name")
-        if countries:
-            await query.edit_message_text("Select a Country & Service:\n\nChoose from the list below.", reply_markup=countries_keyboard(countries))
-        else:
-            await query.edit_message_text("No numbers available.", reply_markup=back_to_main_keyboard())
-        return
+    country = parts[1]
+    service = parts[2]
 
     numbers = get_numbers_from_stock(country, service, 3)
     if not numbers:
-        await query.answer("Failed to allocate numbers! Please try again.", show_alert=True)
+        await query.answer("No numbers available for this country/service!", show_alert=True)
+        await query.edit_message_text("Select a Country:", reply_markup=countries_for_service_keyboard(service))
         return
 
     expiry = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -672,6 +692,14 @@ async def select_country_callback(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         await context.bot.send_message(user_id, msg, reply_markup=kb, parse_mode='HTML')
 
+async def back_to_services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+    db_exec("UPDATE users SET current_service = NULL, current_country = NULL, current_number = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
+    await query.edit_message_text("Select a Service:", reply_markup=services_keyboard())
+
+# ==================== NUMBER FLOW (existing) ====================
 async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -684,21 +712,14 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         fallback = db_fetch_one("SELECT country, service FROM numbers WHERE user_id = ? ORDER BY assigned_date DESC LIMIT 1", (user_id,))
         if fallback: country, service = fallback
-    if not country:
-        countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 AND stock > 0 ORDER BY name")
-        await query.edit_message_text("Select a Country & Service:" if countries else "No numbers available.",
-                                      reply_markup=countries_keyboard(countries) if countries else back_to_main_keyboard())
-        return
-    stock = db_fetch_one("SELECT stock FROM countries WHERE name = ? AND service = ? AND active = 1", (country, service))
-    if not stock or stock[0] <= 0:
-        await query.answer(f"No more {country} {service} numbers!", show_alert=True)
-        countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 AND stock > 0 ORDER BY name")
-        await query.edit_message_text("Select a Country & Service:" if countries else "No numbers available.",
-                                      reply_markup=countries_keyboard(countries) if countries else back_to_main_keyboard())
+    if not country or not service:
+        await query.answer("Please select a service and country first!", show_alert=True)
+        await query.edit_message_text("Select a Service:", reply_markup=services_keyboard())
         return
     numbers = get_numbers_from_stock(country, service, 3)
     if not numbers:
-        await query.answer("Failed to get numbers!", show_alert=True)
+        await query.answer(f"No more {country} {service} numbers!", show_alert=True)
+        await query.edit_message_text(f"Select a Country for {service}:", reply_markup=countries_for_service_keyboard(service))
         return
     expiry = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -713,16 +734,6 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(msg, reply_markup=kb, parse_mode='HTML')
     except Exception as e:
         await context.bot.send_message(user_id, msg, reply_markup=kb, parse_mode='HTML')
-
-async def back_to_countries_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    await query.answer()
-    db_exec('''UPDATE users SET current_number = NULL, current_country = NULL, current_service = NULL, number_expiry = NULL
-               WHERE user_id = ?''', (user_id,))
-    countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 AND stock > 0 ORDER BY name")
-    await query.edit_message_text("Select a Country & Service:\n\nChoose from the list below." if countries else "No numbers available.",
-                                  reply_markup=countries_keyboard(countries) if countries else back_to_main_keyboard())
 
 # ==================== ADMIN SECTION ====================
 async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -928,6 +939,33 @@ async def country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("country_edit|"): await country_edit_start(query, user_id, data.split('|', 1)[1])
     elif data.startswith("country_delete|"): await country_delete_direct(query, user_id, data.split('|', 1)[1])
 
+# ==================== SERVICE SELECTION AFTER COUNTRY ADD ====================
+async def country_add_service_selection(query, user_id, country_name):
+    services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
+    rows = []
+    for s in services:
+        rows.append([InlineKeyboardButton(
+            s[1],
+            callback_data=f"cnt_add_svc|{country_name}|{s[0]}",
+            style=KBS.PRIMARY,
+            icon_custom_emoji_id=safe_icon(s[2]) if s[2] else None
+        )])
+    rows.append([InlineKeyboardButton("Skip", callback_data="admin_back", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
+    await query.edit_message_text(f"Country '{country_name}' added. Select a service to link (or Skip):", reply_markup=InlineKeyboardMarkup(rows))
+
+async def country_add_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    parts = query.data.split('|')
+    if len(parts) != 3: await query.answer("Invalid.", show_alert=True); return
+    country_name = parts[1]
+    service_name = parts[2]
+    db_exec("INSERT OR IGNORE INTO countries (name, service, flag, stock) VALUES (?, ?, ?, 0)", (country_name, service_name, country_name))
+    await query.answer(f"{country_name} now available for {service_name}!")
+    admin_panel_state[user_id] = "main"
+    await query.edit_message_text("Country linked successfully.", reply_markup=admin_panel_keyboard())
+
 # ==================== SERVICE MANAGER ====================
 async def service_manager_menu(query, user_id):
     if user_id not in admin_mode: await query.answer("Admin mode required!", show_alert=True); return
@@ -1036,13 +1074,13 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         count, country, service = load_numbers_from_file(file_path, document.file_name)
         if count > 0:
             emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
-            if not emoji_row or not emoji_row[0]:
+            if not emoji_row:  # Service not in table
                 admin_temp_data[user_id] = {"pending_service_emoji": service, "country": country, "count": count}
                 admin_panel_state[user_id] = "waiting_service_emoji_upload"
                 await update.message.reply_text(
-                    f"✅ {count} numbers loaded for {country} - {service}.\n\n"
-                    f"This service ({service}) has no custom emoji set yet.\n"
-                    "Please send the custom emoji ID for this service (or /skip).",
+                    f"✅ {count} numbers loaded for {country}.\n"
+                    f"New service '{service}' detected.\n"
+                    "Please send the custom emoji ID for this service (or /skip to use default).",
                     reply_markup=admin_cancel_keyboard())
                 return
             
@@ -1103,10 +1141,8 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji_id = parts[4] if len(parts) >= 5 else ""
             COUNTRIES_DATA[name] = {"code": code, "iso": iso, "payout": payout, "emoji_id": emoji_id}
             save_countries_db(COUNTRIES_DATA)
-            admin_panel_state[user_id] = "country_manager"
-            flag_id = emoji_id or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-            await update.message.reply_text(f'{emoji_tag(flag_id, "🏁")} {name} ADDED SUCCESSFULLY {emoji_tag("4956721670690702265", "✅")}', parse_mode='HTML')
-            await country_manager_menu(update, user_id)
+            await country_add_service_selection(update, user_id, name)
+            return True
         except Exception as e: await update.message.reply_text(f"Error: {e}")
         return True
     
@@ -1148,7 +1184,8 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         service = data.get("pending_service_emoji")
         country = data.get("country")
         count = data.get("count")
-        if service:
+        db_exec("INSERT OR IGNORE INTO services (name, display_name, active, emoji_id) VALUES (?, ?, 1, ?)", (service, service, text))
+        if text:
             db_exec("UPDATE services SET emoji_id = ? WHERE name = ?", (text, service))
         
         msg = stock_added_message(country, service, count)
@@ -1182,11 +1219,9 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
         now = datetime.now()
         now_str = now.strftime("%Y-%m-%d %H:%M:%S")
         
-        # Get all active numbers (not yet expired)
         active_rows = db_fetch_all(
             "SELECT number, user_id, country FROM numbers WHERE status='active' AND expiry_time > ?",
             (now_str,))
-        # Map clean number -> list of (user_id, country)
         num_map = {}
         for num, uid, country in active_rows:
             clean = num.replace('+', '')
@@ -1195,56 +1230,51 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
         for otp_entry in otps:
             number = otp_entry.get("number", "")
             otp_code = otp_entry.get("otp", "")
-            service = otp_entry.get("service", "Unknown")
+            service_name = otp_entry.get("service", "Unknown")
             timestamp = otp_entry.get("timestamp", now_str)
             message = otp_entry.get("message", "")[:200]
             
             if not number or not otp_code:
                 continue
-            # Check if this exact OTP (number+otp) was already forwarded
             exists = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=?", (number, otp_code))
             if exists:
                 continue
             
             if number in num_map:
-                # For each user assigned this number
                 for user_id, country in num_map[number]:
-                    # Get reward
                     country_data = get_country_info(country)
                     payout_str = country_data.get("payout", "0.001$")
                     try:
                         reward = parse_payout(payout_str)
                     except:
                         reward = 0.001
-                    # Update user balance & total_otp
                     db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
                             (reward, user_id))
-                    # Save OTP record
                     db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
                             (number, otp_code, message, timestamp, user_id))
                     
-                    # Send notification
                     flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
-                    svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE name=?", (service,))
-                    if svc_row and svc_row[0]:
-                        svc_icon = emoji_tag(svc_row[0], "🔧")
-                    else:
-                        svc_icon = emoji_tag(CUSTOM_EMOJIS.get("DEFAULT_SERVICE", ""), "⚙️")
+                    svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE name=?", (service_name,))
+                    svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
+                    
+                    # FIXED BUTTON: plain text, no HTML, icon via icon_custom_emoji_id
+                    button = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(
+                            text=otp_code,
+                            copy_text=CopyTextButton(text=otp_code),
+                            style=KBS.SUCCESS,
+                            icon_custom_emoji_id=safe_icon("5330115548900501467")
+                        )
+                    ]])
                     
                     header = (
-                        f'{emoji_tag("5278576134622056695", "🆕")} NEW OTP '
-                        f'{country_flag_emoji(country)}{svc_icon} +{number}'
+                        f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW OTP ARRIVED</b> '
+                        f'{country_flag_emoji(country)}+{number} {emoji_tag(svc_eid, "⚙️")}\n'
+                        f'{emoji_tag("5197434882321567830", "💰")} <b>BALANCE ADDED</b>: <b>+${reward}</b>'
                     )
-                    buttons = InlineKeyboardMarkup([
-                        [InlineKeyboardButton(
-                            f'{emoji_tag("5330115548900501467", "🔢")} {otp_code}',
-                            callback_data="noop", style=KBS.SUCCESS)],
-                        [InlineKeyboardButton(
-                            f'{emoji_tag("5197434882321567830", "💰")} +{reward}$',
-                            callback_data="noop", style=KBS.PRIMARY)]
-                    ])
+                    
                     try:
-                        await context.bot.send_message(user_id, header, reply_markup=buttons, parse_mode='HTML')
+                        await context.bot.send_message(user_id, header, reply_markup=button, parse_mode='HTML')
                     except Exception as e:
                         print(f"OTP notify failed for {user_id}: {e}")
     except Exception as e:
@@ -1262,9 +1292,7 @@ async def cleanup_expired_job(context: ContextTypes.DEFAULT_TYPE):
 async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
-    countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 AND stock > 0 ORDER BY name")
-    if not countries: await update.message.reply_text("No numbers available.", reply_markup=back_to_main_keyboard()); return
-    await update.message.reply_text("Select a Country & Service:", reply_markup=countries_keyboard(countries))
+    await update.message.reply_text("Select a Service:", reply_markup=services_keyboard())
 
 async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1321,9 +1349,13 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("enteradmin", enter_admin_command))
     application.add_handler(CommandHandler("exitadmin", exit_admin_command))
-    application.add_handler(CallbackQueryHandler(select_country_callback, pattern=r"^sel\|"))
+    # New flow callbacks
+    application.add_handler(CallbackQueryHandler(service_selection_callback, pattern="^svc_sel\|"))
+    application.add_handler(CallbackQueryHandler(country_selection_callback, pattern="^cnt_sel\|"))
+    application.add_handler(CallbackQueryHandler(back_to_services_callback, pattern="^back_to_services$"))
+    application.add_handler(CallbackQueryHandler(country_add_service_callback, pattern="^cnt_add_svc\|"))
+    # Existing
     application.add_handler(CallbackQueryHandler(next_number_callback, pattern="^next_number$"))
-    application.add_handler(CallbackQueryHandler(back_to_countries_callback, pattern="^back_to_countries$"))
     application.add_handler(CallbackQueryHandler(back_to_menu_callback, pattern="^back_to_menu$"))
     application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
     application.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin_del\|"))
