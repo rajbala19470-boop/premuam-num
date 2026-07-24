@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Complete Final Version with All Fixes & New OTP Format)
+# bot.py — RGX NUMBER BOT (Complete Final Version with Updated OTP Format & Timestamp Filter)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -1232,7 +1232,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return False
 
-# ==================== OTP API MONITOR (NEW FORMAT) ====================
+# ==================== OTP API MONITOR (UPDATED: timestamp filter, new format) ====================
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     try:
         response = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
@@ -1245,29 +1245,45 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
         now = datetime.now()
         now_str = now.strftime("%Y-%m-%d %H:%M:%S")
         
+        # Get active numbers with their assigned date (to filter old OTPs)
         active_rows = db_fetch_all(
-            "SELECT number, user_id, country FROM numbers WHERE status='active' AND expiry_time > ?",
+            "SELECT number, user_id, country, assigned_date FROM numbers WHERE status='active' AND expiry_time > ?",
             (now_str,))
         num_map = {}
-        for num, uid, country in active_rows:
+        for num, uid, country, assigned in active_rows:
             clean = num.replace('+', '')
-            num_map.setdefault(clean, []).append((uid, country))
+            num_map.setdefault(clean, []).append((uid, country, assigned))
         
         for otp_entry in otps:
             number = otp_entry.get("number", "")
             otp_code = otp_entry.get("otp", "")
             service_name = otp_entry.get("service", "Unknown")
-            timestamp = otp_entry.get("timestamp", now_str)
+            otp_timestamp_str = otp_entry.get("timestamp", now_str)
             message = otp_entry.get("message", "")[:200]
             
             if not number or not otp_code:
                 continue
+            # Prevent duplicate OTP forward
             exists = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=?", (number, otp_code))
             if exists:
                 continue
             
             if number in num_map:
-                for user_id, country in num_map[number]:
+                # Parse OTP timestamp
+                try:
+                    otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
+                except:
+                    otp_timestamp = now  # fallback, will assume recent
+                
+                for user_id, country, assigned_date_str in num_map[number]:
+                    try:
+                        assigned_date = datetime.strptime(assigned_date_str, "%Y-%m-%d %H:%M:%S")
+                    except:
+                        assigned_date = now  # fallback
+                    # Only forward OTP if it arrived after the number was assigned
+                    if otp_timestamp < assigned_date:
+                        continue
+                    
                     country_data = get_country_info(country)
                     payout_str = country_data.get("payout", "0.001$")
                     try:
@@ -1277,40 +1293,34 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                     db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
                             (reward, user_id))
                     db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
-                            (number, otp_code, message, timestamp, user_id))
+                            (number, otp_code, message, otp_timestamp_str, user_id))
                     
                     flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
                     country_iso = country_data.get("iso", "").upper()
                     svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE name=?", (service_name,))
                     svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
                     
-                    # New header text
+                    # New header text with monospace for balance
                     header = (
                         f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
                         f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b> 🏁\n'
                         f'{emoji_tag("6204108584381322968", "📱")} <b>NUMBER</b>: +{number}\n'
                         f'{emoji_tag("5976327845696251345", "📲")} <b>APP</b>: {emoji_tag(svc_eid, "⚙️")} <b>{service_name}</b>\n'
-                        f'💰 <b>BALANCE ADDED</b>: +${reward}{emoji_tag("5976788549658221281", "💵")}'
+                        f'💰 <b>BALANCE ADDED</b>: <code>+${reward}</code>{emoji_tag("5976788549658221281", "💵")}'
                     )
                     
-                    # Two copy buttons: phone number and OTP
-                    buttons = InlineKeyboardMarkup([
-                        [InlineKeyboardButton(
-                            text=f"+{number}",
-                            copy_text=CopyTextButton(text=f"+{number}"),
-                            style=KBS.PRIMARY,
-                            icon_custom_emoji_id=safe_icon("6204108584381322968")
-                        )],
-                        [InlineKeyboardButton(
+                    # Only one button: OTP code with copy
+                    button = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(
                             text=otp_code,
                             copy_text=CopyTextButton(text=otp_code),
                             style=KBS.SUCCESS,
                             icon_custom_emoji_id=safe_icon("5330115548900501467")
-                        )]
-                    ])
+                        )
+                    ]])
                     
                     try:
-                        await context.bot.send_message(user_id, header, reply_markup=buttons, parse_mode='HTML')
+                        await context.bot.send_message(user_id, header, reply_markup=button, parse_mode='HTML')
                     except Exception as e:
                         print(f"OTP notify failed for {user_id}: {e}")
     except Exception as e:
@@ -1415,7 +1425,7 @@ def main():
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
     print("✅ Custom Emoji System Active")
-    print("✅ OTP API Polling Active (New Format)")
+    print("✅ OTP API Polling Active (Timestamp Filter + New Format)")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
