@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Final Complete Version – All Fixes)
+# bot.py — RGX NUMBER BOT (Final Fixed – Sends All OTPs)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -21,10 +21,10 @@ from emoji import CUSTOM_EMOJIS
 BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"
 ADMIN_IDS = [8744359777]
 
-OTP_GROUP_URL = "https://t.me/RgxOtp"
+OTP_GROUP_URL = "https://t.me/RHTotp"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
-OTP_API_TOKEN = "e84466454aeadf8b442cc602d2b265d4"   # updated token
-OTP_POLL_INTERVAL = 4  # seconds
+OTP_API_TOKEN = "e84466454aeadf8b442cc602d2b265d4"
+OTP_POLL_INTERVAL = 2  # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -57,7 +57,6 @@ c.execute('''CREATE TABLE IF NOT EXISTS countries
              (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, service TEXT,
               flag TEXT, active INTEGER DEFAULT 1, stock INTEGER DEFAULT 0)''')
 
-# Add unique constraint to prevent duplicate country+service entries
 c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_countries_name_service ON countries(name, service)")
 
 c.execute('''CREATE TABLE IF NOT EXISTS available_numbers
@@ -72,7 +71,6 @@ c.execute('''CREATE TABLE IF NOT EXISTS services
              (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE,
               display_name TEXT, active INTEGER DEFAULT 1, emoji_id TEXT DEFAULT '')''')
 
-# Add balance columns to users if not exists
 try:
     c.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0")
 except sqlite3.OperationalError:
@@ -108,16 +106,12 @@ def safe_url(url: str) -> str | None:
         return url
     return None
 
-# ==================== CUSTOM EMOJI SAFETY ====================
 def safe_icon(emoji_id: str) -> str | None:
-    """Return a valid custom emoji ID or None to omit the icon."""
     if emoji_id and isinstance(emoji_id, str) and emoji_id.isdigit() and len(emoji_id) > 9:
         return emoji_id
     return None
 
-# ==================== PAYOUT HELPER ====================
 def parse_payout(payout_str: str) -> float:
-    """Extract numeric value from payout string like '0.001$'."""
     if not payout_str:
         return 0.001
     return float(payout_str.replace('$', '').strip())
@@ -224,7 +218,6 @@ def number_action_keyboard() -> InlineKeyboardMarkup:
     ])
 
 def services_keyboard() -> InlineKeyboardMarkup:
-    """Show all active services (2 per row)."""
     services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     if not services:
         return back_to_main_keyboard()
@@ -248,7 +241,6 @@ def services_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 def countries_for_service_keyboard(service: str) -> InlineKeyboardMarkup:
-    """Show countries that have stock for a given service."""
     countries = db_fetch_all(
         "SELECT name, stock FROM countries WHERE service = ? AND active = 1 AND stock > 0 ORDER BY name",
         (service,)
@@ -395,7 +387,6 @@ def load_numbers_from_file(file_path, filename):
             for number in valid_numbers:
                 c.execute('''INSERT INTO available_numbers (country, service, number)
                              VALUES (?, ?, ?)''', (country, service, number))
-            # INSERT OR IGNORE will respect unique index on (name, service)
             c.execute('''INSERT OR IGNORE INTO countries (name, service, flag, stock)
                          VALUES (?, ?, ?, 0)''', (country, service, country))
             c.execute("SELECT stock FROM countries WHERE name = ? AND service = ?", (country, service))
@@ -448,17 +439,6 @@ def get_numbers_from_stock(country, service, count=3):
     except Exception as e:
         print(f"Error getting numbers: {e}")
         return []
-
-def extract_otp_from_message(message_text):
-    try:
-        patterns = [r'(\d{3}-\d{3})', r'(\d{6})', r'(\d{4,8})']
-        for pattern in patterns:
-            match = re.search(pattern, message_text)
-            if match:
-                return match.group(1)
-        return None
-    except Exception:
-        return None
 
 def format_numbers_message(country, service, numbers, first_name=None):
     if first_name is None:
@@ -543,7 +523,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== SAFE EDIT ====================
 async def safe_edit_message(query, text, **kwargs):
-    """Edit message only if content actually changed, ignoring 'Message is not modified' errors."""
     try:
         await query.edit_message_text(text, **kwargs)
     except BadRequest as e:
@@ -685,7 +664,6 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     country = parts[1]
     service = parts[2]
 
-    # Show spinning emoji
     await safe_edit_message(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML')
     await asyncio.sleep(1)
 
@@ -717,14 +695,12 @@ async def back_to_services_callback(update: Update, context: ContextTypes.DEFAUL
     db_exec("UPDATE users SET current_service = NULL, current_country = NULL, current_number = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
     await safe_edit_message(query, "Select a Service:", reply_markup=services_keyboard())
 
-# ==================== NUMBER FLOW ====================
 async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer("Getting next 3 numbers...")
     
-    # Show spinning emoji
     await safe_edit_message(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML')
     await asyncio.sleep(1)
 
@@ -962,7 +938,6 @@ async def country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("country_edit|"): await country_edit_start(query, user_id, data.split('|', 1)[1])
     elif data.startswith("country_delete|"): await country_delete_direct(query, user_id, data.split('|', 1)[1])
 
-# ==================== SERVICE SELECTION AFTER COUNTRY ADD ====================
 async def country_add_service_selection(update, user_id, country_name):
     services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     rows = []
@@ -1114,7 +1089,7 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         count, country, service = load_numbers_from_file(file_path, document.file_name)
         if count > 0:
             emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
-            if not emoji_row:  # Service not in table
+            if not emoji_row:
                 admin_temp_data[user_id] = {"pending_service_emoji": service, "country": country, "count": count}
                 admin_panel_state[user_id] = "waiting_service_emoji_upload"
                 await update.message.reply_text(
@@ -1181,7 +1156,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji_id = parts[4] if len(parts) >= 5 else ""
             COUNTRIES_DATA[name] = {"code": code, "iso": iso, "payout": payout, "emoji_id": emoji_id}
             save_countries_db(COUNTRIES_DATA)
-            await country_add_service_selection(update, user_id, name)  # update is message, will use .message
+            await country_add_service_selection(update, user_id, name)
             return True
         except Exception as e: await update.message.reply_text(f"Error: {e}")
         return True
@@ -1246,7 +1221,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return False
 
-# ==================== OTP API MONITOR (timestamp filter, new format, no trailing flag) ====================
+# ==================== OTP API MONITOR (ALL OTPs FORWARDED, NO DUPLICATE CHECK) ====================
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     try:
         response = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
@@ -1276,9 +1251,7 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
             
             if not number or not otp_code:
                 continue
-            exists = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=?", (number, otp_code))
-            if exists:
-                continue
+            # Removed the duplicate check – now every OTP will be forwarded.
             
             if number in num_map:
                 try:
@@ -1310,7 +1283,6 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                     svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE name=?", (service_name,))
                     svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
                     
-                    # New header text without trailing flag
                     header = (
                         f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
                         f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b>\n'
@@ -1319,7 +1291,6 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                         f'💰 <b>BALANCE ADDED</b>: <code>+${reward}</code>{emoji_tag("5976788549658221281", "💵")}'
                     )
                     
-                    # Single OTP copy button
                     button = InlineKeyboardMarkup([[
                         InlineKeyboardButton(
                             text=otp_code,
@@ -1405,12 +1376,10 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("enteradmin", enter_admin_command))
     application.add_handler(CommandHandler("exitadmin", exit_admin_command))
-    # New flow callbacks
     application.add_handler(CallbackQueryHandler(service_selection_callback, pattern="^svc_sel\|"))
     application.add_handler(CallbackQueryHandler(country_selection_callback, pattern="^cnt_sel\|"))
     application.add_handler(CallbackQueryHandler(back_to_services_callback, pattern="^back_to_services$"))
     application.add_handler(CallbackQueryHandler(country_add_service_callback, pattern="^cnt_add_svc\|"))
-    # Existing
     application.add_handler(CallbackQueryHandler(next_number_callback, pattern="^next_number$"))
     application.add_handler(CallbackQueryHandler(back_to_menu_callback, pattern="^back_to_menu$"))
     application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
@@ -1435,7 +1404,7 @@ def main():
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
     print("✅ Custom Emoji System Active")
-    print("✅ OTP API Polling Active (Timestamp Filter + New Format)")
+    print("✅ OTP API Polling Active (ALL OTPs Forwarded)")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
