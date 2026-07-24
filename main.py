@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Complete Final Version with All Fixes & Updated Service Manager)
+# bot.py — RGX NUMBER BOT (Complete Final Version with All Fixes & New OTP Format)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -128,6 +128,8 @@ def load_countries_db():
                     info["emoji_id"] = ""
                 if "payout" not in info:
                     info["payout"] = "0.001$"
+                if "iso" not in info:
+                    info["iso"] = name[:2].upper()  # fallback
             return data
     except FileNotFoundError:
         default = {
@@ -147,7 +149,7 @@ def save_countries_db(data):
 COUNTRIES_DATA = load_countries_db()
 
 def get_country_info(country_name):
-    return COUNTRIES_DATA.get(country_name, {"emoji_id": "", "payout": "0.001$"})
+    return COUNTRIES_DATA.get(country_name, {"emoji_id": "", "payout": "0.001$", "iso": country_name[:2].upper()})
 
 # ==================== CUSTOM EMOJI HTML HELPER ====================
 def emoji_tag(emoji_id: str, fallback: str = " ") -> str:
@@ -421,7 +423,6 @@ def get_numbers_from_stock(country, service, count=3):
             if not available or available[0] == 0:
                 return []
             take = min(count, available[0])
-            # Sequential allocation: order by id ASC (first in, first out)
             c.execute('''SELECT id, number FROM available_numbers
                          WHERE country = ? AND service = ? AND used = 0
                          ORDER BY id ASC LIMIT ?''', (country, service, take))
@@ -670,6 +671,10 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     country = parts[1]
     service = parts[2]
 
+    # Show spinning emoji
+    await query.edit_message_text(f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML')
+    await asyncio.sleep(1)
+
     numbers = get_numbers_from_stock(country, service, 3)
     if not numbers:
         await query.answer("No numbers available for this country/service!", show_alert=True)
@@ -704,6 +709,11 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer("Getting next 3 numbers...")
+    
+    # Show spinning emoji
+    await query.edit_message_text(f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML')
+    await asyncio.sleep(1)
+
     result = db_fetch_one("SELECT current_country, current_service FROM users WHERE user_id = ?", (user_id,))
     country = service = None
     if result and result[0]:
@@ -953,7 +963,6 @@ async def country_add_service_selection(update, user_id, country_name):
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     kb = InlineKeyboardMarkup(rows)
     text = f"Country '{country_name}' added. Select a service to link (or Skip):"
-    # Handle both callback query and direct message
     if update.callback_query:
         await update.callback_query.edit_message_text(text, reply_markup=kb)
     else:
@@ -1158,7 +1167,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji_id = parts[4] if len(parts) >= 5 else ""
             COUNTRIES_DATA[name] = {"code": code, "iso": iso, "payout": payout, "emoji_id": emoji_id}
             save_countries_db(COUNTRIES_DATA)
-            # Now show service selection menu
             await country_add_service_selection(update, user_id, name)
             return True
         except Exception as e: await update.message.reply_text(f"Error: {e}")
@@ -1224,7 +1232,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return False
 
-# ==================== OTP API MONITOR ====================
+# ==================== OTP API MONITOR (NEW FORMAT) ====================
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     try:
         response = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
@@ -1272,27 +1280,37 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                             (number, otp_code, message, timestamp, user_id))
                     
                     flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+                    country_iso = country_data.get("iso", "").upper()
                     svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE name=?", (service_name,))
                     svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
                     
-                    # FIXED BUTTON: plain text, no HTML, icon via icon_custom_emoji_id
-                    button = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(
+                    # New header text
+                    header = (
+                        f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
+                        f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b> 🏁\n'
+                        f'{emoji_tag("6204108584381322968", "📱")} <b>NUMBER</b>: +{number}\n'
+                        f'{emoji_tag("5976327845696251345", "📲")} <b>APP</b>: {emoji_tag(svc_eid, "⚙️")} <b>{service_name}</b>\n'
+                        f'💰 <b>BALANCE ADDED</b>: +${reward}{emoji_tag("5976788549658221281", "💵")}'
+                    )
+                    
+                    # Two copy buttons: phone number and OTP
+                    buttons = InlineKeyboardMarkup([
+                        [InlineKeyboardButton(
+                            text=f"+{number}",
+                            copy_text=CopyTextButton(text=f"+{number}"),
+                            style=KBS.PRIMARY,
+                            icon_custom_emoji_id=safe_icon("6204108584381322968")
+                        )],
+                        [InlineKeyboardButton(
                             text=otp_code,
                             copy_text=CopyTextButton(text=otp_code),
                             style=KBS.SUCCESS,
                             icon_custom_emoji_id=safe_icon("5330115548900501467")
-                        )
-                    ]])
-                    
-                    header = (
-                        f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW OTP ARRIVED</b> '
-                        f'{country_flag_emoji(country)}+{number} {emoji_tag(svc_eid, "⚙️")}\n'
-                        f'{emoji_tag("5197434882321567830", "💰")} <b>BALANCE ADDED</b>: <b>+${reward}</b>'
-                    )
+                        )]
+                    ])
                     
                     try:
-                        await context.bot.send_message(user_id, header, reply_markup=button, parse_mode='HTML')
+                        await context.bot.send_message(user_id, header, reply_markup=buttons, parse_mode='HTML')
                     except Exception as e:
                         print(f"OTP notify failed for {user_id}: {e}")
     except Exception as e:
@@ -1397,7 +1415,7 @@ def main():
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
     print("✅ Custom Emoji System Active")
-    print("✅ OTP API Polling Active")
+    print("✅ OTP API Polling Active (New Format)")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
