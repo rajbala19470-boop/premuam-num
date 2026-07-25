@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Final, All Fixes + REMOVE CC Feature)
+# bot.py — RGX NUMBER BOT (Final, All Fixes + Remove/Add CC + Live Service)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -47,7 +47,8 @@ c.execute('''CREATE TABLE IF NOT EXISTS users
               current_number_id INTEGER DEFAULT NULL,
               current_number TEXT DEFAULT NULL, current_country TEXT DEFAULT NULL,
               current_service TEXT DEFAULT NULL, number_expiry TEXT DEFAULT NULL,
-              last_menu_message_id INTEGER DEFAULT NULL)''')
+              last_menu_message_id INTEGER DEFAULT NULL,
+              remove_cc INTEGER DEFAULT 0)''')   # ← new column
 
 c.execute('''CREATE TABLE IF NOT EXISTS numbers
              (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, number TEXT,
@@ -76,7 +77,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS services
              (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE,
               display_name TEXT, active INTEGER DEFAULT 1, emoji_id TEXT DEFAULT '')''')
 
-# Add balance columns
+# Add balance columns and remove_cc if not present
 try:
     c.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0")
 except sqlite3.OperationalError:
@@ -90,13 +91,11 @@ try:
 except sqlite3.OperationalError:
     pass
 try:
-    c.execute("ALTER TABLE services ADD COLUMN emoji_id TEXT DEFAULT ''")
+    c.execute("ALTER TABLE users ADD COLUMN remove_cc INTEGER DEFAULT 0")
 except sqlite3.OperationalError:
     pass
-
-# Add remove_cc column for persistent CC toggle state
 try:
-    c.execute("ALTER TABLE users ADD COLUMN remove_cc INTEGER DEFAULT 0")
+    c.execute("ALTER TABLE services ADD COLUMN emoji_id TEXT DEFAULT ''")
 except sqlite3.OperationalError:
     pass
 
@@ -111,6 +110,7 @@ print("✅ Database setup completed")
 admin_mode = {}
 admin_panel_state = {}
 admin_temp_data = {}
+last_activation_data = {}   # user_id -> (country, service, numbers, message_id)
 
 def safe_url(url: str) -> str | None:
     if url and isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("tg://")):
@@ -171,6 +171,7 @@ def country_flag_emoji(country_name: str) -> str:
     return emoji_tag(eid, "🏁")
 
 def service_emoji_tag(service_name: str) -> str:
+    # case‑insensitive lookup for custom emoji
     row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
     eid = row[0] if row and row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
     return emoji_tag(eid, "⚙️")
@@ -439,62 +440,71 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-def format_numbers_message(country, service, numbers, user_id, first_name=None):
+# ==================== FORMAT NUMBERS MESSAGE (WITH REMOVE CC) ====================
+def format_numbers_message(country, service, numbers, user_id=None, first_name=None):
     if first_name is None:
         first_name = "User"
+    # Get user's remove_cc state
+    remove_cc = 0
+    if user_id:
+        row = db_fetch_one("SELECT remove_cc FROM users WHERE user_id = ?", (user_id,))
+        if row:
+            remove_cc = row[0] or 0
+
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
-    # Check CC toggle state
-    remove_cc = db_fetch_one("SELECT remove_cc FROM users WHERE user_id = ?", (user_id,))
-    remove_cc = remove_cc[0] if remove_cc else 0
+    country_code = get_country_info(country).get("code", "")
 
     message = (
         f'{emoji_tag("5462908885356549237", "📱")} <b>THIS IS YOUR</b> '
         f'{service_emoji_tag(service)} {country_flag_emoji(country)} '
         f'<b>ACTIVATED NUMBERS</b>{emoji_tag("5462908885356549237", "📱")}\n\n'
     )
-    country_code = get_country_info(country).get("code", "")
     rows = []
     for number in numbers:
-        display_number = number
-        if not number.startswith('+'):
-            number = '+' + number
-            display_number = number
-        if remove_cc:
-            # remove country code
-            display_number = display_number.replace(country_code, '', 1)
+        display_num = number
+        copy_num = number
+        if remove_cc == 1 and country_code and number.startswith(country_code):
+            display_num = number[len(country_code):]  # remove country code
+            copy_num = display_num
         rows.append([InlineKeyboardButton(
-            text=display_number,
-            copy_text=CopyTextButton(text=display_number),
+            text=display_num,
+            copy_text=CopyTextButton(text=copy_num),
             style=KBS.PRIMARY,
             icon_custom_emoji_id=safe_icon(flag_eid)
         )])
-    # CC toggle button
-    if remove_cc:
-        cc_btn = InlineKeyboardButton("ADD CC", callback_data="toggle_cc", style=KBS.SUCCESS,
-                                      icon_custom_emoji_id=safe_icon("4956507094124594921"))
-        new_style = KBS.DANGER
-        change_style = KBS.DANGER
+
+    # REMOVE CC / ADD CC button
+    if remove_cc == 1:
+        cc_button = InlineKeyboardButton("ADD CC", callback_data="toggle_cc",
+                                         style=KBS.SUCCESS,
+                                         icon_custom_emoji_id=safe_icon("4956507094124594921"))
     else:
-        cc_btn = InlineKeyboardButton("REMOVE CC", callback_data="toggle_cc", style=KBS.DANGER,
-                                      icon_custom_emoji_id=safe_icon("4956337889593000947"))
-        new_style = KBS.SUCCESS
-        change_style = KBS.SUCCESS
-    rows.append([cc_btn])
+        cc_button = InlineKeyboardButton("REMOVE CC", callback_data="toggle_cc",
+                                         style=KBS.DANGER,
+                                         icon_custom_emoji_id=safe_icon("4956337889593000947"))
+    rows.append([cc_button])
+
+    # New Number & Change Service (styles change when remove_cc=1)
+    new_style = KBS.DANGER if remove_cc == 1 else KBS.SUCCESS
+    change_style = KBS.DANGER if remove_cc == 1 else KBS.SUCCESS
     rows.append([
         InlineKeyboardButton("New Number", callback_data="next_number", style=new_style,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
         InlineKeyboardButton("Change Service", callback_data="back_to_services", style=change_style,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
     ])
+    # OTP Group button style change when remove_cc
+    otp_style = KBS.PRIMARY if remove_cc == 1 else KBS.DANGER
     rows.append([
-        InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=KBS.DANGER,
+        InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=otp_style,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("JOIN_OTP_GROUP", ""))),
     ])
     return message, InlineKeyboardMarkup(rows)
 
+# ==================== STOCK MESSAGES ====================
 def stock_added_message(country, service, count):
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
-    svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service,))
+    svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     return (
         f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
@@ -505,7 +515,7 @@ def stock_added_message(country, service, count):
 
 def stock_added_broadcast(country, service, count):
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
-    svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service,))
+    svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     return (
         f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
@@ -550,7 +560,7 @@ async def safe_edit_message(query, text, **kwargs):
         if "Message is not modified" not in str(e):
             raise
 
-# ==================== REPLY OR EDIT (NO AUTO-DELETE) ====================
+# ==================== REPLY OR EDIT ====================
 async def reply_or_edit(update: Update, text: str, reply_markup=None, parse_mode=None):
     """Use edit if called from callback, else reply with new message."""
     if update.callback_query:
@@ -728,6 +738,32 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     await show_main_menu(update, user_id, first_name)
 
+# ==================== TOGGLE CC CALLBACK ====================
+async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+
+    # Toggle remove_cc in DB
+    row = db_fetch_one("SELECT remove_cc FROM users WHERE user_id = ?", (user_id,))
+    if row:
+        new_val = 0 if row[0] == 1 else 1
+        db_exec("UPDATE users SET remove_cc = ? WHERE user_id = ?", (new_val, user_id))
+    else:
+        new_val = 0
+
+    # Re-fetch last activation data
+    data = last_activation_data.get(user_id)
+    if not data:
+        await safe_edit_message(query, "No active numbers to display.", reply_markup=back_to_main_keyboard())
+        return
+    country, service, numbers, msg_id = data
+    msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
+    try:
+        await safe_edit_message(query, msg, reply_markup=kb, parse_mode='HTML')
+    except Exception:
+        await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
+
 # ==================== SERVICE→COUNTRY FLOW ====================
 async def service_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -767,8 +803,15 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
                WHERE user_id = ?''', (numbers[0], country, service, expiry, user_id))
 
-    msg, kb = format_numbers_message(country, service, numbers, user_id, first_name)
-    await safe_edit_message(query, msg, reply_markup=kb, parse_mode='HTML')
+    msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
+    sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
+    last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
+    # Edit the original query message to just show the numbers or a confirmation?
+    # We'll keep the activation message in the new message; delete the spinning message
+    try:
+        await query.delete_message()
+    except:
+        pass
 
 async def back_to_services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -810,40 +853,13 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 (user_id, number, country, service, now_str, expiry))
     db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
                WHERE user_id = ?''', (numbers[0], country, service, expiry, user_id))
-    msg, kb = format_numbers_message(country, service, numbers, user_id, first_name)
-    await safe_edit_message(query, msg, reply_markup=kb, parse_mode='HTML')
-
-# ==================== CC TOGGLE CALLBACK ====================
-async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    await query.answer()
-    # Toggle remove_cc state
-    current = db_fetch_one("SELECT remove_cc FROM users WHERE user_id = ?", (user_id,))
-    current_state = current[0] if current else 0
-    new_state = 1 if current_state == 0 else 0
-    db_exec("UPDATE users SET remove_cc = ? WHERE user_id = ?", (new_state, user_id))
-    # Refresh the message with new keyboard
-    result = db_fetch_one("SELECT current_country, current_service FROM users WHERE user_id = ?", (user_id,))
-    country = service = None
-    if result and result[0]:
-        country, service = result
-    else:
-        # fallback to last assigned numbers
-        fallback = db_fetch_one("SELECT country, service FROM numbers WHERE user_id = ? ORDER BY assigned_date DESC LIMIT 1", (user_id,))
-        if fallback: country, service = fallback
-    if not country or not service:
-        await safe_edit_message(query, "No active numbers.", reply_markup=main_menu_keyboard(user_id))
-        return
-    # Get the numbers from the last assignment
-    numbers = db_fetch_all("SELECT number FROM numbers WHERE user_id = ? AND status = 'active' AND expiry_time > ? ORDER BY assigned_date DESC LIMIT 3",
-                           (user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-    if not numbers:
-        await safe_edit_message(query, "No active numbers.", reply_markup=main_menu_keyboard(user_id))
-        return
-    numbers = [n[0] for n in numbers]
-    msg, kb = format_numbers_message(country, service, numbers, user_id, query.from_user.first_name)
-    await safe_edit_message(query, msg, reply_markup=kb, parse_mode='HTML')
+    msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
+    sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
+    last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
+    try:
+        await query.delete_message()
+    except:
+        pass
 
 # ==================== ADMIN CALLBACKS ====================
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -864,7 +880,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.answer(f"{parts[1]} — {parts[2]} deleted!")
             else:
                 await query.answer(f"Error deleting {parts[1]} — {parts[2]}!", show_alert=True)
-            await show_delete_options(query, user_id)
+            await show_delete_options(query, user_id)   # stay in delete menu
         return
     action = data[len("admin_"):]
     if action == "stats": await show_admin_stats(update, user_id)
@@ -1164,7 +1180,7 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         count, country, service = load_numbers_from_file(file_path, document.file_name)
         if count > 0:
-            emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service,))
+            emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
             if not emoji_row:
                 admin_temp_data[user_id] = {"pending_service_emoji": service, "country": country, "count": count}
                 admin_panel_state[user_id] = "waiting_service_emoji_upload"
@@ -1488,7 +1504,7 @@ def main():
     application.add_handler(CallbackQueryHandler(balance_menu_callback, pattern="^menu_balance$"))
     application.add_handler(CallbackQueryHandler(withdraw_callback, pattern="^withdraw$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
-    application.add_handler(CallbackQueryHandler(toggle_cc_callback, pattern="^toggle_cc$"))
+    application.add_handler(CallbackQueryHandler(toggle_cc_callback, pattern="^toggle_cc$"))   # ← new handler
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file_upload))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
@@ -1500,8 +1516,7 @@ def main():
     
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
-    print("✅ REMOVE CC / ADD CC feature with persistent state")
-    print("✅ OTP case-insensitive service emoji fix")
+    print("✅ All features active (Remove/Add CC, Live Service Toggle, OTP Emoji fix)")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
