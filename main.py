@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Final Fixed – Sends All OTPs)
+# bot.py — RGX NUMBER BOT (Final – Duplicate OTP Fixed)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -21,10 +21,10 @@ from emoji import CUSTOM_EMOJIS
 BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"
 ADMIN_IDS = [8744359777]
 
-OTP_GROUP_URL = "https://t.me/RHTotp"
+OTP_GROUP_URL = "https://t.me/RgxOtp"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
 OTP_API_TOKEN = "e84466454aeadf8b442cc602d2b265d4"
-OTP_POLL_INTERVAL = 2  # seconds
+OTP_POLL_INTERVAL = 4  # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -71,6 +71,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS services
              (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE,
               display_name TEXT, active INTEGER DEFAULT 1, emoji_id TEXT DEFAULT '')''')
 
+# Add balance columns
 try:
     c.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0")
 except sqlite3.OperationalError:
@@ -83,7 +84,6 @@ try:
     c.execute("ALTER TABLE users ADD COLUMN total_otp INTEGER DEFAULT 0")
 except sqlite3.OperationalError:
     pass
-
 try:
     c.execute("ALTER TABLE services ADD COLUMN emoji_id TEXT DEFAULT ''")
 except sqlite3.OperationalError:
@@ -643,7 +643,7 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     await show_main_menu(query, user_id, first_name)
 
-# ==================== NEW SERVICE→COUNTRY FLOW ====================
+# ==================== SERVICE→COUNTRY FLOW ====================
 async def service_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -1221,7 +1221,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return False
 
-# ==================== OTP API MONITOR (ALL OTPs FORWARDED, NO DUPLICATE CHECK) ====================
+# ==================== OTP API MONITOR (WITH DUPLICATE CHECK) ====================
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     try:
         response = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
@@ -1251,7 +1251,10 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
             
             if not number or not otp_code:
                 continue
-            # Removed the duplicate check – now every OTP will be forwarded.
+            
+            # Duplicate check: if this exact number+otp already stored, skip
+            if db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=?", (number, otp_code)):
+                continue
             
             if number in num_map:
                 try:
@@ -1404,7 +1407,7 @@ def main():
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
     print("✅ Custom Emoji System Active")
-    print("✅ OTP API Polling Active (ALL OTPs Forwarded)")
+    print("✅ OTP API Polling Active (Duplicate OTP Check + Timestamp Filter)")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
