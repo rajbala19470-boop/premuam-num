@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Final – Duplicate OTP Fixed)
+# bot.py — RGX NUMBER BOT (Final – Duplicate OTP fixed with time‑based check)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -21,7 +21,7 @@ from emoji import CUSTOM_EMOJIS
 BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"
 ADMIN_IDS = [8744359777]
 
-OTP_GROUP_URL = "https://t.me/RHTOtp"
+OTP_GROUP_URL = "https://t.me/RHTotp"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
 OTP_API_TOKEN = "e84466454aeadf8b442cc602d2b265d4"
 OTP_POLL_INTERVAL = 2  # seconds
@@ -1221,7 +1221,25 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return False
 
-# ==================== OTP API MONITOR (WITH DUPLICATE CHECK) ====================
+# ==================== OTP DUPLICATE CHECK HELPER ====================
+def is_duplicate_otp(number, otp_code, current_ts_str):
+    """Return True if a record with same number & otp exists with timestamp within 0.1 sec of current_ts_str."""
+    try:
+        current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
+    except:
+        return False  # if can't parse, allow
+    rows = db_fetch_all("SELECT timestamp FROM otps WHERE number=? AND otp=? ORDER BY timestamp DESC LIMIT 1", (number, otp_code))
+    if not rows:
+        return False
+    last_ts_str = rows[0][0]
+    try:
+        last_ts = datetime.strptime(last_ts_str, "%Y-%m-%d %H:%M:%S")
+    except:
+        return False
+    diff = abs((current_ts - last_ts).total_seconds())
+    return diff <= 0.1
+
+# ==================== OTP API MONITOR ====================
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     try:
         response = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
@@ -1252,8 +1270,8 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
             if not number or not otp_code:
                 continue
             
-            # Duplicate check: if this exact number+otp already stored, skip
-            if db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=?", (number, otp_code)):
+            # Time‑based duplicate check (allow if > 0.1 sec apart)
+            if is_duplicate_otp(number, otp_code, otp_timestamp_str):
                 continue
             
             if number in num_map:
@@ -1407,7 +1425,7 @@ def main():
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
     print("✅ Custom Emoji System Active")
-    print("✅ OTP API Polling Active (Duplicate OTP Check + Timestamp Filter)")
+    print("✅ OTP API Polling Active (Time‑based duplicate check, Δt > 0.1s)")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
