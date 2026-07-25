@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Final, All Fixes)
+# bot.py — RGX NUMBER BOT (Final, All Fixes + REMOVE CC Feature)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -94,6 +94,12 @@ try:
 except sqlite3.OperationalError:
     pass
 
+# Add remove_cc column for persistent CC toggle state
+try:
+    c.execute("ALTER TABLE users ADD COLUMN remove_cc INTEGER DEFAULT 0")
+except sqlite3.OperationalError:
+    pass
+
 default_services = ["WhatsApp", "Telegram", "Facebook", "IMO", "Google", "Tinder", "Uber", "Instagram", "Twitter", "Snapchat"]
 for service in default_services:
     c.execute("INSERT OR IGNORE INTO services (name, display_name, active, emoji_id) VALUES (?, ?, 1, '')", (service, service))
@@ -165,7 +171,7 @@ def country_flag_emoji(country_name: str) -> str:
     return emoji_tag(eid, "🏁")
 
 def service_emoji_tag(service_name: str) -> str:
-    row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service_name,))
+    row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
     eid = row[0] if row and row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
     return emoji_tag(eid, "⚙️")
 
@@ -207,20 +213,6 @@ def back_to_main_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))),
     ]])
-
-def number_action_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
-            InlineKeyboardButton("Change Service", callback_data="back_to_services", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
-        ],
-        [
-            InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("JOIN_OTP_GROUP", ""))),
-        ],
-        [
-            InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("HOME", ""))),
-        ],
-    ])
 
 def services_keyboard() -> InlineKeyboardMarkup:
     """Show all active services (2 per row)."""
@@ -447,44 +439,62 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-def format_numbers_message(country, service, numbers, first_name=None):
+def format_numbers_message(country, service, numbers, user_id, first_name=None):
     if first_name is None:
         first_name = "User"
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+    # Check CC toggle state
+    remove_cc = db_fetch_one("SELECT remove_cc FROM users WHERE user_id = ?", (user_id,))
+    remove_cc = remove_cc[0] if remove_cc else 0
+
     message = (
         f'{emoji_tag("5462908885356549237", "📱")} <b>THIS IS YOUR</b> '
         f'{service_emoji_tag(service)} {country_flag_emoji(country)} '
         f'<b>ACTIVATED NUMBERS</b>{emoji_tag("5462908885356549237", "📱")}\n\n'
     )
+    country_code = get_country_info(country).get("code", "")
     rows = []
     for number in numbers:
+        display_number = number
         if not number.startswith('+'):
             number = '+' + number
+            display_number = number
+        if remove_cc:
+            # remove country code
+            display_number = display_number.replace(country_code, '', 1)
         rows.append([InlineKeyboardButton(
-            text=number,
-            copy_text=CopyTextButton(text=number),
+            text=display_number,
+            copy_text=CopyTextButton(text=display_number),
             style=KBS.PRIMARY,
             icon_custom_emoji_id=safe_icon(flag_eid)
         )])
+    # CC toggle button
+    if remove_cc:
+        cc_btn = InlineKeyboardButton("ADD CC", callback_data="toggle_cc", style=KBS.SUCCESS,
+                                      icon_custom_emoji_id=safe_icon("4956507094124594921"))
+        new_style = KBS.DANGER
+        change_style = KBS.DANGER
+    else:
+        cc_btn = InlineKeyboardButton("REMOVE CC", callback_data="toggle_cc", style=KBS.DANGER,
+                                      icon_custom_emoji_id=safe_icon("4956337889593000947"))
+        new_style = KBS.SUCCESS
+        change_style = KBS.SUCCESS
+    rows.append([cc_btn])
     rows.append([
-        InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS,
+        InlineKeyboardButton("New Number", callback_data="next_number", style=new_style,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
-        InlineKeyboardButton("Change Service", callback_data="back_to_services", style=KBS.SUCCESS,
+        InlineKeyboardButton("Change Service", callback_data="back_to_services", style=change_style,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
     ])
     rows.append([
         InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=KBS.DANGER,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("JOIN_OTP_GROUP", ""))),
     ])
-    rows.append([
-        InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY,
-                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("HOME", ""))),
-    ])
     return message, InlineKeyboardMarkup(rows)
 
 def stock_added_message(country, service, count):
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
-    svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
+    svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service,))
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     return (
         f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
@@ -495,7 +505,7 @@ def stock_added_message(country, service, count):
 
 def stock_added_broadcast(country, service, count):
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
-    svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
+    svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service,))
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     return (
         f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
@@ -757,8 +767,7 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
                WHERE user_id = ?''', (numbers[0], country, service, expiry, user_id))
 
-    msg, kb = format_numbers_message(country, service, numbers, first_name)
-    # Keep activation message permanently
+    msg, kb = format_numbers_message(country, service, numbers, user_id, first_name)
     await safe_edit_message(query, msg, reply_markup=kb, parse_mode='HTML')
 
 async def back_to_services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -801,7 +810,39 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 (user_id, number, country, service, now_str, expiry))
     db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
                WHERE user_id = ?''', (numbers[0], country, service, expiry, user_id))
-    msg, kb = format_numbers_message(country, service, numbers, first_name)
+    msg, kb = format_numbers_message(country, service, numbers, user_id, first_name)
+    await safe_edit_message(query, msg, reply_markup=kb, parse_mode='HTML')
+
+# ==================== CC TOGGLE CALLBACK ====================
+async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+    # Toggle remove_cc state
+    current = db_fetch_one("SELECT remove_cc FROM users WHERE user_id = ?", (user_id,))
+    current_state = current[0] if current else 0
+    new_state = 1 if current_state == 0 else 0
+    db_exec("UPDATE users SET remove_cc = ? WHERE user_id = ?", (new_state, user_id))
+    # Refresh the message with new keyboard
+    result = db_fetch_one("SELECT current_country, current_service FROM users WHERE user_id = ?", (user_id,))
+    country = service = None
+    if result and result[0]:
+        country, service = result
+    else:
+        # fallback to last assigned numbers
+        fallback = db_fetch_one("SELECT country, service FROM numbers WHERE user_id = ? ORDER BY assigned_date DESC LIMIT 1", (user_id,))
+        if fallback: country, service = fallback
+    if not country or not service:
+        await safe_edit_message(query, "No active numbers.", reply_markup=main_menu_keyboard(user_id))
+        return
+    # Get the numbers from the last assignment
+    numbers = db_fetch_all("SELECT number FROM numbers WHERE user_id = ? AND status = 'active' AND expiry_time > ? ORDER BY assigned_date DESC LIMIT 3",
+                           (user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    if not numbers:
+        await safe_edit_message(query, "No active numbers.", reply_markup=main_menu_keyboard(user_id))
+        return
+    numbers = [n[0] for n in numbers]
+    msg, kb = format_numbers_message(country, service, numbers, user_id, query.from_user.first_name)
     await safe_edit_message(query, msg, reply_markup=kb, parse_mode='HTML')
 
 # ==================== ADMIN CALLBACKS ====================
@@ -823,7 +864,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.answer(f"{parts[1]} — {parts[2]} deleted!")
             else:
                 await query.answer(f"Error deleting {parts[1]} — {parts[2]}!", show_alert=True)
-            await show_delete_options(query, user_id)   # stay in delete menu
+            await show_delete_options(query, user_id)
         return
     action = data[len("admin_"):]
     if action == "stats": await show_admin_stats(update, user_id)
@@ -1054,7 +1095,6 @@ async def service_remove_execute(query, service_name):
     db_exec("DELETE FROM services WHERE name = ?", (service_name,))
     db_exec("DELETE FROM countries WHERE service = ?", (service_name,))
     await query.answer(f"Service '{service_name}' removed!")
-    # Stay on remove page after deletion
     await service_remove_select(query, query.from_user.id)
 
 async def service_toggle_select(update: Update, user_id):
@@ -1124,7 +1164,7 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         count, country, service = load_numbers_from_file(file_path, document.file_name)
         if count > 0:
-            emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
+            emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service,))
             if not emoji_row:
                 admin_temp_data[user_id] = {"pending_service_emoji": service, "country": country, "count": count}
                 admin_panel_state[user_id] = "waiting_service_emoji_upload"
@@ -1273,7 +1313,6 @@ def is_duplicate_otp(number, otp_code, current_ts_str):
     except:
         return False
     diff = abs((current_ts - last_ts).total_seconds())
-    # If the difference is <= 0.5 seconds, it's a duplicate -> skip
     return diff <= 0.5
 
 # ==================== OTP API MONITOR ====================
@@ -1337,7 +1376,7 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                     
                     flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
                     country_iso = country_data.get("iso", "").upper()
-                    svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE name=?", (service_name,))
+                    svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
                     svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
                     
                     header = (
@@ -1449,6 +1488,7 @@ def main():
     application.add_handler(CallbackQueryHandler(balance_menu_callback, pattern="^menu_balance$"))
     application.add_handler(CallbackQueryHandler(withdraw_callback, pattern="^withdraw$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
+    application.add_handler(CallbackQueryHandler(toggle_cc_callback, pattern="^toggle_cc$"))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file_upload))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
@@ -1460,7 +1500,8 @@ def main():
     
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
-    print("✅ Final fixes applied (no auto-delete, service remove stays, OTP 0.5s dup, activation msg unchanged)")
+    print("✅ REMOVE CC / ADD CC feature with persistent state")
+    print("✅ OTP case-insensitive service emoji fix")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
