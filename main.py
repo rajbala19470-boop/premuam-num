@@ -7,6 +7,7 @@ import requests
 from telegram import (
     InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, ReplyKeyboardMarkup, Update, CopyTextButton,
+    CallbackQuery
 )
 from telegram.constants import KeyboardButtonStyle as KBS
 from telegram.ext import (
@@ -48,7 +49,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS users
               current_number TEXT DEFAULT NULL, current_country TEXT DEFAULT NULL,
               current_service TEXT DEFAULT NULL, number_expiry TEXT DEFAULT NULL,
               last_menu_message_id INTEGER DEFAULT NULL,
-              remove_cc INTEGER DEFAULT 0)''')   # ← new column
+              remove_cc INTEGER DEFAULT 0)''')
 
 c.execute('''CREATE TABLE IF NOT EXISTS numbers
              (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, number TEXT,
@@ -171,7 +172,6 @@ def country_flag_emoji(country_name: str) -> str:
     return emoji_tag(eid, "🏁")
 
 def service_emoji_tag(service_name: str) -> str:
-    # case‑insensitive lookup for custom emoji
     row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
     eid = row[0] if row and row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
     return emoji_tag(eid, "⚙️")
@@ -560,15 +560,16 @@ async def safe_edit_message(query, text, **kwargs):
         if "Message is not modified" not in str(e):
             raise
 
-# ==================== REPLY OR EDIT ====================
-async def reply_or_edit(update: Update, text: str, reply_markup=None, parse_mode=None):
-    """Use edit if called from callback, else reply with new message."""
-    if update.callback_query:
-        await safe_edit_message(update.callback_query, text,
-                                reply_markup=reply_markup, parse_mode=parse_mode)
+# ==================== REPLY OR EDIT (FIXED) ====================
+async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None):
+    """target can be Update or CallbackQuery"""
+    if isinstance(target, CallbackQuery):
+        await safe_edit_message(target, text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif hasattr(target, 'callback_query') and target.callback_query:
+        await safe_edit_message(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode)
     else:
-        await update.message.reply_text(text,
-                                        reply_markup=reply_markup, parse_mode=parse_mode)
+        # Assume it's an Update with a message
+        await target.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
 # ==================== MAIN MENU CALLBACKS ====================
 async def show_main_menu(update: Update, user_id, first_name):
@@ -582,8 +583,8 @@ async def show_get_number(update: Update, context, user_id, first_name):
 async def show_balance(update: Update, user_id):
     user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
     if not user:
-        if update.callback_query:
-            await update.callback_query.answer("User not found.", show_alert=True)
+        if isinstance(update, CallbackQuery):
+            await update.answer("User not found.", show_alert=True)
         else:
             await update.message.reply_text("User not found.")
         return
@@ -656,8 +657,8 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ==================== ADMIN MENUS ====================
 async def admin_panel_menu(update: Update, user_id):
     if user_id not in ADMIN_IDS:
-        if update.callback_query:
-            await update.callback_query.answer("Unauthorized!", show_alert=True)
+        if isinstance(update, CallbackQuery):
+            await update.answer("Unauthorized!", show_alert=True)
         else:
             await update.message.reply_text("Unauthorized!")
         return
@@ -667,8 +668,8 @@ async def admin_panel_menu(update: Update, user_id):
 
 async def country_manager_menu(update: Update, user_id):
     if user_id not in admin_mode:
-        if update.callback_query:
-            await update.callback_query.answer("Admin mode required!", show_alert=True)
+        if isinstance(update, CallbackQuery):
+            await update.answer("Admin mode required!", show_alert=True)
         return
     admin_panel_state[user_id] = "country_manager"
     rows = [
@@ -687,8 +688,8 @@ async def country_manager_menu(update: Update, user_id):
 
 async def service_manager_menu(update: Update, user_id):
     if user_id not in admin_mode:
-        if update.callback_query:
-            await update.callback_query.answer("Admin mode required!", show_alert=True)
+        if isinstance(update, CallbackQuery):
+            await update.answer("Admin mode required!", show_alert=True)
         return
     admin_panel_state[user_id] = "service_manager"
     rows = [
@@ -806,8 +807,6 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
-    # Edit the original query message to just show the numbers or a confirmation?
-    # We'll keep the activation message in the new message; delete the spinning message
     try:
         await query.delete_message()
     except:
@@ -880,7 +879,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.answer(f"{parts[1]} — {parts[2]} deleted!")
             else:
                 await query.answer(f"Error deleting {parts[1]} — {parts[2]}!", show_alert=True)
-            await show_delete_options(query, user_id)   # stay in delete menu
+            await show_delete_options(query, user_id)
         return
     action = data[len("admin_"):]
     if action == "stats": await show_admin_stats(update, user_id)
@@ -1079,11 +1078,11 @@ async def service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "service_add":
         await service_add_start(update, user_id)
     elif data == "service_remove":
-        await service_remove_select(update, user_id)
+        await service_remove_select(query, user_id)   # pass query directly
     elif data.startswith("service_remove|"):
         await service_remove_execute(query, data.split('|', 1)[1])
     elif data == "service_toggle":
-        await service_toggle_select(update, user_id)
+        await service_toggle_select(query, user_id)   # pass query
     elif data == "service_set_emoji":
         await service_set_emoji_select(update, user_id)
     elif data.startswith("service_toggle|"):
@@ -1095,7 +1094,7 @@ async def service_add_start(update: Update, user_id):
     admin_panel_state[user_id] = "waiting_service_name"
     await reply_or_edit(update, "Send the service name.", reply_markup=admin_cancel_keyboard())
 
-async def service_remove_select(update: Update, user_id):
+async def service_remove_select(target, user_id):  # target can be CallbackQuery or Update
     services = db_fetch_all("SELECT name, display_name FROM services ORDER BY name")
     rows = []
     for s in services:
@@ -1105,15 +1104,15 @@ async def service_remove_select(update: Update, user_id):
                                           icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))])
     rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await reply_or_edit(update, "Select service to remove:", reply_markup=InlineKeyboardMarkup(rows))
+    await reply_or_edit(target, "Select service to remove:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def service_remove_execute(query, service_name):
     db_exec("DELETE FROM services WHERE name = ?", (service_name,))
     db_exec("DELETE FROM countries WHERE service = ?", (service_name,))
     await query.answer(f"Service '{service_name}' removed!")
-    await service_remove_select(query, query.from_user.id)
+    await service_remove_select(query, query.from_user.id)  # stay on remove page with updated list
 
-async def service_toggle_select(update: Update, user_id):
+async def service_toggle_select(target, user_id):  # target can be CallbackQuery or Update
     services = db_fetch_all("SELECT name, display_name, active FROM services ORDER BY name")
     rows = []
     for s in services:
@@ -1125,7 +1124,7 @@ async def service_toggle_select(update: Update, user_id):
                                           icon_custom_emoji_id=safe_icon("4956583802240500602"))])
     rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await reply_or_edit(update, "Select service to toggle:", reply_markup=InlineKeyboardMarkup(rows))
+    await reply_or_edit(target, "Select service to toggle:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def service_toggle_execute(query, service_name):
     result = db_fetch_one("SELECT active FROM services WHERE name = ?", (service_name,))
@@ -1133,7 +1132,7 @@ async def service_toggle_execute(query, service_name):
         new_status = 0 if result[0] else 1
         db_exec("UPDATE services SET active = ? WHERE name = ?", (new_status, service_name))
         await query.answer(f"Service {'activated' if new_status else 'deactivated'}!")
-    await service_toggle_select(query, query.from_user.id)
+    await service_toggle_select(query, query.from_user.id)  # refresh list
 
 async def service_set_emoji_select(update: Update, user_id):
     if user_id not in admin_mode: await update.callback_query.answer("Admin mode required!", show_alert=True); return
@@ -1504,7 +1503,7 @@ def main():
     application.add_handler(CallbackQueryHandler(balance_menu_callback, pattern="^menu_balance$"))
     application.add_handler(CallbackQueryHandler(withdraw_callback, pattern="^withdraw$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
-    application.add_handler(CallbackQueryHandler(toggle_cc_callback, pattern="^toggle_cc$"))   # ← new handler
+    application.add_handler(CallbackQueryHandler(toggle_cc_callback, pattern="^toggle_cc$"))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file_upload))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
@@ -1516,7 +1515,7 @@ def main():
     
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
-    print("✅ All features active (Remove/Add CC, Live Service Toggle, OTP Emoji fix)")
+    print("✅ All features active (Live Service, Remove/Add CC, OTP Emoji)")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
