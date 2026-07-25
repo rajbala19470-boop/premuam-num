@@ -1,6 +1,6 @@
-# bot.py — RGX NUMBER BOT (Final – Duplicate OTP fixed with time‑based check)
+# bot.py — RGX NUMBER BOT (Full Concurrent, Fixed Duplicate Check)
 
-import asyncio, json, os, re, sqlite3, threading
+import asyncio, json, os, re, sqlite3
 from datetime import datetime, timedelta
 
 import requests
@@ -21,10 +21,10 @@ from emoji import CUSTOM_EMOJIS
 BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"
 ADMIN_IDS = [8744359777]
 
-OTP_GROUP_URL = "https://t.me/RHTotp"
+OTP_GROUP_URL = "https://t.me/RHTOtp"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
 OTP_API_TOKEN = "e84466454aeadf8b442cc602d2b265d4"
-OTP_POLL_INTERVAL = 2  # seconds
+OTP_POLL_INTERVAL = 4  # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -33,7 +33,11 @@ ADMIN_TELEGRAM = "t.me/WONER_OF_RHT"
 
 # ==================== DATABASE SETUP ====================
 conn = sqlite3.connect('mrisbrand_master.db', check_same_thread=False)
-db_lock = threading.Lock()
+db_lock = asyncio.Lock()
+
+with conn:
+    conn.execute("PRAGMA journal_mode=WAL")
+
 c = conn.cursor()
 
 c.execute('''CREATE TABLE IF NOT EXISTS users
@@ -71,7 +75,6 @@ c.execute('''CREATE TABLE IF NOT EXISTS services
              (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE,
               display_name TEXT, active INTEGER DEFAULT 1, emoji_id TEXT DEFAULT '')''')
 
-# Add balance columns
 try:
     c.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0")
 except sqlite3.OperationalError:
@@ -315,23 +318,23 @@ def admin_cancel_keyboard() -> InlineKeyboardMarkup:
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", ""))),
     ]])
 
-# ==================== DATABASE HELPERS ====================
-def db_exec(query, params=()):
-    with db_lock:
+# ==================== DATABASE HELPERS (ASYNC) ====================
+async def db_exec(query, params=()):
+    async with db_lock:
         c.execute(query, params)
         conn.commit()
 
-def db_fetch_one(query, params=()):
-    with db_lock:
+async def db_fetch_one(query, params=()):
+    async with db_lock:
         c.execute(query, params)
         return c.fetchone()
 
-def db_fetch_all(query, params=()):
-    with db_lock:
+async def db_fetch_all(query, params=()):
+    async with db_lock:
         c.execute(query, params)
         return c.fetchall()
 
-def extract_country_from_filename(filename):
+async def extract_country_from_filename(filename):
     try:
         name = filename.replace('.txt', '')
         if '_' in name:
@@ -351,25 +354,25 @@ def extract_country_from_filename(filename):
     except Exception:
         return None
 
-def extract_service_from_filename(filename):
+async def extract_service_from_filename(filename):
     try:
         name = filename.replace('.txt', '').lower()
         if '_' in name:
             service_part = name.split('_', 1)[1].strip()
         else:
             return "Unknown"
-        services = [row[0] for row in db_fetch_all("SELECT name FROM services WHERE active = 1")]
+        services = await db_fetch_all("SELECT name FROM services WHERE active = 1")
         for service in services:
-            if service.lower() in service_part:
-                return service
+            if service[0].lower() in service_part:
+                return service[0]
         return service_part
     except Exception:
         return "Unknown"
 
-def load_numbers_from_file(file_path, filename):
+async def load_numbers_from_file(file_path, filename):
     try:
-        country = extract_country_from_filename(filename)
-        service = extract_service_from_filename(filename)
+        country = await extract_country_from_filename(filename)
+        service = await extract_service_from_filename(filename)
         if not country:
             return 0, None, None
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
@@ -383,7 +386,7 @@ def load_numbers_from_file(file_path, filename):
                 valid_numbers.append(num)
         if not valid_numbers:
             return 0, None, None
-        with db_lock:
+        async with db_lock:
             for number in valid_numbers:
                 c.execute('''INSERT INTO available_numbers (country, service, number)
                              VALUES (?, ?, ?)''', (country, service, number))
@@ -401,18 +404,18 @@ def load_numbers_from_file(file_path, filename):
         print(f"Error loading file: {e}")
         return 0, None, None
 
-def delete_country_stock(country, service):
+async def delete_country_stock(country, service):
     try:
-        db_exec("DELETE FROM available_numbers WHERE country = ? AND service = ?", (country, service))
-        db_exec("DELETE FROM countries WHERE name = ? AND service = ?", (country, service))
+        await db_exec("DELETE FROM available_numbers WHERE country = ? AND service = ?", (country, service))
+        await db_exec("DELETE FROM countries WHERE name = ? AND service = ?", (country, service))
         return True
     except Exception as e:
         print(f"Error deleting stock: {e}")
         return False
 
-def get_numbers_from_stock(country, service, count=3):
+async def get_numbers_from_stock(country, service, count=3):
     try:
-        with db_lock:
+        async with db_lock:
             c.execute('''SELECT COUNT(*) FROM available_numbers
                          WHERE country = ? AND service = ? AND used = 0''', (country, service))
             available = c.fetchone()
@@ -515,10 +518,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username
     first_name = update.effective_user.first_name or "User"
-    db_exec('''INSERT OR IGNORE INTO users (user_id, username, first_name, joined_date, last_active)
+    await db_exec('''INSERT OR IGNORE INTO users (user_id, username, first_name, joined_date, last_active)
                VALUES (?, ?, ?, ?, ?)''',
             (user_id, username, first_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-    db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
+    await db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
 
 # ==================== SAFE EDIT ====================
@@ -540,11 +543,11 @@ async def show_main_menu(query, user_id, first_name):
             pass
 
 async def show_get_number(query, context, user_id, first_name):
-    db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
+    await db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await safe_edit_message(query, "Select a Service:", reply_markup=services_keyboard())
 
 async def show_balance(query, user_id):
-    user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
+    user = await db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
     if not user:
         await query.answer("User not found.", show_alert=True)
         return
@@ -568,7 +571,7 @@ async def show_balance(query, user_id):
     await safe_edit_message(query, text, reply_markup=kb, parse_mode='HTML')
 
 async def show_withdraw(query, user_id):
-    balance = db_fetch_one("SELECT balance FROM users WHERE user_id = ?", (user_id,))[0] or 0.0
+    balance = (await db_fetch_one("SELECT balance FROM users WHERE user_id = ?", (user_id,)))[0] or 0.0
     if balance >= MIN_WITHDRAW:
         text = (
             f'{emoji_tag("4956290155326473271", "📞")} PLEASE CONTACT TO ADMIN {emoji_tag("4956420911310832630", "👨‍💼")}\n\n'
@@ -649,7 +652,7 @@ async def service_selection_callback(update: Update, context: ContextTypes.DEFAU
     user_id = query.from_user.id
     await query.answer()
     service = query.data.split('|', 1)[1]
-    db_exec("UPDATE users SET current_service = ? WHERE user_id = ?", (service, user_id))
+    await db_exec("UPDATE users SET current_service = ? WHERE user_id = ?", (service, user_id))
     await safe_edit_message(query, f"Select a Country for {service}:", reply_markup=countries_for_service_keyboard(service))
 
 async def country_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -667,7 +670,7 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     await safe_edit_message(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML')
     await asyncio.sleep(1)
 
-    numbers = get_numbers_from_stock(country, service, 3)
+    numbers = await get_numbers_from_stock(country, service, 3)
     if not numbers:
         await query.answer("No numbers available for this country/service!", show_alert=True)
         await safe_edit_message(query, "Select a Country:", reply_markup=countries_for_service_keyboard(service))
@@ -676,10 +679,10 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     expiry = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for number in numbers:
-        db_exec('''INSERT INTO numbers (user_id, number, country, service, assigned_date, status, expiry_time)
+        await db_exec('''INSERT INTO numbers (user_id, number, country, service, assigned_date, status, expiry_time)
                    VALUES (?, ?, ?, ?, ?, 'active', ?)''',
                 (user_id, number, country, service, now_str, expiry))
-    db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
+    await db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
                WHERE user_id = ?''', (numbers[0], country, service, expiry, user_id))
 
     msg, kb = format_numbers_message(country, service, numbers, first_name)
@@ -692,7 +695,7 @@ async def back_to_services_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
-    db_exec("UPDATE users SET current_service = NULL, current_country = NULL, current_number = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
+    await db_exec("UPDATE users SET current_service = NULL, current_country = NULL, current_number = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
     await safe_edit_message(query, "Select a Service:", reply_markup=services_keyboard())
 
 async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -704,18 +707,18 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await safe_edit_message(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML')
     await asyncio.sleep(1)
 
-    result = db_fetch_one("SELECT current_country, current_service FROM users WHERE user_id = ?", (user_id,))
+    result = await db_fetch_one("SELECT current_country, current_service FROM users WHERE user_id = ?", (user_id,))
     country = service = None
     if result and result[0]:
         country, service = result
     else:
-        fallback = db_fetch_one("SELECT country, service FROM numbers WHERE user_id = ? ORDER BY assigned_date DESC LIMIT 1", (user_id,))
+        fallback = await db_fetch_one("SELECT country, service FROM numbers WHERE user_id = ? ORDER BY assigned_date DESC LIMIT 1", (user_id,))
         if fallback: country, service = fallback
     if not country or not service:
         await query.answer("Please select a service and country first!", show_alert=True)
         await safe_edit_message(query, "Select a Service:", reply_markup=services_keyboard())
         return
-    numbers = get_numbers_from_stock(country, service, 3)
+    numbers = await get_numbers_from_stock(country, service, 3)
     if not numbers:
         await query.answer(f"No more {country} {service} numbers!", show_alert=True)
         await safe_edit_message(query, f"Select a Country for {service}:", reply_markup=countries_for_service_keyboard(service))
@@ -723,10 +726,10 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     expiry = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for number in numbers:
-        db_exec('''INSERT INTO numbers (user_id, number, country, service, assigned_date, status, expiry_time)
+        await db_exec('''INSERT INTO numbers (user_id, number, country, service, assigned_date, status, expiry_time)
                    VALUES (?, ?, ?, ?, ?, 'active', ?)''',
                 (user_id, number, country, service, now_str, expiry))
-    db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
+    await db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
                WHERE user_id = ?''', (numbers[0], country, service, expiry, user_id))
     msg, kb = format_numbers_message(country, service, numbers, first_name)
     try:
@@ -754,13 +757,13 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("You're not in admin mode!")
 
 async def show_admin_stats(query, user_id):
-    total_users = db_fetch_one("SELECT COUNT(*) FROM users")[0]
+    total_users = (await db_fetch_one("SELECT COUNT(*) FROM users"))[0]
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-    active_users = db_fetch_one("SELECT COUNT(*) FROM users WHERE last_active > ?", (yesterday,))[0]
-    active_numbers = db_fetch_one("SELECT COUNT(*) FROM numbers WHERE status = 'active'")[0]
-    total_stock = db_fetch_one("SELECT SUM(stock) FROM countries")[0] or 0
-    available_numbers = db_fetch_one("SELECT COUNT(*) FROM available_numbers WHERE used = 0")[0]
-    active_countries = db_fetch_one("SELECT COUNT(*) FROM countries WHERE active = 1")[0]
+    active_users = (await db_fetch_one("SELECT COUNT(*) FROM users WHERE last_active > ?", (yesterday,)))[0]
+    active_numbers = (await db_fetch_one("SELECT COUNT(*) FROM numbers WHERE status = 'active'"))[0]
+    total_stock = (await db_fetch_one("SELECT SUM(stock) FROM countries"))[0] or 0
+    available_numbers = (await db_fetch_one("SELECT COUNT(*) FROM available_numbers WHERE used = 0"))[0]
+    active_countries = (await db_fetch_one("SELECT COUNT(*) FROM countries WHERE active = 1"))[0]
     text = (
         f'{emoji_tag(CUSTOM_EMOJIS["STATS"], "📊")} BOT STATISTICS {emoji_tag(CUSTOM_EMOJIS["STATS"], "📊")}\n\n'
         f'{emoji_tag(CUSTOM_EMOJIS["GIVEAWAY"], "👥")} USERS {emoji_tag(CUSTOM_EMOJIS["GIVEAWAY"], "👥")}\n\n'
@@ -775,7 +778,7 @@ async def show_admin_stats(query, user_id):
         f'{emoji_tag(CUSTOM_EMOJIS["GREEN_CIRCLE"], "🟢")} Active Services {emoji_tag(CUSTOM_EMOJIS["SERVICE_MANAGER"], "🔧")}: {active_countries}\n\n'
         f'{datetime.now().strftime("%I:%M %p | %d %b %Y")} {emoji_tag(CUSTOM_EMOJIS["CLOCK"], "🕐")}'
     )
-    countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
+    countries = await db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
     if countries:
         text += f'\n\n{emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")} STOCK DETAILS {emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")}:\n'
         for name, service, stock_count in countries:
@@ -783,7 +786,7 @@ async def show_admin_stats(query, user_id):
     await safe_edit_message(query, text, reply_markup=admin_back_button(), parse_mode='HTML')
 
 async def show_delete_options(query, user_id):
-    countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
+    countries = await db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
     if not countries:
         await safe_edit_message(query, "No countries to delete!", reply_markup=admin_back_button())
         return
@@ -831,7 +834,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("admin_del|"):
         parts = data.split('|', 2)
         if len(parts) == 3:
-            if delete_country_stock(parts[1], parts[2]):
+            if await delete_country_stock(parts[1], parts[2]):
                 await query.answer(f"{parts[1]} — {parts[2]} deleted!")
             else:
                 await query.answer(f"Error deleting {parts[1]} — {parts[2]}!", show_alert=True)
@@ -918,8 +921,8 @@ async def country_delete_direct(query, user_id, country_name):
     if country_name in COUNTRIES_DATA:
         del COUNTRIES_DATA[country_name]
         save_countries_db(COUNTRIES_DATA)
-        db_exec("DELETE FROM available_numbers WHERE country = ?", (country_name,))
-        db_exec("DELETE FROM countries WHERE name = ?", (country_name,))
+        await db_exec("DELETE FROM available_numbers WHERE country = ?", (country_name,))
+        await db_exec("DELETE FROM countries WHERE name = ?", (country_name,))
         await query.answer(f"{country_name} deleted!")
     else:
         await query.answer("Country not found!", show_alert=True)
@@ -939,7 +942,7 @@ async def country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("country_delete|"): await country_delete_direct(query, user_id, data.split('|', 1)[1])
 
 async def country_add_service_selection(update, user_id, country_name):
-    services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
+    services = await db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     rows = []
     for s in services:
         rows.append([InlineKeyboardButton(
@@ -964,7 +967,7 @@ async def country_add_service_callback(update: Update, context: ContextTypes.DEF
     if len(parts) != 3: await query.answer("Invalid.", show_alert=True); return
     country_name = parts[1]
     service_name = parts[2]
-    db_exec("INSERT OR IGNORE INTO countries (name, service, flag, stock) VALUES (?, ?, ?, 0)", (country_name, service_name, country_name))
+    await db_exec("INSERT OR IGNORE INTO countries (name, service, flag, stock) VALUES (?, ?, ?, 0)", (country_name, service_name, country_name))
     await query.answer(f"{country_name} now available for {service_name}!")
     admin_panel_state[user_id] = "main"
     await safe_edit_message(query, "Country linked successfully.", reply_markup=admin_panel_keyboard())
@@ -988,7 +991,7 @@ async def service_manager_menu(query, user_id):
     await safe_edit_message(query, "SERVICE MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def service_remove_select(query):
-    services = db_fetch_all("SELECT name, display_name FROM services ORDER BY name")
+    services = await db_fetch_all("SELECT name, display_name FROM services ORDER BY name")
     rows = []
     for s in services:
         rows.append([InlineKeyboardButton(f"Remove {s[1]}",
@@ -1000,8 +1003,8 @@ async def service_remove_select(query):
     await safe_edit_message(query, "Select service to remove:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def service_remove_execute(query, service_name):
-    db_exec("DELETE FROM services WHERE name = ?", (service_name,))
-    db_exec("DELETE FROM countries WHERE service = ?", (service_name,))
+    await db_exec("DELETE FROM services WHERE name = ?", (service_name,))
+    await db_exec("DELETE FROM countries WHERE service = ?", (service_name,))
     await query.answer(f"Service '{service_name}' removed!")
     await service_manager_menu(query, query.from_user.id)
 
@@ -1010,7 +1013,7 @@ async def service_add_start(query, user_id):
     await safe_edit_message(query, "Send the service name.", reply_markup=admin_cancel_keyboard())
 
 async def service_toggle_select(query):
-    services = db_fetch_all("SELECT name, display_name, active FROM services ORDER BY name")
+    services = await db_fetch_all("SELECT name, display_name, active FROM services ORDER BY name")
     rows = []
     for s in services:
         rows.append([InlineKeyboardButton(f"{s[1]} ({'Active' if s[2] else 'Inactive'})",
@@ -1022,16 +1025,16 @@ async def service_toggle_select(query):
     await safe_edit_message(query, "Select service to toggle:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def service_toggle_execute(query, service_name):
-    result = db_fetch_one("SELECT active FROM services WHERE name = ?", (service_name,))
+    result = await db_fetch_one("SELECT active FROM services WHERE name = ?", (service_name,))
     if result:
         new_status = 0 if result[0] else 1
-        db_exec("UPDATE services SET active = ? WHERE name = ?", (new_status, service_name))
+        await db_exec("UPDATE services SET active = ? WHERE name = ?", (new_status, service_name))
         await query.answer(f"Service {'activated' if new_status else 'deactivated'}!")
     await service_toggle_select(query)
 
 async def service_set_emoji_select(query, user_id):
     if user_id not in admin_mode: await query.answer("Admin mode required!", show_alert=True); return
-    services = db_fetch_all("SELECT name, display_name FROM services WHERE active = 1 ORDER BY name")
+    services = await db_fetch_all("SELECT name, display_name FROM services WHERE active = 1 ORDER BY name")
     rows = []
     for s in services:
         rows.append([InlineKeyboardButton(f"{s[1]} ({s[0]})",
@@ -1053,7 +1056,7 @@ async def handle_service_emoji_set(update: Update, context: ContextTypes.DEFAULT
     service_name = admin_temp_data.get(user_id, {}).get("set_emoji_service")
     if not service_name: await update.message.reply_text("Session expired."); return True
     if text == "/skip": text = ""
-    db_exec("UPDATE services SET emoji_id = ? WHERE name = ?", (text, service_name))
+    await db_exec("UPDATE services SET emoji_id = ? WHERE name = ?", (text, service_name))
     await update.message.reply_text(f"Emoji for {service_name} updated!")
     admin_panel_state[user_id] = "service_manager"
     await service_manager_menu(update, user_id)
@@ -1086,9 +1089,9 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         file_path = f"uploads/{document.file_name}"
         await file.download_to_drive(file_path)
         
-        count, country, service = load_numbers_from_file(file_path, document.file_name)
+        count, country, service = await load_numbers_from_file(file_path, document.file_name)
         if count > 0:
-            emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
+            emoji_row = await db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
             if not emoji_row:
                 admin_temp_data[user_id] = {"pending_service_emoji": service, "country": country, "count": count}
                 admin_panel_state[user_id] = "waiting_service_emoji_upload"
@@ -1103,7 +1106,7 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(msg, parse_mode='HTML', reply_markup=admin_panel_keyboard())
             
             broadcast_msg = stock_added_broadcast(country, service, count)
-            users = db_fetch_all("SELECT user_id FROM users")
+            users = await db_fetch_all("SELECT user_id FROM users")
             for user in users:
                 try:
                     await context.bot.send_message(user[0], broadcast_msg, parse_mode='HTML')
@@ -1127,7 +1130,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     
     if state == "waiting_broadcast":
-        users = db_fetch_all("SELECT user_id FROM users")
+        users = await db_fetch_all("SELECT user_id FROM users")
         sent = 0
         for user in users:
             try:
@@ -1183,7 +1186,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif state == "waiting_service_name":
         try:
-            db_exec("INSERT INTO services (name, display_name, active, emoji_id) VALUES (?, ?, 1, '')", (text, text))
+            await db_exec("INSERT INTO services (name, display_name, active, emoji_id) VALUES (?, ?, 1, '')", (text, text))
             await update.message.reply_text(f"Service {text} added!")
         except sqlite3.IntegrityError: await update.message.reply_text(f"Service {text} already exists!")
         admin_panel_state[user_id] = "service_manager"
@@ -1199,15 +1202,15 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         service = data.get("pending_service_emoji")
         country = data.get("country")
         count = data.get("count")
-        db_exec("INSERT OR IGNORE INTO services (name, display_name, active, emoji_id) VALUES (?, ?, 1, ?)", (service, service, text))
+        await db_exec("INSERT OR IGNORE INTO services (name, display_name, active, emoji_id) VALUES (?, ?, 1, ?)", (service, service, text))
         if text:
-            db_exec("UPDATE services SET emoji_id = ? WHERE name = ?", (text, service))
+            await db_exec("UPDATE services SET emoji_id = ? WHERE name = ?", (text, service))
         
         msg = stock_added_message(country, service, count)
         await update.message.reply_text(msg, parse_mode='HTML', reply_markup=admin_panel_keyboard())
         
         broadcast_msg = stock_added_broadcast(country, service, count)
-        users = db_fetch_all("SELECT user_id FROM users")
+        users = await db_fetch_all("SELECT user_id FROM users")
         for user in users:
             try:
                 await context.bot.send_message(user[0], broadcast_msg, parse_mode='HTML')
@@ -1221,14 +1224,14 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return False
 
-# ==================== OTP DUPLICATE CHECK HELPER ====================
-def is_duplicate_otp(number, otp_code, current_ts_str):
+# ==================== OTP DUPLICATE CHECK HELPER (NOW ASYNC) ====================
+async def is_duplicate_otp(number, otp_code, current_ts_str):
     """Return True if a record with same number & otp exists with timestamp within 0.1 sec of current_ts_str."""
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
     except:
-        return False  # if can't parse, allow
-    rows = db_fetch_all("SELECT timestamp FROM otps WHERE number=? AND otp=? ORDER BY timestamp DESC LIMIT 1", (number, otp_code))
+        return False
+    rows = await db_fetch_all("SELECT timestamp FROM otps WHERE number=? AND otp=? ORDER BY timestamp DESC LIMIT 1", (number, otp_code))
     if not rows:
         return False
     last_ts_str = rows[0][0]
@@ -1252,7 +1255,7 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
         now = datetime.now()
         now_str = now.strftime("%Y-%m-%d %H:%M:%S")
         
-        active_rows = db_fetch_all(
+        active_rows = await db_fetch_all(
             "SELECT number, user_id, country, assigned_date FROM numbers WHERE status='active' AND expiry_time > ?",
             (now_str,))
         num_map = {}
@@ -1270,8 +1273,8 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
             if not number or not otp_code:
                 continue
             
-            # Time‑based duplicate check (allow if > 0.1 sec apart)
-            if is_duplicate_otp(number, otp_code, otp_timestamp_str):
+            # Fixed: await the async duplicate check
+            if await is_duplicate_otp(number, otp_code, otp_timestamp_str):
                 continue
             
             if number in num_map:
@@ -1294,14 +1297,14 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                         reward = parse_payout(payout_str)
                     except:
                         reward = 0.001
-                    db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
+                    await db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
                             (reward, user_id))
-                    db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
+                    await db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
                             (number, otp_code, message, otp_timestamp_str, user_id))
                     
                     flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
                     country_iso = country_data.get("iso", "").upper()
-                    svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE name=?", (service_name,))
+                    svc_row = await db_fetch_one("SELECT emoji_id FROM services WHERE name=?", (service_name,))
                     svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
                     
                     header = (
@@ -1331,20 +1334,20 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
 async def cleanup_expired_job(context: ContextTypes.DEFAULT_TYPE):
     try:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        db_exec("UPDATE numbers SET status = 'expired' WHERE expiry_time < ? AND status = 'active'", (now,))
-        db_exec("UPDATE users SET current_number=NULL, current_country=NULL, current_service=NULL, number_expiry=NULL WHERE number_expiry < ?", (now,))
+        await db_exec("UPDATE numbers SET status = 'expired' WHERE expiry_time < ? AND status = 'active'", (now,))
+        await db_exec("UPDATE users SET current_number=NULL, current_country=NULL, current_service=NULL, number_expiry=NULL WHERE number_expiry < ?", (now,))
     except Exception as e:
         print(f"Cleanup Error: {e}")
 
 # ==================== BOTTOM MENU TEXT ROUTERS ====================
 async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
+    await db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await update.message.reply_text("Select a Service:", reply_markup=services_keyboard())
 
 async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
+    user = await db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
     if not user:
         await update.message.reply_text("User not found.")
         return
@@ -1425,9 +1428,9 @@ def main():
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
     print("✅ Custom Emoji System Active")
-    print("✅ OTP API Polling Active (Time‑based duplicate check, Δt > 0.1s)")
-    print("🔄 Starting polling...")
-    application.run_polling(drop_pending_updates=True)
+    print("✅ OTP Duplicate Check Fixed (async, time‑based)")
+    print("🔄 Starting polling with concurrent updates...")
+    application.run_polling(drop_pending_updates=True, concurrent_updates=True)
 
 if __name__ == "__main__":
     main()
