@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Stable, Synchronous DB, All Fixes)
+# bot.py — RGX NUMBER BOT (Fully Fixed, All Features)
 
 import asyncio, json, os, re, sqlite3, threading
 from datetime import datetime, timedelta
@@ -610,6 +610,25 @@ async def show_withdraw(update: Update, user_id):
 
 async def show_support(update: Update):
     await reply_or_edit(update, "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, questions, or requests — contact admin directly.\n\nDeveloper: RGX NUMBER BOT", reply_markup=support_keyboard())
+
+# ==================== ADMIN COMMANDS ====================
+async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id in ADMIN_IDS:
+        admin_mode[user_id] = True
+        admin_panel_state[user_id] = "main"
+        await update.message.reply_text("ADMIN PANEL\n\nDeveloper: RGX NUMBER BOT\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
+    else:
+        await update.message.reply_text("Unauthorized access!")
+
+async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id in admin_mode:
+        admin_mode.pop(user_id, None)
+        admin_panel_state.pop(user_id, None)
+        await update.message.reply_text("Admin mode deactivated!", reply_markup=main_menu_keyboard(user_id))
+    else:
+        await update.message.reply_text("You're not in admin mode!")
 
 # ==================== ADMIN MENUS ====================
 async def admin_panel_menu(update: Update, user_id):
