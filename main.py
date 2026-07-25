@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Full Concurrent, Fixed Duplicate Check)
+# bot.py — RGX NUMBER BOT (Full Concurrent, Fixed Duplicate Check, No concurrent_updates arg)
 
 import asyncio, json, os, re, sqlite3
 from datetime import datetime, timedelta
@@ -24,7 +24,7 @@ ADMIN_IDS = [8744359777]
 OTP_GROUP_URL = "https://t.me/RHTOtp"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
 OTP_API_TOKEN = "e84466454aeadf8b442cc602d2b265d4"
-OTP_POLL_INTERVAL = 4  # seconds
+OTP_POLL_INTERVAL = 3  # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -1273,7 +1273,6 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
             if not number or not otp_code:
                 continue
             
-            # Fixed: await the async duplicate check
             if await is_duplicate_otp(number, otp_code, otp_timestamp_str):
                 continue
             
@@ -1429,8 +1428,8 @@ def main():
     print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
     print("✅ Custom Emoji System Active")
     print("✅ OTP Duplicate Check Fixed (async, time‑based)")
-    print("🔄 Starting polling with concurrent updates...")
-    application.run_polling(drop_pending_updates=True, concurrent_updates=True)
+    print("🔄 Starting polling...")
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
