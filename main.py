@@ -24,8 +24,8 @@ ADMIN_IDS = [8744359777]
 
 OTP_GROUP_URL = "https://t.me/RHTOtp"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
-OTP_API_TOKEN = "e84466454aeadf8b442cc602d2b265d4"
-OTP_POLL_INTERVAL = 4  # seconds
+OTP_API_TOKEN = "a2000cd1d6412ab52064fbdcff6d8e83"
+OTP_POLL_INTERVAL = 1  # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
