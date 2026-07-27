@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete Final – All Features, Fixed Upload)
+# bot.py — SR NUMBER HUB (Final, All Fixes & Features)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -20,12 +20,12 @@ from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
 BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
-ADMIN_IDS = [8744359777]
+SUPER_ADMIN_IDS = [8744359777]          # Only these can add/remove admins
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
-OTP_API_TOKEN = "f6323f11f0bb59b4e6be2cb92f1a63a8"
-OTP_POLL_INTERVAL = 1    # seconds
+OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
+OTP_POLL_INTERVAL = 1   # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -650,9 +650,12 @@ async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return True
     return False
 
-# ==================== ADMIN CHECK ====================
+# ==================== ADMIN CHECKS ====================
 def is_admin(user_id):
     return db_fetch_one("SELECT user_id FROM admins WHERE user_id=?", (user_id,)) is not None
+
+def is_super_admin(user_id):
+    return user_id in SUPER_ADMIN_IDS
 
 # ==================== SAFE EDIT ====================
 async def safe_edit_message(query, text, **kwargs):
@@ -662,7 +665,7 @@ async def safe_edit_message(query, text, **kwargs):
         if "Message is not modified" not in str(e):
             raise
 
-# ==================== REPLY OR EDIT (FIXED) ====================
+# ==================== REPLY OR EDIT ====================
 async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None):
     if isinstance(target, CallbackQuery):
         await safe_edit_message(target, text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -766,32 +769,56 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("You're not in admin mode!")
 
 async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("Only admins can use this command.")
+    user_id = update.effective_user.id
+    if not is_super_admin(user_id):
+        await update.message.reply_text("⛔ Only super admins can add new admins.")
         return
     if not context.args:
         await update.message.reply_text("Usage: /addadmin <user_id>")
         return
     try:
-        uid = int(context.args[0])
-        db_exec("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (uid,))
-        await update.message.reply_text(f"User {uid} added as admin.")
+        target_uid = int(context.args[0])
     except ValueError:
         await update.message.reply_text("Invalid user ID.")
+        return
+    db_exec("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (target_uid,))
+    await update.message.reply_text(f"✅ User {target_uid} has been added as an admin.")
 
 async def remove_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("Only admins can use this command.")
+    user_id = update.effective_user.id
+    if not is_super_admin(user_id):
+        await update.message.reply_text("⛔ Only super admins can remove admins.")
         return
     if not context.args:
         await update.message.reply_text("Usage: /removeadmin <user_id>")
         return
     try:
-        uid = int(context.args[0])
-        db_exec("DELETE FROM admins WHERE user_id=?", (uid,))
-        await update.message.reply_text(f"User {uid} removed from admins.")
+        target_uid = int(context.args[0])
     except ValueError:
         await update.message.reply_text("Invalid user ID.")
+        return
+    if target_uid in SUPER_ADMIN_IDS:
+        await update.message.reply_text("⛔ Cannot remove a super admin.")
+        return
+    db_exec("DELETE FROM admins WHERE user_id = ?", (target_uid,))
+    admin_mode.pop(target_uid, None)
+    admin_panel_state.pop(target_uid, None)
+    await update.message.reply_text(f"❌ User {target_uid} has been removed from admin list.")
+
+async def admin_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("Unauthorized.")
+        return
+    admins = db_fetch_all("SELECT user_id FROM admins")
+    if not admins:
+        await update.message.reply_text("No admins found.")
+        return
+    lines = ["**📋 Admin List:**\n"]
+    for (uid,) in admins:
+        super_label = " (Super)" if uid in SUPER_ADMIN_IDS else ""
+        lines.append(f"• {uid}{super_label}")
+    await update.message.reply_text("\n".join(lines))
 
 # ==================== ADMIN PANEL MENU ====================
 async def admin_panel_menu(update: Update, user_id):
@@ -933,7 +960,7 @@ async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await reply_or_edit(update, text, reply_markup=admin_back_button())
 
-# ==================== DATABASE DOWNLOAD/UPLOAD (unchanged) ====================
+# ==================== DATABASE DOWNLOAD/UPLOAD ====================
 async def database_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id): await update.callback_query.answer("Admin mode required!", show_alert=True); return
     kb = InlineKeyboardMarkup([
@@ -1996,7 +2023,7 @@ async def country_delete_direct(query, user_id, country_name):
         await query.answer("Country not found!", show_alert=True)
     await country_delete_select(query, user_id)
 
-# FIXED: single column layout for service selection after country add
+# ==================== SERVICE SELECTION AFTER COUNTRY ADD (SINGLE COLUMN) ====================
 async def country_add_service_selection(update: Update, user_id, country_name):
     services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     rows = []
@@ -2257,6 +2284,7 @@ def main():
     application.add_handler(CommandHandler("exitadmin", exit_admin_command))
     application.add_handler(CommandHandler("addadmin", add_admin_command))
     application.add_handler(CommandHandler("removeadmin", remove_admin_command))
+    application.add_handler(CommandHandler("adminlist", admin_list_command))
     application.add_handler(CommandHandler("country", group_country_command))
     application.add_handler(CommandHandler("service", group_service_command))
 
@@ -2312,7 +2340,7 @@ def main():
     for api_id in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
         asyncio.create_task(poll_api(api_id[0]))
 
-    print(f"✅ Admin IDs: {ADMIN_IDS}")
+    print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
     print(f"✅ Multi-admin, User Manager, Multi-API, Database active")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
