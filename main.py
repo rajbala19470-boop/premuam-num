@@ -19,7 +19,7 @@ from telegram.error import BadRequest
 from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"
+BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 ADMIN_IDS = [8744359777]
 
 OTP_GROUP_URL = "https://t.me/SROtpHUB"
