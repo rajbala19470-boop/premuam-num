@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete Final – All Features)
+# bot.py — SR NUMBER HUB (Complete Final – All Fixes)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile
 from datetime import datetime, timedelta
@@ -19,12 +19,12 @@ from telegram.error import BadRequest
 from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
+BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"
 ADMIN_IDS = [8744359777]
 
-OTP_GROUP_URL = "https://t.me/RgxOtp"
+OTP_GROUP_URL = "https://t.me/SROtpHUB"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
-OTP_API_TOKEN = "e84466454aeadf8b442cc602d2b265d4"
+OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
 OTP_POLL_INTERVAL = 1  # seconds
 
 MIN_WITHDRAW = 0.1  # USD
@@ -376,6 +376,11 @@ def db_fetch_all(query, params=()):
         c.execute(query, params)
         return c.fetchall()
 
+def ensure_user(user_id, username, first_name):
+    db_exec('''INSERT OR IGNORE INTO users (user_id, username, first_name, joined_date, last_active)
+               VALUES (?, ?, ?, ?, ?)''',
+            (user_id, username, first_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+
 def extract_country_from_filename(filename):
     try:
         name = filename.replace('.txt', '')
@@ -587,9 +592,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     username = update.effective_user.username
     first_name = update.effective_user.first_name or "User"
-    db_exec('''INSERT OR IGNORE INTO users (user_id, username, first_name, joined_date, last_active)
-               VALUES (?, ?, ?, ?, ?)''',
-            (user_id, username, first_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    ensure_user(user_id, username, first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
 
@@ -628,20 +631,20 @@ async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None):
 
 # ==================== MAIN MENU CALLBACKS ====================
 async def show_main_menu(update: Update, user_id, first_name):
+    ensure_user(user_id, update.effective_user.username, first_name)
     await reply_or_edit(update, welcome_html(user_id, first_name),
                         reply_markup=main_menu_keyboard(user_id), parse_mode='HTML')
 
 async def show_get_number(update: Update, context, user_id, first_name):
+    ensure_user(user_id, update.effective_user.username, first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await reply_or_edit(update, "Select a Service:", reply_markup=services_keyboard())
 
 async def show_balance(update: Update, user_id):
+    ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
     if not user:
-        if isinstance(update, CallbackQuery):
-            await update.answer("User not found.", show_alert=True)
-        else:
-            await update.message.reply_text("User not found.")
+        # should not happen after ensure_user
         return
     first_name, balance, withdrawn, total_otp = user
     balance = balance or 0.0
@@ -663,7 +666,11 @@ async def show_balance(update: Update, user_id):
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML')
 
 async def show_withdraw(update: Update, user_id):
-    balance = db_fetch_one("SELECT balance FROM users WHERE user_id = ?", (user_id,))[0] or 0.0
+    ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
+    balance = db_fetch_one("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    if not balance:
+        return
+    balance = balance[0] or 0.0
     if balance >= MIN_WITHDRAW:
         text = (
             f'{emoji_tag("4956290155326473271", "📞")} PLEASE CONTACT TO ADMIN {emoji_tag("4956420911310832630", "👨‍💼")}\n\n'
@@ -799,22 +806,6 @@ async def um_search_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     admin_panel_state[user_id] = "um_searching"
     await reply_or_edit(update, "Send the user ID or username to search.", reply_markup=admin_cancel_keyboard())
 
-async def um_search_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text.strip()
-    if not is_admin(user_id):
-        return
-    # Search by user_id first, then by username
-    user = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=? OR username=?", (text, text))
-    if not user:
-        # Try numeric only
-        if text.isdigit():
-            user = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=?", (int(text),))
-    if not user:
-        await update.message.reply_text("User not found.")
-        return
-    await show_user_detail(update, context, user)
-
 async def show_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, user_data):
     uid, first_name, username, balance, withdrawn, total_otp, banned, joined, last_active = user_data
     balance = balance or 0.0
@@ -853,32 +844,6 @@ async def um_edit_balance_prompt(query, user_id, context: ContextTypes.DEFAULT_T
     admin_panel_state[user_id] = "um_editbal"
     admin_temp_data[user_id] = {"target_uid": target_uid}
     await query.edit_message_text("Send amount to add/subtract (e.g., +0.5 or -0.2) and optional reason.", reply_markup=admin_cancel_keyboard())
-
-async def um_edit_balance_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not is_admin(user_id): return
-    text = update.message.text.strip()
-    data = admin_temp_data.pop(user_id, {})
-    target_uid = data.get("target_uid")
-    if not target_uid:
-        await update.message.reply_text("Session expired.")
-        return
-    try:
-        parts = text.split(' ', 1)
-        amount_str = parts[0]
-        amount = float(amount_str)
-    except ValueError:
-        await update.message.reply_text("Invalid amount. Use format: +0.5 or -0.2")
-        return
-    current = db_fetch_one("SELECT balance FROM users WHERE user_id=?", (target_uid,))
-    if not current:
-        await update.message.reply_text("User not found.")
-        return
-    new_balance = (current[0] or 0.0) + amount
-    db_exec("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, target_uid))
-    await update.message.reply_text(f"Balance updated for {target_uid}. New balance: ${new_balance:.3f}")
-    admin_panel_state[user_id] = "main"
-    await admin_panel_menu(update, user_id)
 
 async def um_ban_toggle(query, user_id, context: ContextTypes.DEFAULT_TYPE):
     target_uid = query.data.split('|')[1]
@@ -1446,20 +1411,20 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"Error: {e}")
         admin_panel_state[user_id] = "main"
 
-# ==================== ADMIN TEXT HANDLER (BROADCAST FIX) ====================
+# ==================== ADMIN TEXT HANDLER (FIXED BROADCAST & STATE-BASED SEARCH) ====================
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
-    if not is_admin(user_id): return False
-    text = update.message.text.strip()
-    
+    if not is_admin(user_id):
+        return False
+
+    # Broadcast state accepts any message type
     if state == "waiting_broadcast":
         msg = update.message
         users = db_fetch_all("SELECT user_id FROM users WHERE banned=0")
         sent = 0
         for u in users:
             try:
-                # Copy any message type (text, voice, video, image, document, etc.)
                 await msg.copy(chat_id=u[0])
                 sent += 1
                 await asyncio.sleep(0.05)
@@ -1468,16 +1433,61 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         admin_panel_state[user_id] = "main"
         await msg.reply_text(f"Broadcast sent to {sent} users!", reply_markup=admin_panel_keyboard())
         return True
-    
-    elif state == "waiting_giveaway":
+
+    # For all other states, we only process text messages
+    if not update.message or not update.message.text:
+        return False
+
+    text = update.message.text.strip()
+
+    # Search user state
+    if state == "um_searching":
+        user = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=? OR username=?", (text, text))
+        if not user and text.isdigit():
+            user = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=?", (int(text),))
+        if not user:
+            await update.message.reply_text("User not found.")
+            return True
+        admin_panel_state[user_id] = "user_manager"   # back to user manager after viewing
+        await show_user_detail(update, context, user)
+        return True
+
+    # Edit balance state
+    if state == "um_editbal":
+        data = admin_temp_data.pop(user_id, {})
+        target_uid = data.get("target_uid")
+        if not target_uid:
+            await update.message.reply_text("Session expired.")
+            return True
+        try:
+            parts = text.split(' ', 1)
+            amount_str = parts[0]
+            amount = float(amount_str)
+        except ValueError:
+            await update.message.reply_text("Invalid amount. Use format: +0.5 or -0.2")
+            return True
+        current = db_fetch_one("SELECT balance FROM users WHERE user_id=?", (target_uid,))
+        if not current:
+            await update.message.reply_text("User not found.")
+            return True
+        new_balance = (current[0] or 0.0) + amount
+        db_exec("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, target_uid))
+        await update.message.reply_text(f"Balance updated for {target_uid}. New balance: ${new_balance:.3f}")
+        admin_panel_state[user_id] = "main"
+        await admin_panel_menu(update, user_id)
+        return True
+
+    # Other states
+    if state == "waiting_giveaway":
         parts = text.split()
         try:
             target, count = int(parts[0]), int(parts[1]) if len(parts) > 1 else 1
             await update.message.reply_text(f"Given {count} free account(s) to {target}.", reply_markup=admin_panel_keyboard())
             admin_panel_state[user_id] = "main"
-        except: await update.message.reply_text("Invalid format!")
+        except:
+            await update.message.reply_text("Invalid format!")
         return True
-    
+
     elif state == "waiting_country_add":
         try:
             parts = [p.strip() for p in text.split('|')]
@@ -1490,7 +1500,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return True
         except Exception as e: await update.message.reply_text(f"Error: {e}")
         return True
-    
+
     elif state == "waiting_country_edit":
         if text.strip() == "/skip":
             admin_panel_state[user_id] = "country_manager"
@@ -1510,7 +1520,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await country_manager_menu(update, user_id)
         except Exception as e: await update.message.reply_text(f"Error: {e}")
         return True
-    
+
     elif state == "waiting_service_name":
         try:
             db_exec("INSERT INTO services (name, display_name, active, emoji_id) VALUES (?, ?, 1, '')", (text, text))
@@ -1519,10 +1529,10 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         admin_panel_state[user_id] = "service_manager"
         await service_manager_menu(update, user_id)
         return True
-    
+
     elif state == "waiting_service_emoji":
         return await handle_service_emoji_set(update, context)
-    
+
     elif state == "waiting_service_emoji_upload":
         if text.strip() == "/skip": text = ""
         data = admin_temp_data.get(user_id, {})
@@ -1532,23 +1542,20 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_exec("INSERT OR IGNORE INTO services (name, display_name, active, emoji_id) VALUES (?, ?, 1, ?)", (service, service, text))
         if text:
             db_exec("UPDATE services SET emoji_id = ? WHERE name = ?", (text, service))
-        
         msg = stock_added_message(country, service, count)
         await update.message.reply_text(msg, parse_mode='HTML', reply_markup=admin_panel_keyboard())
-        
         broadcast_msg = stock_added_broadcast(country, service, count)
         users = db_fetch_all("SELECT user_id FROM users")
-        for user in users:
+        for u in users:
             try:
-                await context.bot.send_message(user[0], broadcast_msg, parse_mode='HTML')
+                await context.bot.send_message(u[0], broadcast_msg, parse_mode='HTML')
                 await asyncio.sleep(0.05)
             except Exception:
                 continue
-        
         admin_panel_state[user_id] = "main"
         admin_temp_data.pop(user_id, None)
         return True
-    
+
     return False
 
 # ==================== OTP DUPLICATE CHECK ====================
@@ -1819,14 +1826,15 @@ async def group_service_command(update: Update, context: ContextTypes.DEFAULT_TY
 # ==================== BOTTOM MENU TEXT ROUTERS ====================
 async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await update.message.reply_text("Select a Service:", reply_markup=services_keyboard())
 
 async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
     if not user:
-        await update.message.reply_text("User not found.")
         return
     first_name, balance, withdrawn, total_otp = user
     balance = balance or 0.0
@@ -1906,11 +1914,9 @@ def main():
     application.add_handler(CallbackQueryHandler(lambda u,c: um_edit_balance_prompt(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_editbal\|"))
     application.add_handler(CallbackQueryHandler(lambda u,c: um_ban_toggle(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_ban\|"))
     application.add_handler(CallbackQueryHandler(lambda u,c: user_manager_menu(u,c,u.callback_query.from_user.id), pattern="^um_back$"))
-    # Broadcast: handle ANY message when state is waiting_broadcast
+    # Broadcast: handle ALL message types when state is waiting_broadcast
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file_upload))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, um_search_execute), group=2)
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, um_edit_balance_execute), group=2)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
     
