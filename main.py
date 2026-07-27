@@ -25,13 +25,13 @@ ADMIN_IDS = [8744359777]
 OTP_GROUP_URL = "https://t.me/SRotpHub"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
 OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
-OTP_POLL_INTERVAL = 0.56  # seconds
+OTP_POLL_INTERVAL = 4  # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
 # Admin contacts
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
-ADMIN_TELEGRAM = "t.me/WONER_OF_RHT"
+ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 
 # Second admin contacts (fill later)
 ADMIN2_WHATSAPP = ""
@@ -1834,11 +1834,11 @@ def format_group_otp(entry):
     text = f"{prefix_tag} {country_display} | {service_display} {masked}"
     
     otp_btn = InlineKeyboardButton(
-        "𝐎𝐓𝐏",
-        copy_text=CopyTextButton(text=otp_code),
-        style=KBS.SUCCESS,
-        icon_custom_emoji_id=EMOJI_OTP_BUTTON
-    )
+    otp_code,                                   # ← OTP কোড দেখাবে
+    copy_text=CopyTextButton(text=otp_code),    # কপি হবে OTP কোড-ই
+    style=KBS.SUCCESS,
+    icon_custom_emoji_id=EMOJI_OTP_BUTTON
+)
     channel_btn = InlineKeyboardButton(
         "𝐂𝐇𝐀𝐍𝐍𝐄𝐋", url=CHANNEL_URL,
         style=KBS.PRIMARY,
