@@ -1,6 +1,6 @@
-# bot.py — RGX NUMBER BOT (Final, All Fixes + Remove/Add CC + Live Service)
+# bot.py — RGX NUMBER BOT (Complete Final – All Features)
 
-import asyncio, json, os, re, sqlite3, threading
+import asyncio, json, os, re, sqlite3, threading, tempfile
 from datetime import datetime, timedelta
 
 import requests
@@ -19,18 +19,28 @@ from telegram.error import BadRequest
 from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8208003630:AAE9PGWAetvkB2SDcOigYS5Yjfo7UzqUvN4"
+BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 ADMIN_IDS = [8744359777]
 
-OTP_GROUP_URL = "https://t.me/RHTOtp"
+OTP_GROUP_URL = "https://t.me/RgxOtp"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
-OTP_API_TOKEN = "a2000cd1d6412ab52064fbdcff6d8e83"
-OTP_POLL_INTERVAL = 1  # seconds
+OTP_API_TOKEN = "e84466454aeadf8b442cc602d2b265d4"
+OTP_POLL_INTERVAL = 4  # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
+# Admin contacts
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/WONER_OF_RHT"
+
+# Second admin contacts (fill later, empty = not shown)
+ADMIN2_WHATSAPP = ""
+ADMIN2_TELEGRAM = ""
+
+# Group OTP settings
+GROUP_ID = -1004380384761
+CHANNEL_URL = "https://t.me/your_channel"
+BOT_URL = "https://t.me/your_bot"
 
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
@@ -49,7 +59,8 @@ c.execute('''CREATE TABLE IF NOT EXISTS users
               current_number TEXT DEFAULT NULL, current_country TEXT DEFAULT NULL,
               current_service TEXT DEFAULT NULL, number_expiry TEXT DEFAULT NULL,
               last_menu_message_id INTEGER DEFAULT NULL,
-              remove_cc INTEGER DEFAULT 0)''')
+              remove_cc INTEGER DEFAULT 0,
+              banned INTEGER DEFAULT 0)''')
 
 c.execute('''CREATE TABLE IF NOT EXISTS numbers
              (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, number TEXT,
@@ -78,7 +89,14 @@ c.execute('''CREATE TABLE IF NOT EXISTS services
              (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE,
               display_name TEXT, active INTEGER DEFAULT 1, emoji_id TEXT DEFAULT '')''')
 
-# Add balance columns and remove_cc if not present
+c.execute('''CREATE TABLE IF NOT EXISTS admins
+             (user_id INTEGER PRIMARY KEY)''')
+c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (8744359777)")
+
+c.execute('''CREATE TABLE IF NOT EXISTS group_emojis
+             (type TEXT, key TEXT, emoji_id TEXT, PRIMARY KEY(type, key))''')
+
+# Add missing columns
 try:
     c.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0")
 except sqlite3.OperationalError:
@@ -93,6 +111,10 @@ except sqlite3.OperationalError:
     pass
 try:
     c.execute("ALTER TABLE users ADD COLUMN remove_cc INTEGER DEFAULT 0")
+except sqlite3.OperationalError:
+    pass
+try:
+    c.execute("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0")
 except sqlite3.OperationalError:
     pass
 try:
@@ -111,7 +133,7 @@ print("✅ Database setup completed")
 admin_mode = {}
 admin_panel_state = {}
 admin_temp_data = {}
-last_activation_data = {}   # user_id -> (country, service, numbers, message_id)
+last_activation_data = {}
 
 def safe_url(url: str) -> str | None:
     if url and isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("tg://")):
@@ -192,7 +214,7 @@ def bottom_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
             KeyboardButton(BTN_SUPPORT, style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SUPPORT", "")))
         ],
     ]
-    if user_id in ADMIN_IDS:
+    if is_admin(user_id):
         rows.append([KeyboardButton(BTN_ADMIN, style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADMIN", "")))])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True,
                                input_field_placeholder="Choose an option...")
@@ -208,15 +230,28 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
         ],
     ] + ([
         [InlineKeyboardButton("Admin Panel", callback_data="menu_admin", style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADMIN", "")))],
-    ] if user_id in ADMIN_IDS else []))
+    ] if is_admin(user_id) else []))
 
 def back_to_main_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))),
     ]])
 
+def number_action_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
+            InlineKeyboardButton("Change Service", callback_data="back_to_services", style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
+        ],
+        [
+            InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("JOIN_OTP_GROUP", ""))),
+        ],
+        [
+            InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("HOME", ""))),
+        ],
+    ])
+
 def services_keyboard() -> InlineKeyboardMarkup:
-    """Show all active services (2 per row)."""
     services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     if not services:
         return back_to_main_keyboard()
@@ -240,7 +275,6 @@ def services_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 def countries_for_service_keyboard(service: str) -> InlineKeyboardMarkup:
-    """Show countries that have stock for a given service."""
     countries = db_fetch_all(
         "SELECT name, stock FROM countries WHERE service = ? AND active = 1 AND stock > 0 ORDER BY name",
         (service,)
@@ -264,18 +298,28 @@ def countries_for_service_keyboard(service: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 def support_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Contact Admin Support", url="t.me/BloodyV0id", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CONTACT_SUPPORT", "")))],
-        [InlineKeyboardButton("Home", callback_data="back_to_menu", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("HOME", "")))]
-    ])
+    buttons = []
+    if ADMIN_WHATSAPP:
+        buttons.append(InlineKeyboardButton("Admin WH", url=ADMIN_WHATSAPP, style=KBS.SUCCESS,
+                                            icon_custom_emoji_id=safe_icon("5334998226636390258")))
+    if ADMIN_TELEGRAM:
+        buttons.append(InlineKeyboardButton("Admin TG", url=ADMIN_TELEGRAM, style=KBS.PRIMARY,
+                                            icon_custom_emoji_id=safe_icon("5330237710655306682")))
+    if ADMIN2_WHATSAPP:
+        buttons.append(InlineKeyboardButton("Admin2 WH", url=ADMIN2_WHATSAPP, style=KBS.SUCCESS,
+                                            icon_custom_emoji_id=safe_icon("5334998226636390258")))
+    if ADMIN2_TELEGRAM:
+        buttons.append(InlineKeyboardButton("Admin2 TG", url=ADMIN2_TELEGRAM, style=KBS.PRIMARY,
+                                            icon_custom_emoji_id=safe_icon("5330237710655306682")))
+    if not buttons:
+        buttons = [InlineKeyboardButton("No support available", callback_data="noop")]
+    return InlineKeyboardMarkup([buttons])
 
 def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Statistics", callback_data="admin_stats", style=KBS.PRIMARY,
-                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("STATS", ""))),
+            InlineKeyboardButton("User Manager", callback_data="admin_user_manager", style=KBS.PRIMARY,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("USER_MANAGER", ""))),
             InlineKeyboardButton("Upload Stock", callback_data="admin_upload", style=KBS.SUCCESS,
                                  icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("UPLOAD", ""))),
         ],
@@ -444,7 +488,6 @@ def get_numbers_from_stock(country, service, count=3):
 def format_numbers_message(country, service, numbers, user_id=None, first_name=None):
     if first_name is None:
         first_name = "User"
-    # Get user's remove_cc state
     remove_cc = 0
     if user_id:
         row = db_fetch_one("SELECT remove_cc FROM users WHERE user_id = ?", (user_id,))
@@ -464,7 +507,7 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
         display_num = number
         copy_num = number
         if remove_cc == 1 and country_code and number.startswith(country_code):
-            display_num = number[len(country_code):]  # remove country code
+            display_num = number[len(country_code):]
             copy_num = display_num
         rows.append([InlineKeyboardButton(
             text=display_num,
@@ -473,7 +516,6 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
             icon_custom_emoji_id=safe_icon(flag_eid)
         )])
 
-    # REMOVE CC / ADD CC button
     if remove_cc == 1:
         cc_button = InlineKeyboardButton("ADD CC", callback_data="toggle_cc",
                                          style=KBS.SUCCESS,
@@ -484,7 +526,6 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
                                          icon_custom_emoji_id=safe_icon("4956337889593000947"))
     rows.append([cc_button])
 
-    # New Number & Change Service (styles change when remove_cc=1)
     new_style = KBS.DANGER if remove_cc == 1 else KBS.SUCCESS
     change_style = KBS.DANGER if remove_cc == 1 else KBS.SUCCESS
     rows.append([
@@ -493,7 +534,6 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
         InlineKeyboardButton("Change Service", callback_data="back_to_services", style=change_style,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
     ])
-    # OTP Group button style change when remove_cc
     otp_style = KBS.PRIMARY if remove_cc == 1 else KBS.DANGER
     rows.append([
         InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=otp_style,
@@ -544,6 +584,8 @@ def welcome_html(user_id, first_name):
 # ==================== /start COMMAND ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    if await ban_check(update, context):
+        return
     username = update.effective_user.username
     first_name = update.effective_user.first_name or "User"
     db_exec('''INSERT OR IGNORE INTO users (user_id, username, first_name, joined_date, last_active)
@@ -551,6 +593,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (user_id, username, first_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
+
+# ==================== BAN CHECK ====================
+async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    banned = db_fetch_one("SELECT banned FROM users WHERE user_id=?", (user_id,))
+    if banned and banned[0]:
+        await update.message.reply_text(
+            "🚫 You are banned from using this bot. Contact support if you think this is a mistake.",
+            reply_markup=support_keyboard()
+        )
+        return True
+    return False
+
+# ==================== ADMIN CHECK ====================
+def is_admin(user_id):
+    return db_fetch_one("SELECT user_id FROM admins WHERE user_id=?", (user_id,)) is not None
 
 # ==================== SAFE EDIT ====================
 async def safe_edit_message(query, text, **kwargs):
@@ -562,13 +620,11 @@ async def safe_edit_message(query, text, **kwargs):
 
 # ==================== REPLY OR EDIT (FIXED) ====================
 async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None):
-    """target can be Update or CallbackQuery"""
     if isinstance(target, CallbackQuery):
         await safe_edit_message(target, text, reply_markup=reply_markup, parse_mode=parse_mode)
     elif hasattr(target, 'callback_query') and target.callback_query:
         await safe_edit_message(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode)
     else:
-        # Assume it's an Update with a message
         await target.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
 # ==================== MAIN MENU CALLBACKS ====================
@@ -614,12 +670,20 @@ async def show_withdraw(update: Update, user_id):
             f'{emoji_tag("4956290155326473271", "📞")} PLEASE CONTACT TO ADMIN {emoji_tag("4956420911310832630", "👨‍💼")}\n\n'
             f'{emoji_tag("4958926882994127612", "💰")} BALANCE: ${balance:.3f}\n'
         )
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("ADMIN WH", url=ADMIN_WHATSAPP, style=KBS.SUCCESS,
-                                  icon_custom_emoji_id=safe_icon("5334998226636390258"))],
-            [InlineKeyboardButton("ADMIN TG", url=ADMIN_TELEGRAM, style=KBS.PRIMARY,
-                                  icon_custom_emoji_id=safe_icon("5330237710655306682"))]
-        ])
+        kb_buttons = []
+        if ADMIN_WHATSAPP:
+            kb_buttons.append([InlineKeyboardButton("ADMIN WH", url=ADMIN_WHATSAPP, style=KBS.SUCCESS,
+                                                    icon_custom_emoji_id=safe_icon("5334998226636390258"))])
+        if ADMIN_TELEGRAM:
+            kb_buttons.append([InlineKeyboardButton("ADMIN TG", url=ADMIN_TELEGRAM, style=KBS.PRIMARY,
+                                                    icon_custom_emoji_id=safe_icon("5330237710655306682"))])
+        if ADMIN2_WHATSAPP:
+            kb_buttons.append([InlineKeyboardButton("ADMIN2 WH", url=ADMIN2_WHATSAPP, style=KBS.SUCCESS,
+                                                    icon_custom_emoji_id=safe_icon("5334998226636390258"))])
+        if ADMIN2_TELEGRAM:
+            kb_buttons.append([InlineKeyboardButton("ADMIN2 TG", url=ADMIN2_TELEGRAM, style=KBS.PRIMARY,
+                                                    icon_custom_emoji_id=safe_icon("5330237710655306682"))])
+        kb = InlineKeyboardMarkup(kb_buttons) if kb_buttons else None
     else:
         need = round(MIN_WITHDRAW - balance, 3)
         text = (
@@ -638,7 +702,7 @@ async def show_support(update: Update):
 # ==================== ADMIN COMMANDS ====================
 async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id in ADMIN_IDS:
+    if is_admin(user_id):
         admin_mode[user_id] = True
         admin_panel_state[user_id] = "main"
         await update.message.reply_text("ADMIN PANEL\n\nDeveloper: RGX NUMBER BOT\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
@@ -654,9 +718,37 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await update.message.reply_text("You're not in admin mode!")
 
-# ==================== ADMIN MENUS ====================
+async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Only admins can use this command.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /addadmin <user_id>")
+        return
+    try:
+        uid = int(context.args[0])
+        db_exec("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (uid,))
+        await update.message.reply_text(f"User {uid} added as admin.")
+    except ValueError:
+        await update.message.reply_text("Invalid user ID.")
+
+async def remove_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Only admins can use this command.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /removeadmin <user_id>")
+        return
+    try:
+        uid = int(context.args[0])
+        db_exec("DELETE FROM admins WHERE user_id=?", (uid,))
+        await update.message.reply_text(f"User {uid} removed from admins.")
+    except ValueError:
+        await update.message.reply_text("Invalid user ID.")
+
+# ==================== ADMIN PANEL MENU ====================
 async def admin_panel_menu(update: Update, user_id):
-    if user_id not in ADMIN_IDS:
+    if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
             await update.answer("Unauthorized!", show_alert=True)
         else:
@@ -666,45 +758,154 @@ async def admin_panel_menu(update: Update, user_id):
     admin_panel_state[user_id] = "main"
     await reply_or_edit(update, "ADMIN PANEL\n\nDeveloper: RGX NUMBER BOT\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
 
-async def country_manager_menu(update: Update, user_id):
-    if user_id not in admin_mode:
-        if isinstance(update, CallbackQuery):
-            await update.answer("Admin mode required!", show_alert=True)
-        return
-    admin_panel_state[user_id] = "country_manager"
-    rows = [
-        [InlineKeyboardButton("Add New Country", callback_data="country_add", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", "")))],
-        [InlineKeyboardButton("List All Countries", callback_data="country_list", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", "")))],
-        [InlineKeyboardButton("Edit Country", callback_data="country_edit_select", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", "")))],
-        [InlineKeyboardButton("Delete Country", callback_data="country_delete_select", style=KBS.DANGER,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))],
-        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
-    ]
-    await reply_or_edit(update, "COUNTRY MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows))
+# ==================== USER MANAGER ====================
+def generate_user_list_text():
+    users = db_fetch_all("SELECT user_id, first_name, balance, withdrawn, total_otp, banned FROM users ORDER BY user_id")
+    lines = []
+    for u in users:
+        uid, first_name, balance, withdrawn, total_otp, banned = u
+        balance = balance or 0.0
+        withdrawn = withdrawn or 0.0
+        total_otp = total_otp or 0
+        status = "Banned" if banned else "Active"
+        lines.append(f"{first_name} | {uid} | ${balance:.3f} | ${withdrawn:.3f} | {total_otp} | {status}")
+    return '\n'.join(lines)
 
-async def service_manager_menu(update: Update, user_id):
-    if user_id not in admin_mode:
-        if isinstance(update, CallbackQuery):
-            await update.answer("Admin mode required!", show_alert=True)
+async def send_user_list_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = generate_user_list_text()
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+        f.write(text)
+        f.flush()
+        await update.message.reply_document(document=open(f.name, 'rb'), filename="USER_DATA.txt")
+    os.unlink(f.name)
+
+async def user_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    if not is_admin(user_id):
+        await update.callback_query.answer("Admin mode required!", show_alert=True)
         return
-    admin_panel_state[user_id] = "service_manager"
-    rows = [
-        [InlineKeyboardButton("Add New Service", callback_data="service_add", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD", "")))],
-        [InlineKeyboardButton("Remove Service", callback_data="service_remove", style=KBS.DANGER,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))],
-        [InlineKeyboardButton("Toggle Service Active", callback_data="service_toggle", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon("4956583802240500602"))],
-        [InlineKeyboardButton("Set Service Emoji", callback_data="service_set_emoji", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon("4956214413578207998"))],
-        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
+    admin_panel_state[user_id] = "user_manager"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Search User", callback_data="um_search", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("SEARCH_USER", "")))],
+        [InlineKeyboardButton("Download User List", callback_data="um_download", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DOWNLOAD_LIST", "")))],
+        [InlineKeyboardButton("Stats Overview", callback_data="um_stats", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("STATS", "")))],
+        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.DANGER,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
-    ]
-    await reply_or_edit(update, "SERVICE MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows))
+    ])
+    await reply_or_edit(update, "USER MANAGER\n\nSelect an option:", reply_markup=kb)
+
+async def um_search_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    admin_panel_state[user_id] = "um_searching"
+    await reply_or_edit(update, "Send the user ID or username to search.", reply_markup=admin_cancel_keyboard())
+
+async def um_search_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+    if not is_admin(user_id): return
+    user = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=? OR username=?", (text, text))
+    if not user:
+        await update.message.reply_text("User not found.")
+        return
+    await show_user_detail(update, context, user)
+
+async def show_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, user_data):
+    uid, first_name, username, balance, withdrawn, total_otp, banned, joined, last_active = user_data
+    balance = balance or 0.0
+    withdrawn = withdrawn or 0.0
+    total_otp = total_otp or 0
+    status = "Banned" if banned else "Active"
+    since = (datetime.now() - timedelta(minutes=20)).strftime("%Y-%m-%d %H:%M:%S")
+    recent = db_fetch_all("SELECT number, service FROM numbers WHERE user_id=? AND assigned_date > ? ORDER BY assigned_date DESC LIMIT 10", (uid, since))
+    recent_str = "\n".join([f"  • {num} ({svc})" for num, svc in recent]) if recent else "  None"
+    text = (
+        f"Name: {first_name}\n"
+        f"ID: {uid}\n"
+        f"Username: @{username or 'N/A'}\n"
+        f"Balance: ${balance:.3f}\n"
+        f"Withdrawn: ${withdrawn:.3f}\n"
+        f"Total OTP: {total_otp}\n"
+        f"Status: {status}\n"
+        f"Joined: {joined}\n"
+        f"Last Active: {last_active}\n\n"
+        f"📱 Recent Numbers (20 min):\n{recent_str}"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Edit Balance", callback_data=f"um_editbal|{uid}", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", "")))],
+        [InlineKeyboardButton("Ban" if not banned else "Unban", callback_data=f"um_ban|{uid}", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BAN_USER", "")))],
+        [InlineKeyboardButton("Back", callback_data="um_back", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
+    ])
+    await reply_or_edit(update, text, reply_markup=kb)
+
+async def um_edit_balance_prompt(query, user_id, context: ContextTypes.DEFAULT_TYPE):
+    target_uid = query.data.split('|')[1]
+    admin_panel_state[user_id] = "um_editbal"
+    admin_temp_data[user_id] = {"target_uid": target_uid}
+    await query.edit_message_text("Send amount to add/subtract (e.g., +0.5 or -0.2) and optional reason.", reply_markup=admin_cancel_keyboard())
+
+async def um_edit_balance_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id): return
+    text = update.message.text.strip()
+    data = admin_temp_data.pop(user_id, {})
+    target_uid = data.get("target_uid")
+    if not target_uid:
+        await update.message.reply_text("Session expired.")
+        return
+    try:
+        parts = text.split(' ', 1)
+        amount_str = parts[0]
+        amount = float(amount_str)
+    except ValueError:
+        await update.message.reply_text("Invalid amount. Use format: +0.5 or -0.2")
+        return
+    current = db_fetch_one("SELECT balance FROM users WHERE user_id=?", (target_uid,))
+    if not current:
+        await update.message.reply_text("User not found.")
+        return
+    new_balance = (current[0] or 0.0) + amount
+    db_exec("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, target_uid))
+    await update.message.reply_text(f"Balance updated for {target_uid}. New balance: ${new_balance:.3f}")
+    admin_panel_state[user_id] = "main"
+    await admin_panel_menu(update, user_id)
+
+async def um_ban_toggle(query, user_id, context: ContextTypes.DEFAULT_TYPE):
+    target_uid = query.data.split('|')[1]
+    if not is_admin(user_id): return
+    user = db_fetch_one("SELECT banned FROM users WHERE user_id=?", (target_uid,))
+    if not user:
+        await query.answer("User not found.")
+        return
+    new_ban = 0 if user[0] else 1
+    db_exec("UPDATE users SET banned = ? WHERE user_id = ?", (new_ban, target_uid))
+    await query.answer(f"User {'banned' if new_ban else 'unbanned'}!")
+    if new_ban:
+        try:
+            await context.bot.send_message(target_uid, "🚫 You have been banned from using this bot. Contact support if you think this is a mistake.")
+        except:
+            pass
+    user_data = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=?", (target_uid,))
+    if user_data:
+        await show_user_detail(query, context, user_data)
+
+async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total = db_fetch_one("SELECT COUNT(*) FROM users")[0]
+    banned = db_fetch_one("SELECT COUNT(*) FROM users WHERE banned=1")[0]
+    active = total - banned
+    today = datetime.now().strftime("%Y-%m-%d")
+    today_otp = db_fetch_one("SELECT COUNT(*) FROM otps WHERE timestamp LIKE ?", (f"{today}%",))[0] or 0
+    text = (
+        f"📊 User Statistics\n"
+        f"Total Users: {total}\n"
+        f"Active: {active}\n"
+        f"Banned: {banned}\n"
+        f"Today's OTP: {today_otp}\n"
+    )
+    await reply_or_edit(update, text, reply_markup=admin_back_button())
 
 # ==================== CALLBACK HANDLERS ====================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -744,16 +945,12 @@ async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
-
-    # Toggle remove_cc in DB
     row = db_fetch_one("SELECT remove_cc FROM users WHERE user_id = ?", (user_id,))
     if row:
         new_val = 0 if row[0] == 1 else 1
         db_exec("UPDATE users SET remove_cc = ? WHERE user_id = ?", (new_val, user_id))
     else:
         new_val = 0
-
-    # Re-fetch last activation data
     data = last_activation_data.get(user_id)
     if not data:
         await safe_edit_message(query, "No active numbers to display.", reply_markup=back_to_main_keyboard())
@@ -864,10 +1061,7 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    if user_id in ADMIN_IDS and user_id not in admin_mode:
-        admin_mode[user_id] = True
-        admin_panel_state[user_id] = "main"
-    if user_id not in admin_mode:
+    if not is_admin(user_id):
         await query.answer("Admin mode required!", show_alert=True)
         return
     await query.answer()
@@ -889,6 +1083,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "giveaway": await request_giveaway(update, user_id)
     elif action == "country_manager": await country_manager_menu(update, user_id)
     elif action == "service_manager": await service_manager_menu(update, user_id)
+    elif action == "user_manager": await user_manager_menu(update, context, user_id)
     elif action == "exit": await exit_admin_callback_query(query, user_id, context.bot)
     elif action == "back":
         admin_panel_state[user_id] = "main"
@@ -944,7 +1139,7 @@ async def request_upload(update: Update, user_id):
 
 async def request_broadcast(update: Update, user_id):
     admin_panel_state[user_id] = "waiting_broadcast"
-    await reply_or_edit(update, "BROADCAST MESSAGE\n\nSend the message you want to broadcast to ALL users.", reply_markup=admin_cancel_keyboard())
+    await reply_or_edit(update, "BROADCAST MESSAGE\n\nSend the message you want to broadcast to ALL users (any media or text).", reply_markup=admin_cancel_keyboard())
 
 async def request_giveaway(update: Update, user_id):
     admin_panel_state[user_id] = "waiting_giveaway"
@@ -959,15 +1154,30 @@ async def exit_admin_callback_query(query, user_id, bot):
     except Exception:
         await bot.send_message(user_id, "Returned to main menu.", reply_markup=main_menu_keyboard(user_id))
 
-# ==================== COUNTRY CALLBACKS ====================
+# ==================== COUNTRY & SERVICE CALLBACKS (unchanged except added multi-admin check) ====================
+async def country_manager_menu(update: Update, user_id):
+    if not is_admin(user_id): await update.callback_query.answer("Admin mode required!", show_alert=True); return
+    admin_panel_state[user_id] = "country_manager"
+    rows = [
+        [InlineKeyboardButton("Add New Country", callback_data="country_add", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", "")))],
+        [InlineKeyboardButton("List All Countries", callback_data="country_list", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", "")))],
+        [InlineKeyboardButton("Edit Country", callback_data="country_edit_select", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("COUNTRY_MANAGER", "")))],
+        [InlineKeyboardButton("Delete Country", callback_data="country_delete_select", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))],
+        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
+    ]
+    await reply_or_edit(update, "COUNTRY MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows))
+
 async def country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    data = query.data
-    if user_id not in admin_mode:
-        await query.answer("Admin mode required!", show_alert=True)
-        return
+    if not is_admin(user_id): await query.answer("Admin mode required!", show_alert=True); return
     await query.answer()
+    data = query.data
     if data == "country_add":
         await country_add_start(update, user_id)
     elif data == "country_list":
@@ -1027,7 +1237,7 @@ async def country_delete_select(update: Update, user_id):
     await reply_or_edit(update, "Select country to delete:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def country_delete_direct(query, user_id, country_name):
-    if user_id not in admin_mode: await query.answer("Admin mode required!", show_alert=True); return
+    if not is_admin(user_id): await query.answer("Admin mode required!", show_alert=True); return
     if country_name in COUNTRIES_DATA:
         del COUNTRIES_DATA[country_name]
         save_countries_db(COUNTRIES_DATA)
@@ -1066,23 +1276,42 @@ async def country_add_service_callback(update: Update, context: ContextTypes.DEF
     admin_panel_state[user_id] = "main"
     await safe_edit_message(query, "Country linked successfully.", reply_markup=admin_panel_keyboard())
 
-# ==================== SERVICE CALLBACKS ====================
+# ==================== SERVICE MANAGER ====================
+async def service_manager_menu(update: Update, user_id):
+    if not is_admin(user_id):
+        await update.callback_query.answer("Admin mode required!", show_alert=True)
+        return
+    admin_panel_state[user_id] = "service_manager"
+    rows = [
+        [InlineKeyboardButton("Add New Service", callback_data="service_add", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD", "")))],
+        [InlineKeyboardButton("Remove Service", callback_data="service_remove", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))],
+        [InlineKeyboardButton("Toggle Service Active", callback_data="service_toggle", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon("4956583802240500602"))],
+        [InlineKeyboardButton("Set Service Emoji", callback_data="service_set_emoji", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon("4956214413578207998"))],
+        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
+    ]
+    await reply_or_edit(update, "SERVICE MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows))
+
 async def service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    data = query.data
-    if user_id not in admin_mode:
+    if not is_admin(user_id):
         await query.answer("Admin mode required!", show_alert=True)
         return
     await query.answer()
+    data = query.data
     if data == "service_add":
         await service_add_start(update, user_id)
     elif data == "service_remove":
-        await service_remove_select(query, user_id)   # pass query directly
+        await service_remove_select(query, user_id)
     elif data.startswith("service_remove|"):
         await service_remove_execute(query, data.split('|', 1)[1])
     elif data == "service_toggle":
-        await service_toggle_select(query, user_id)   # pass query
+        await service_toggle_select(query, user_id)
     elif data == "service_set_emoji":
         await service_set_emoji_select(update, user_id)
     elif data.startswith("service_toggle|"):
@@ -1094,7 +1323,7 @@ async def service_add_start(update: Update, user_id):
     admin_panel_state[user_id] = "waiting_service_name"
     await reply_or_edit(update, "Send the service name.", reply_markup=admin_cancel_keyboard())
 
-async def service_remove_select(target, user_id):  # target can be CallbackQuery or Update
+async def service_remove_select(target, user_id):
     services = db_fetch_all("SELECT name, display_name FROM services ORDER BY name")
     rows = []
     for s in services:
@@ -1110,9 +1339,9 @@ async def service_remove_execute(query, service_name):
     db_exec("DELETE FROM services WHERE name = ?", (service_name,))
     db_exec("DELETE FROM countries WHERE service = ?", (service_name,))
     await query.answer(f"Service '{service_name}' removed!")
-    await service_remove_select(query, query.from_user.id)  # stay on remove page with updated list
+    await service_remove_select(query, query.from_user.id)
 
-async def service_toggle_select(target, user_id):  # target can be CallbackQuery or Update
+async def service_toggle_select(target, user_id):
     services = db_fetch_all("SELECT name, display_name, active FROM services ORDER BY name")
     rows = []
     for s in services:
@@ -1132,10 +1361,10 @@ async def service_toggle_execute(query, service_name):
         new_status = 0 if result[0] else 1
         db_exec("UPDATE services SET active = ? WHERE name = ?", (new_status, service_name))
         await query.answer(f"Service {'activated' if new_status else 'deactivated'}!")
-    await service_toggle_select(query, query.from_user.id)  # refresh list
+    await service_toggle_select(query, query.from_user.id)
 
 async def service_set_emoji_select(update: Update, user_id):
-    if user_id not in admin_mode: await update.callback_query.answer("Admin mode required!", show_alert=True); return
+    if not is_admin(user_id): await update.callback_query.answer("Admin mode required!", show_alert=True); return
     services = db_fetch_all("SELECT name, display_name FROM services WHERE active = 1 ORDER BY name")
     rows = []
     for s in services:
@@ -1167,7 +1396,7 @@ async def handle_service_emoji_set(update: Update, context: ContextTypes.DEFAULT
 # ==================== FILE UPLOAD ====================
 async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in admin_mode or admin_panel_state.get(user_id) != "waiting_file": return
+    if not is_admin(user_id) or admin_panel_state.get(user_id) != "waiting_file": return
     try:
         document = update.message.document
         if not document.file_name.endswith('.txt'): 
@@ -1214,20 +1443,22 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
-    if user_id not in admin_mode: return False
+    if not is_admin(user_id): return False
     text = update.message.text.strip()
     
     if state == "waiting_broadcast":
-        users = db_fetch_all("SELECT user_id FROM users")
+        msg = update.message
+        users = db_fetch_all("SELECT user_id FROM users WHERE banned=0")
         sent = 0
-        for user in users:
+        for u in users:
             try:
-                await context.bot.send_message(user[0], text, parse_mode='HTML')
+                await msg.copy(chat_id=u[0])
                 sent += 1
                 await asyncio.sleep(0.05)
-            except Exception: continue
+            except Exception:
+                continue
         admin_panel_state[user_id] = "main"
-        await update.message.reply_text(f"Broadcast sent to {sent} users!", reply_markup=admin_panel_keyboard())
+        await msg.reply_text(f"Broadcast sent to {sent} users!", reply_markup=admin_panel_keyboard())
         return True
     
     elif state == "waiting_giveaway":
@@ -1314,7 +1545,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== OTP DUPLICATE CHECK ====================
 def is_duplicate_otp(number, otp_code, current_ts_str):
-    """Return True if a record with same number & otp exists with timestamp within 0.5 sec of current_ts_str."""
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
     except:
@@ -1330,7 +1560,118 @@ def is_duplicate_otp(number, otp_code, current_ts_str):
     diff = abs((current_ts - last_ts).total_seconds())
     return diff <= 0.5
 
-# ==================== OTP API MONITOR ====================
+# ==================== GROUP OTP MESSAGE BUILDER ====================
+# Country code map (for group OTP)
+COUNTRY_CODE_MAP = {
+    "1": ("US", "🇺🇸", "USA"), "7": ("RU", "🇷🇺", "RUSSIA"), "20": ("EG", "🇪🇬", "EGYPT"),
+    "27": ("ZA", "🇿🇦", "SOUTH AFRICA"), "30": ("GR", "🇬🇷", "GREECE"), "31": ("NL", "🇳🇱", "NETHERLANDS"),
+    "33": ("FR", "🇫🇷", "FRANCE"), "34": ("ES", "🇪🇸", "SPAIN"), "39": ("IT", "🇮🇹", "ITALY"),
+    "40": ("RO", "🇷🇴", "ROMANIA"), "41": ("CH", "🇨🇭", "SWITZERLAND"), "43": ("AT", "🇦🇹", "AUSTRIA"),
+    "44": ("GB", "🇬🇧", "UNITED KINGDOM"), "46": ("SE", "🇸🇪", "SWEDEN"), "48": ("PL", "🇵🇱", "POLAND"),
+    "49": ("DE", "🇩🇪", "GERMANY"), "51": ("PE", "🇵🇪", "PERU"), "52": ("MX", "🇲🇽", "MEXICO"),
+    "54": ("AR", "🇦🇷", "ARGENTINA"), "55": ("BR", "🇧🇷", "BRAZIL"), "56": ("CL", "🇨🇱", "CHILE"),
+    "57": ("CO", "🇨🇴", "COLOMBIA"), "58": ("VE", "🇻🇪", "VENEZUELA"), "60": ("MY", "🇲🇾", "MALAYSIA"),
+    "62": ("ID", "🇮🇩", "INDONESIA"), "63": ("PH", "🇵🇭", "PHILIPPINES"), "66": ("TH", "🇹🇭", "THAILAND"),
+    "81": ("JP", "🇯🇵", "JAPAN"), "82": ("KR", "🇰🇷", "SOUTH KOREA"), "84": ("VN", "🇻🇳", "VIETNAM"),
+    "86": ("CN", "🇨🇳", "CHINA"), "90": ("TR", "🇹🇷", "TURKEY"), "91": ("IN", "🇮🇳", "INDIA"),
+    "92": ("PK", "🇵🇰", "PAKISTAN"), "93": ("AF", "🇦🇫", "AFGHANISTAN"), "94": ("LK", "🇱🇰", "SRI LANKA"),
+    "95": ("MM", "🇲🇲", "MYANMAR"), "98": ("IR", "🇮🇷", "IRAN"), "211": ("SS", "🇸🇸", "SOUTH SUDAN"),
+    "212": ("MA", "🇲🇦", "MOROCCO"), "213": ("DZ", "🇩🇿", "ALGERIA"), "216": ("TN", "🇹🇳", "TUNISIA"),
+    "218": ("LY", "🇱🇾", "LIBYA"), "220": ("GM", "🇬🇲", "GAMBIA"), "221": ("SN", "🇸🇳", "SENEGAL"),
+    "222": ("MR", "🇲🇷", "MAURITANIA"), "223": ("ML", "🇲🇱", "MALI"), "224": ("GN", "🇬🇳", "GUINEA"),
+    "225": ("CI", "🇨🇮", "IVORY COAST"), "226": ("BF", "🇧🇫", "BURKINA FASO"), "227": ("NE", "🇳🇪", "NIGER"),
+    "228": ("TG", "🇹🇬", "TOGO"), "229": ("BJ", "🇧🇯", "BENIN"), "230": ("MU", "🇲🇺", "MAURITIUS"),
+    "231": ("LR", "🇱🇷", "LIBERIA"), "232": ("SL", "🇸🇱", "SIERRA LEONE"), "233": ("GH", "🇬🇭", "GHANA"),
+    "234": ("NG", "🇳🇬", "NIGERIA"), "235": ("TD", "🇹🇩", "CHAD"), "236": ("CF", "🇨🇫", "CENTRAL AFRICAN REPUBLIC"),
+    "237": ("CM", "🇨🇲", "CAMEROON"), "238": ("CV", "🇨🇻", "CAPE VERDE"), "239": ("ST", "🇸🇹", "SAO TOME AND PRINCIPE"),
+    "240": ("GQ", "🇬🇶", "EQUATORIAL GUINEA"), "241": ("GA", "🇬🇦", "GABON"), "242": ("CG", "🇨🇬", "CONGO"),
+    "243": ("CD", "🇨🇩", "DR CONGO"), "244": ("AO", "🇦🇴", "ANGOLA"), "245": ("GW", "🇬🇼", "GUINEA-BISSAU"),
+    "246": ("IO", "🇮🇴", "BRITISH INDIAN OCEAN TERRITORY"), "248": ("SC", "🇸🇨", "SEYCHELLES"),
+    "249": ("SD", "🇸🇩", "SUDAN"), "250": ("RW", "🇷🇼", "RWANDA"), "251": ("ET", "🇪🇹", "ETHIOPIA"),
+    "252": ("SO", "🇸🇴", "SOMALIA"), "253": ("DJ", "🇩🇯", "DJIBOUTI"), "254": ("KE", "🇰🇪", "KENYA"),
+    "255": ("TZ", "🇹🇿", "TANZANIA"), "256": ("UG", "🇺🇬", "UGANDA"), "257": ("BI", "🇧🇮", "BURUNDI"),
+    "258": ("MZ", "🇲🇿", "MOZAMBIQUE"), "260": ("ZM", "🇿🇲", "ZAMBIA"), "261": ("MG", "🇲🇬", "MADAGASCAR"),
+    "262": ("RE", "🇷🇪", "REUNION"), "263": ("ZW", "🇿🇼", "ZIMBABWE"), "264": ("NA", "🇳🇦", "NAMIBIA"),
+    "265": ("MW", "🇲🇼", "MALAWI"), "266": ("LS", "🇱🇸", "LESOTHO"), "267": ("BW", "🇧🇼", "BOTSWANA"),
+    "268": ("SZ", "🇸🇿", "ESWATINI"), "269": ("KM", "🇰🇲", "COMOROS"), "290": ("SH", "🇸🇭", "SAINT HELENA"),
+    "291": ("ER", "🇪🇷", "ERITREA"), "297": ("AW", "🇦🇼", "ARUBA"), "298": ("FO", "🇫🇴", "FAROE ISLANDS"),
+    "299": ("GL", "🇬🇱", "GREENLAND"), "350": ("GI", "🇬🇮", "GIBRALTAR"), "351": ("PT", "🇵🇹", "PORTUGAL"),
+    "352": ("LU", "🇱🇺", "LUXEMBOURG"), "353": ("IE", "🇮🇪", "IRELAND"), "354": ("IS", "🇮🇸", "ICELAND"),
+    "355": ("AL", "🇦🇱", "ALBANIA"), "356": ("MT", "🇲🇹", "MALTA"), "357": ("CY", "🇨🇾", "CYPRUS"),
+    "358": ("FI", "🇫🇮", "FINLAND"), "359": ("BG", "🇧🇬", "BULGARIA"), "370": ("LT", "🇱🇹", "LITHUANIA"),
+    "371": ("LV", "🇱🇻", "LATVIA"), "372": ("EE", "🇪🇪", "ESTONIA"), "373": ("MD", "🇲🇩", "MOLDOVA"),
+    "374": ("AM", "🇦🇲", "ARMENIA"), "375": ("BY", "🇧🇾", "BELARUS"), "376": ("AD", "🇦🇩", "ANDORRA"),
+    "377": ("MC", "🇲🇨", "MONACO"), "378": ("SM", "🇸🇲", "SAN MARINO"), "380": ("UA", "🇺🇦", "UKRAINE"),
+    "381": ("RS", "🇷🇸", "SERBIA"), "382": ("ME", "🇲🇪", "MONTENEGRO"), "383": ("XK", "🇽🇰", "KOSOVO"),
+    "385": ("HR", "🇭🇷", "CROATIA"), "386": ("SI", "🇸🇮", "SLOVENIA"), "387": ("BA", "🇧🇦", "BOSNIA AND HERZEGOVINA"),
+    "389": ("MK", "🇲🇰", "NORTH MACEDONIA"), "420": ("CZ", "🇨🇿", "CZECH REPUBLIC"), "421": ("SK", "🇸🇰", "SLOVAKIA"),
+    "423": ("LI", "🇱🇮", "LIECHTENSTEIN"), "500": ("FK", "🇫🇰", "FALKLAND ISLANDS"), "501": ("BZ", "🇧🇿", "BELIZE"),
+    "502": ("GT", "🇬🇹", "GUATEMALA"), "503": ("SV", "🇸🇻", "EL SALVADOR"), "504": ("HN", "🇭🇳", "HONDURAS"),
+    "505": ("NI", "🇳🇮", "NICARAGUA"), "506": ("CR", "🇨🇷", "COSTA RICA"), "507": ("PA", "🇵🇦", "PANAMA"),
+    "509": ("HT", "🇭🇹", "HAITI"), "590": ("GP", "🇬🇵", "GUADELOUPE"), "591": ("BO", "🇧🇴", "BOLIVIA"),
+    "592": ("GY", "🇬🇾", "GUYANA"), "593": ("EC", "🇪🇨", "ECUADOR"), "594": ("GF", "🇬🇫", "FRENCH GUIANA"),
+    "595": ("PY", "🇵🇾", "PARAGUAY"), "596": ("MQ", "🇲🇶", "MARTINIQUE"), "597": ("SR", "🇸🇷", "SURINAME"),
+    "598": ("UY", "🇺🇾", "URUGUAY"), "599": ("BQ", "🇧🇶", "CARIBBEAN NETHERLANDS"), "880": ("BD", "🇧🇩", "BANGLADESH"),
+    "960": ("MV", "🇲🇻", "MALDIVES"), "961": ("LB", "🇱🇧", "LEBANON"), "962": ("JO", "🇯🇴", "JORDAN"),
+    "963": ("SY", "🇸🇾", "SYRIA"), "964": ("IQ", "🇮🇶", "IRAQ"), "965": ("KW", "🇰🇼", "KUWAIT"),
+    "966": ("SA", "🇸🇦", "SAUDI ARABIA"), "967": ("YE", "🇾🇪", "YEMEN"), "968": ("OM", "🇴🇲", "OMAN"),
+    "970": ("PS", "🇵🇸", "PALESTINE"), "971": ("AE", "🇦🇪", "UAE"), "972": ("IL", "🇮🇱", "ISRAEL"),
+    "973": ("BH", "🇧🇭", "BAHRAIN"), "974": ("QA", "🇶🇦", "QATAR"), "975": ("BT", "🇧🇹", "BHUTAN"),
+    "976": ("MN", "🇲🇳", "MONGOLIA"), "977": ("NP", "🇳🇵", "NEPAL"), "992": ("TJ", "🇹🇯", "TAJIKISTAN"),
+    "993": ("TM", "🇹🇲", "TURKMENISTAN"), "994": ("AZ", "🇦🇿", "AZERBAIJAN"), "995": ("GE", "🇬🇪", "GEORGIA"),
+    "996": ("KG", "🇰🇬", "KYRGYZSTAN"), "998": ("UZ", "🇺🇿", "UZBEKISTAN"),
+}
+ISO_TO_INFO = {v[0]: (v[1], v[2]) for v in COUNTRY_CODE_MAP.values()}
+
+def get_country_code(country_name):
+    if not country_name:
+        return ""
+    lower = country_name.lower()
+    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
+        if lower == name.lower() or lower == iso.lower() or lower == code:
+            return iso
+    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
+        if lower in name.lower() or name.lower() in lower:
+            return iso
+    return country_name.upper()[:2]
+
+def format_group_otp(entry):
+    number = entry.get("number", "")
+    otp_code = entry.get("otp", "")
+    service_name = entry.get("service", "Unknown")
+    country_iso = entry.get("country_code", entry.get("country", "?"))
+    if country_iso and len(country_iso) > 2:
+        country_iso = get_country_code(country_iso) or "??"
+    country_eid = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.upper(),))
+    if not country_eid:
+        country_eid = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.lower(),))
+    country_eid = country_eid[0] if country_eid else ""
+    service_eid = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='service' AND key=?", (service_name.lower(),))
+    service_eid = service_eid[0] if service_eid else ""
+    flag_fallback = ISO_TO_INFO.get(country_iso, ("🏳", ""))[0]
+    if country_eid:
+        country_display = f'<tg-emoji emoji-id="{country_eid}">{flag_fallback}</tg-emoji><b>{country_iso}</b>'
+    else:
+        country_display = f'{flag_fallback}<b>{country_iso}</b>'
+    if service_eid:
+        service_display = f'<tg-emoji emoji-id="{service_eid}">🔧</tg-emoji>'
+    else:
+        service_display = f'#{service_name}'
+    clean = number.replace('+', '').replace(' ', '')
+    prefix, suffix = (clean[:5], clean[-4:]) if len(clean) >= 9 else (clean, "")
+    masked = f"<b>+{prefix} {suffix}</b>" if suffix else f"<b>+{clean}</b>"
+    text = f"{country_display} | {service_display} {masked}"
+    otp_btn = InlineKeyboardButton(
+        text=otp_code,
+        copy_text=CopyTextButton(text=otp_code),
+        style=KBS.SUCCESS
+    )
+    channel_btn = InlineKeyboardButton("CHANNEL", url=CHANNEL_URL, style=KBS.PRIMARY)
+    bot_btn = InlineKeyboardButton("BOT", url=BOT_URL, style=KBS.PRIMARY)
+    keyboard = InlineKeyboardMarkup([[otp_btn], [channel_btn, bot_btn]])
+    return text, keyboard
+
+# ==================== OTP API MONITOR (DM + GROUP) ====================
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     try:
         response = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
@@ -1364,6 +1705,21 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
             if is_duplicate_otp(number, otp_code, otp_timestamp_str):
                 continue
             
+            # ---- SEND TO GROUP (all OTPs) ----
+            if GROUP_ID:
+                try:
+                    grp_text, grp_kb = format_group_otp({
+                        "number": number,
+                        "otp": otp_code,
+                        "service": service_name,
+                        "country_code": otp_entry.get("country_code", ""),
+                        "country": otp_entry.get("country", "")
+                    })
+                    await context.bot.send_message(chat_id=GROUP_ID, text=grp_text, parse_mode="HTML", reply_markup=grp_kb)
+                except Exception as e:
+                    print(f"Group OTP failed: {e}")
+            
+            # ---- SEND TO DM (only to assigned users) ----
             if number in num_map:
                 try:
                     otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -1371,6 +1727,8 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                     otp_timestamp = now
                 
                 for user_id, country, assigned_date_str in num_map[number]:
+                    if db_fetch_one("SELECT banned FROM users WHERE user_id=? AND banned=1", (user_id,)):
+                        continue
                     try:
                         assigned_date = datetime.strptime(assigned_date_str, "%Y-%m-%d %H:%M:%S")
                     except:
@@ -1389,10 +1747,10 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                     db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
                             (number, otp_code, message, otp_timestamp_str, user_id))
                     
-                    flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+                    flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
                     country_iso = country_data.get("iso", "").upper()
                     svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
-                    svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
+                    svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
                     
                     header = (
                         f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
@@ -1401,20 +1759,14 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                         f'{emoji_tag("5976327845696251345", "📲")} <b>APP</b>: {emoji_tag(svc_eid, "⚙️")} <b>{service_name}</b>\n'
                         f'💰 <b>BALANCE ADDED</b>: <code>+${reward}</code>{emoji_tag("5976788549658221281", "💵")}'
                     )
-                    
                     button = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(
-                            text=otp_code,
-                            copy_text=CopyTextButton(text=otp_code),
-                            style=KBS.SUCCESS,
-                            icon_custom_emoji_id=safe_icon("5330115548900501467")
-                        )
+                        InlineKeyboardButton(text=otp_code, copy_text=CopyTextButton(text=otp_code),
+                                             style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon("5330115548900501467"))
                     ]])
-                    
                     try:
                         await context.bot.send_message(user_id, header, reply_markup=button, parse_mode='HTML')
                     except Exception as e:
-                        print(f"OTP notify failed for {user_id}: {e}")
+                        print(f"DM OTP failed for {user_id}: {e}")
     except Exception as e:
         print(f"OTP API Error: {e}")
 
@@ -1425,6 +1777,39 @@ async def cleanup_expired_job(context: ContextTypes.DEFAULT_TYPE):
         db_exec("UPDATE users SET current_number=NULL, current_country=NULL, current_service=NULL, number_expiry=NULL WHERE number_expiry < ?", (now,))
     except Exception as e:
         print(f"Cleanup Error: {e}")
+
+# ==================== /country & /service COMMANDS (GROUP EMOJIS) ====================
+async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Admin only.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /country ISO|EMOJI_ID\nExample: /country GB|123456789")
+        return
+    parts = " ".join(context.args).split("|")
+    if len(parts) != 2:
+        await update.message.reply_text("Invalid format. Use ISO|EMOJI_ID")
+        return
+    iso = parts[0].strip().upper()
+    eid = parts[1].strip()
+    db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('country', ?, ?)", (iso, eid))
+    await update.message.reply_text(f"✅ Group country emoji for {iso} set to <code>{eid}</code>", parse_mode="HTML")
+
+async def group_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Admin only.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /service NAME|EMOJI_ID\nExample: /service PayPal|123456789")
+        return
+    parts = " ".join(context.args).split("|")
+    if len(parts) != 2:
+        await update.message.reply_text("Invalid format. Use NAME|EMOJI_ID")
+        return
+    name = parts[0].strip().lower()
+    eid = parts[1].strip()
+    db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('service', ?, ?)", (name, eid))
+    await update.message.reply_text(f"✅ Group service emoji for {name} set to <code>{eid}</code>", parse_mode="HTML")
 
 # ==================== BOTTOM MENU TEXT ROUTERS ====================
 async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1462,7 +1847,7 @@ async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS: await update.message.reply_text("Unauthorized!"); return
+    if not is_admin(user_id): await update.message.reply_text("Unauthorized!"); return
     admin_mode[user_id] = True
     admin_panel_state[user_id] = "main"
     await update.message.reply_text("ADMIN PANEL\n\nDeveloper: RGX NUMBER BOT", reply_markup=admin_panel_keyboard())
@@ -1487,6 +1872,10 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("enteradmin", enter_admin_command))
     application.add_handler(CommandHandler("exitadmin", exit_admin_command))
+    application.add_handler(CommandHandler("addadmin", add_admin_command))
+    application.add_handler(CommandHandler("removeadmin", remove_admin_command))
+    application.add_handler(CommandHandler("country", group_country_command))
+    application.add_handler(CommandHandler("service", group_service_command))
     application.add_handler(CallbackQueryHandler(service_selection_callback, pattern="^svc_sel\|"))
     application.add_handler(CallbackQueryHandler(country_selection_callback, pattern="^cnt_sel\|"))
     application.add_handler(CallbackQueryHandler(back_to_services_callback, pattern="^back_to_services$"))
@@ -1504,7 +1893,19 @@ def main():
     application.add_handler(CallbackQueryHandler(withdraw_callback, pattern="^withdraw$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(CallbackQueryHandler(toggle_cc_callback, pattern="^toggle_cc$"))
+    # User Manager handlers
+    application.add_handler(CallbackQueryHandler(lambda u,c: user_manager_menu(u,c,u.callback_query.from_user.id), pattern="^admin_user_manager$"))
+    application.add_handler(CallbackQueryHandler(lambda u,c: um_search_prompt(u,c,u.callback_query.from_user.id), pattern="^um_search$"))
+    application.add_handler(CallbackQueryHandler(lambda u,c: send_user_list_file(u,c), pattern="^um_download$"))
+    application.add_handler(CallbackQueryHandler(lambda u,c: um_stats(u,c), pattern="^um_stats$"))
+    application.add_handler(CallbackQueryHandler(lambda u,c: um_edit_balance_prompt(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_editbal\|"))
+    application.add_handler(CallbackQueryHandler(lambda u,c: um_ban_toggle(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_ban\|"))
+    application.add_handler(CallbackQueryHandler(lambda u,c: user_manager_menu(u,c,u.callback_query.from_user.id), pattern="^um_back$"))
+    # Broadcast: handle any message when state is waiting_broadcast
+    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file_upload))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, um_search_execute), group=2)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, um_edit_balance_execute), group=2)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
     
@@ -1513,9 +1914,7 @@ def main():
         job_queue.run_repeating(monitor_otp_api, interval=OTP_POLL_INTERVAL, first=OTP_POLL_INTERVAL)
         job_queue.run_repeating(cleanup_expired_job, interval=60, first=60)
     
-    print(f"✅ Admin IDs: {ADMIN_IDS}")
-    print(f"✅ Loaded {len(COUNTRIES_DATA)} countries")
-    print("✅ All features active (Live Service, Remove/Add CC, OTP Emoji)")
+    print(f"✅ Multi-admin, User Manager, Broadcast, Group OTP active")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
