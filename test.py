@@ -449,12 +449,16 @@ def extract_service_from_filename(filename):
     except Exception:
         return "Unknown"
 
-def load_numbers_from_file(file_path, filename):
+def load_numbers_from_file(file_path, filename, force_country=None, force_service=None):
     try:
-        country = extract_country_from_filename(filename)
-        service = extract_service_from_filename(filename)
-        if not country:
-            return 0, None, None
+        if force_country and force_service:
+            country = force_country
+            service = force_service
+        else:
+            country = extract_country_from_filename(filename)
+            service = extract_service_from_filename(filename)
+            if not country:
+                return 0, None, None
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
             numbers = file.read().strip().split('\n')
         valid_numbers = []
@@ -1391,8 +1395,12 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         os.makedirs("uploads", exist_ok=True)
         file_path = f"uploads/{document.file_name}"
         await file.download_to_drive(file_path)
+        
+        # Try automatic parsing
         count, country, service = load_numbers_from_file(file_path, document.file_name)
+        
         if count > 0:
+            # Success – proceed as before
             emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
             if not emoji_row:
                 admin_temp_data[user_id] = {"pending_service_emoji": service, "country": country, "count": count}
@@ -1400,26 +1408,94 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text(
                     f"✅ {count} numbers loaded for {country}.\n"
                     f"New service '{service}' detected.\n"
-                    "Please send the custom emoji ID for this service (or /skip to use default).",
+                    "Send the custom emoji ID (or /skip).",
                     reply_markup=admin_cancel_keyboard())
                 return
             msg = stock_added_message(country, service, count)
             await update.message.reply_text(msg, parse_mode='HTML', reply_markup=admin_panel_keyboard())
             broadcast_msg = stock_added_broadcast(country, service, count)
             users = db_fetch_all("SELECT user_id FROM users")
-            for user in users:
+            for u in users:
                 try:
-                    await context.bot.send_message(user[0], broadcast_msg, parse_mode='HTML')
+                    await context.bot.send_message(u[0], broadcast_msg, parse_mode='HTML')
                     await asyncio.sleep(0.05)
                 except Exception:
                     continue
             admin_panel_state[user_id] = "main"
         else:
-            await update.message.reply_text("No valid numbers found in file!", reply_markup=admin_panel_keyboard())
-            admin_panel_state[user_id] = "main"
+            # Parsing failed – ask admin to choose country and service manually
+            admin_temp_data[user_id] = {
+                "pending_file_path": file_path,
+                "pending_filename": document.file_name
+            }
+            countries = db_fetch_all("SELECT name FROM countries GROUP BY name ORDER BY name")
+            if not countries:
+                await update.message.reply_text("No countries defined. Add a country first.", reply_markup=admin_panel_keyboard())
+                return
+            keyboard = []
+            for (cname,) in countries:
+                keyboard.append([InlineKeyboardButton(cname, callback_data=f"fu_country|{cname}")])
+            keyboard.append([InlineKeyboardButton("Cancel", callback_data="admin_back")])
+            await update.message.reply_text(
+                "❌ Could not detect country from filename.\nSelect the correct country:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            admin_panel_state[user_id] = "waiting_fu_country"
     except Exception as e:
         await update.message.reply_text(f"Error: {e}")
         admin_panel_state[user_id] = "main"
+
+async def fu_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+    country = query.data.split("|")[1]
+    admin_temp_data[user_id]["fu_country"] = country
+
+    services = db_fetch_all("SELECT name, display_name FROM services WHERE active=1 ORDER BY name")
+    keyboard = []
+    for svc, dname in services:
+        keyboard.append([InlineKeyboardButton(dname, callback_data=f"fu_service|{svc}")])
+    keyboard.append([InlineKeyboardButton("Cancel", callback_data="admin_back")])
+    await query.edit_message_text(
+        f"Country: {country}\nSelect the service for this file:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    admin_panel_state[user_id] = "waiting_fu_service"
+
+async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+    service = query.data.split("|")[1]
+    data = admin_temp_data.pop(user_id)
+    file_path = data["pending_file_path"]
+    country = data["fu_country"]
+
+    count, _, _ = load_numbers_from_file(file_path, "force.txt", force_country=country, force_service=service)
+
+    if count > 0:
+        emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
+        if not emoji_row:
+            admin_temp_data[user_id] = {"pending_service_emoji": service, "country": country, "count": count}
+            admin_panel_state[user_id] = "waiting_service_emoji_upload"
+            await query.edit_message_text(
+                f"✅ {count} numbers loaded.\nNew service '{service}' detected.\nSend emoji ID or /skip.",
+                reply_markup=admin_cancel_keyboard())
+            return
+        msg = stock_added_message(country, service, count)
+        await query.edit_message_text(msg, parse_mode='HTML', reply_markup=admin_panel_keyboard())
+        broadcast_msg = stock_added_broadcast(country, service, count)
+        users = db_fetch_all("SELECT user_id FROM users")
+        for u in users:
+            try:
+                await context.bot.send_message(u[0], broadcast_msg, parse_mode='HTML')
+            except:
+                pass
+    else:
+        await query.edit_message_text("No valid numbers found in the file.", reply_markup=admin_panel_keyboard())
+
+    admin_panel_state[user_id] = "main"
 
 # ==================== ADMIN TEXT HANDLER (BROADCAST & OTHERS) ====================
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1920,11 +1996,12 @@ async def country_delete_direct(query, user_id, country_name):
         await query.answer("Country not found!", show_alert=True)
     await country_delete_select(query, user_id)
 
+# FIXED: single column layout for service selection after country add
 async def country_add_service_selection(update: Update, user_id, country_name):
     services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     rows = []
     for s in services:
-        rows.append([InlineKeyboardButton(
+        rows.append([InlineKeyboardButton(       # one button per row
             s[1],
             callback_data=f"cnt_add_svc|{country_name}|{s[0]}",
             style=KBS.PRIMARY,
@@ -2201,6 +2278,9 @@ def main():
     application.add_handler(CallbackQueryHandler(withdraw_callback, pattern="^withdraw$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(CallbackQueryHandler(toggle_cc_callback, pattern="^toggle_cc$"))
+    # Force upload callbacks
+    application.add_handler(CallbackQueryHandler(fu_country_callback, pattern=r"^fu_country\|"))
+    application.add_handler(CallbackQueryHandler(fu_service_callback, pattern=r"^fu_service\|"))
     # User Manager
     application.add_handler(CallbackQueryHandler(lambda u,c: user_manager_menu(u,c,u.callback_query.from_user.id), pattern="^admin_user_manager$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: um_search_prompt(u,c,u.callback_query.from_user.id), pattern="^um_search$"))
