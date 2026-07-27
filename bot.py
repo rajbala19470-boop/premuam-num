@@ -24,19 +24,19 @@ ADMIN_IDS = [8744359777]
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
-OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
-OTP_POLL_INTERVAL = 4   # seconds
+OTP_API_TOKEN = "f6323f11f0bb59b4e6be2cb92f1a63a8"
+OTP_POLL_INTERVAL = 0.5   # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
-ADMIN2_TELEGRAM = ""
+ADMIN2_TELEGRAM = "t.me/SR_ADMIN_SANTO"
 
 GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/your_channel"
-BOT_URL = "https://t.me/your_bot"
+CHANNEL_URL = "https://t.me/+76nQ1vvAzy04ZWE0"
+BOT_URL = "https://t.me/SrNumberHubBOT"
 
 # Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
