@@ -1,6 +1,6 @@
-# bot.py — SR NUMBER HUB (Complete Final – All Fixes)
+# bot.py — SR NUMBER HUB (Complete Final Version)
 
-import asyncio, json, os, re, sqlite3, threading, tempfile
+import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
 
 import requests
@@ -22,10 +22,10 @@ from emoji import CUSTOM_EMOJIS
 BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 ADMIN_IDS = [8744359777]
 
-OTP_GROUP_URL = "https://t.me/SROtpHUB"
+OTP_GROUP_URL = "https://t.me/RgxOtp"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
-OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
-OTP_POLL_INTERVAL = 1  # seconds
+OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"  # updated token
+OTP_POLL_INTERVAL = 4  # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -33,7 +33,7 @@ MIN_WITHDRAW = 0.1  # USD
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/WONER_OF_RHT"
 
-# Second admin contacts (fill later, empty = not shown)
+# Second admin contacts (fill later)
 ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
@@ -343,6 +343,8 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
                                  icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EXIT", ""))),
         ],
         [
+            InlineKeyboardButton("Database", callback_data="admin_database", style=KBS.SUCCESS,
+                                 icon_custom_emoji_id=safe_icon("6206236607532504295")),
             InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY,
                                  icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))),
         ],
@@ -601,10 +603,18 @@ async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     banned = db_fetch_one("SELECT banned FROM users WHERE user_id=?", (user_id,))
     if banned and banned[0]:
-        await update.message.reply_text(
-            "🚫 You are banned from using this bot. Contact support if you think this is a mistake.",
-            reply_markup=support_keyboard()
+        # If callback, answer and show support; if message, reply with support
+        if update.callback_query:
+            await update.callback_query.answer()
+        # Send the ban message with support keyboard
+        text = (
+            f'{emoji_tag("6206077285720659346", "🚫")} <b>Now You Can\'t Use Me</b> {emoji_tag("6206003549722122915", "😢")}\n'
+            f'{emoji_tag("6206267591426578467", "📞")} <b>CONTACT TO SUPPORT ADMINS</b> {emoji_tag("6206319341487527808", "👨‍💼")}'
         )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(text, reply_markup=support_keyboard(), parse_mode='HTML')
+        else:
+            await update.message.reply_text(text, reply_markup=support_keyboard(), parse_mode='HTML')
         return True
     return False
 
@@ -644,7 +654,6 @@ async def show_balance(update: Update, user_id):
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
     if not user:
-        # should not happen after ensure_user
         return
     first_name, balance, withdrawn, total_otp = user
     balance = balance or 0.0
@@ -856,8 +865,23 @@ async def um_ban_toggle(query, user_id, context: ContextTypes.DEFAULT_TYPE):
     db_exec("UPDATE users SET banned = ? WHERE user_id = ?", (new_ban, target_uid))
     await query.answer(f"User {'banned' if new_ban else 'unbanned'}!")
     if new_ban:
+        # Send ban message to the banned user
         try:
-            await context.bot.send_message(target_uid, "🚫 You have been banned from using this bot. Contact support if you think this is a mistake.")
+            ban_text = (
+                f'{emoji_tag("6206077285720659346", "🚫")} <b>Now You Can\'t Use Me</b> {emoji_tag("6206003549722122915", "😢")}\n'
+                f'{emoji_tag("6206267591426578467", "📞")} <b>CONTACT TO SUPPORT ADMINS</b> {emoji_tag("6206319341487527808", "👨‍💼")}'
+            )
+            await context.bot.send_message(target_uid, ban_text, reply_markup=support_keyboard(), parse_mode='HTML')
+        except:
+            pass
+    else:
+        # Send unban message
+        try:
+            unban_text = (
+                f'{emoji_tag("6206508629286196237", "🎉")} <b>Congratulation Now You Can Use The Bot</b> {emoji_tag("6206479140040743133", "🥳")}\n'
+                f'{emoji_tag("6206503415195899956", "🔓")} <b>You Are Unbanned</b> {emoji_tag("6204251568137574946", "✅")}'
+            )
+            await context.bot.send_message(target_uid, unban_text, parse_mode='HTML')
         except:
             pass
     user_data = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=?", (target_uid,))
@@ -879,10 +903,102 @@ async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await reply_or_edit(update, text, reply_markup=admin_back_button())
 
+# ==================== DATABASE DOWNLOAD/UPLOAD ====================
+async def database_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    if not is_admin(user_id): await update.callback_query.answer("Admin mode required!", show_alert=True); return
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("DOWNLOAD", callback_data="db_download", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon("6203886371363364022"))],
+        [InlineKeyboardButton("UPLOAD", callback_data="db_upload", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon("6206046503690048595"))],
+        [InlineKeyboardButton("Back", callback_data="admin_back", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
+    ])
+    await reply_or_edit(update, "DATABASE MANAGEMENT\n\nSelect an option:", reply_markup=kb)
+
+async def db_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id): return
+    await query.answer("Preparing database download...")
+    # Create temporary directory
+    tmpdir = tempfile.mkdtemp()
+    try:
+        # Copy all files/directories we want to include
+        shutil.copy2(DB_PATH, os.path.join(tmpdir, "mrisbrand_master.db"))
+        if os.path.exists("countries.json"):
+            shutil.copy2("countries.json", os.path.join(tmpdir, "countries.json"))
+        if os.path.exists("emoji.py"):
+            shutil.copy2("emoji.py", os.path.join(tmpdir, "emoji.py"))
+        # Create zip
+        zip_path = os.path.join(tmpdir, "sr-number-data.zip")
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(tmpdir):
+                for file in files:
+                    if file == "sr-number-data.zip":
+                        continue
+                    full = os.path.join(root, file)
+                    arcname = os.path.relpath(full, tmpdir)
+                    zf.write(full, arcname)
+        await context.bot.send_document(chat_id=query.message.chat_id, document=open(zip_path, 'rb'))
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+async def db_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id): return
+    admin_panel_state[user_id] = "waiting_db_upload"
+    await query.edit_message_text("Upload the sr-number-data.zip file to restore the database.", reply_markup=admin_cancel_keyboard())
+
+async def handle_db_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id) or admin_panel_state.get(user_id) != "waiting_db_upload":
+        return
+    document = update.message.document
+    if not document or not document.file_name.endswith('.zip'):
+        await update.message.reply_text("Please upload the correct sr-number-data.zip file.")
+        return
+    file = await context.bot.get_file(document.file_id)
+    tmpdir = tempfile.mkdtemp()
+    zip_path = os.path.join(tmpdir, "upload.zip")
+    await file.download_to_drive(zip_path)
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extractall(tmpdir)
+        # Replace database and files
+        for root, dirs, files in os.walk(tmpdir):
+            for fname in files:
+                full = os.path.join(root, fname)
+                rel = os.path.relpath(full, tmpdir)
+                if fname == "mrisbrand_master.db":
+                    global conn, c
+                    conn.close()
+                    shutil.copy2(full, DB_PATH)
+                    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                    c = conn.cursor()
+                elif fname == "countries.json":
+                    shutil.copy2(full, "countries.json")
+                    # reload COUNTRIES_DATA
+                    global COUNTRIES_DATA
+                    COUNTRIES_DATA = load_countries_db()
+                elif fname == "emoji.py":
+                    shutil.copy2(full, "emoji.py")
+                    # reimport emoji? We'll assume it's unchanged for runtime
+    except Exception as e:
+        await update.message.reply_text(f"Error restoring database: {e}")
+        return
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    admin_panel_state[user_id] = "main"
+    await update.message.reply_text("✅ Database restored successfully!", reply_markup=admin_panel_keyboard())
+
 # ==================== CALLBACK HANDLERS ====================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
+    if await ban_check(update, context):
+        return
     first_name = query.from_user.first_name or "User"
     data = query.data
     await query.answer()
@@ -894,11 +1010,13 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def balance_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await ban_check(update, context): return
     await query.answer()
     await show_balance(update, query.from_user.id)
 
 async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await ban_check(update, context): return
     await query.answer()
     await show_withdraw(update, query.from_user.id)
 
@@ -907,6 +1025,7 @@ async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await ban_check(update, context): return
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer()
@@ -915,6 +1034,7 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
 # ==================== TOGGLE CC CALLBACK ====================
 async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await ban_check(update, context): return
     user_id = query.from_user.id
     await query.answer()
     row = db_fetch_one("SELECT remove_cc FROM users WHERE user_id = ?", (user_id,))
@@ -937,6 +1057,7 @@ async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ==================== SERVICE→COUNTRY FLOW ====================
 async def service_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await ban_check(update, context): return
     user_id = query.from_user.id
     await query.answer()
     service = query.data.split('|', 1)[1]
@@ -945,6 +1066,7 @@ async def service_selection_callback(update: Update, context: ContextTypes.DEFAU
 
 async def country_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await ban_check(update, context): return
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer("Allocating 3 numbers...")
@@ -983,6 +1105,7 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
 
 async def back_to_services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await ban_check(update, context): return
     user_id = query.from_user.id
     await query.answer()
     db_exec("UPDATE users SET current_service = NULL, current_country = NULL, current_number = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
@@ -990,6 +1113,7 @@ async def back_to_services_callback(update: Update, context: ContextTypes.DEFAUL
 
 async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await ban_check(update, context): return
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer("Getting next 3 numbers...")
@@ -1056,6 +1180,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "country_manager": await country_manager_menu(update, user_id)
     elif action == "service_manager": await service_manager_menu(update, user_id)
     elif action == "user_manager": await user_manager_menu(update, context, user_id)
+    elif action == "database": await database_menu(update, context, user_id)
     elif action == "exit": await exit_admin_callback_query(query, user_id, context.bot)
     elif action == "back":
         admin_panel_state[user_id] = "main"
@@ -1418,7 +1543,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id):
         return False
 
-    # Broadcast state accepts any message type
     if state == "waiting_broadcast":
         msg = update.message
         users = db_fetch_all("SELECT user_id FROM users WHERE banned=0")
@@ -1434,13 +1558,15 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"Broadcast sent to {sent} users!", reply_markup=admin_panel_keyboard())
         return True
 
-    # For all other states, we only process text messages
+    if state == "waiting_db_upload":
+        # handled by document handler, but if text, ignore
+        return False
+
     if not update.message or not update.message.text:
         return False
 
     text = update.message.text.strip()
 
-    # Search user state
     if state == "um_searching":
         user = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=? OR username=?", (text, text))
         if not user and text.isdigit():
@@ -1448,11 +1574,10 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not user:
             await update.message.reply_text("User not found.")
             return True
-        admin_panel_state[user_id] = "user_manager"   # back to user manager after viewing
+        admin_panel_state[user_id] = "user_manager"
         await show_user_detail(update, context, user)
         return True
 
-    # Edit balance state
     if state == "um_editbal":
         data = admin_temp_data.pop(user_id, {})
         target_uid = data.get("target_uid")
@@ -1477,7 +1602,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_panel_menu(update, user_id)
         return True
 
-    # Other states
     if state == "waiting_giveaway":
         parts = text.split()
         try:
@@ -1826,12 +1950,14 @@ async def group_service_command(update: Update, context: ContextTypes.DEFAULT_TY
 # ==================== BOTTOM MENU TEXT ROUTERS ====================
 async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    if await ban_check(update, context): return
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await update.message.reply_text("Select a Service:", reply_markup=services_keyboard())
 
 async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    if await ban_check(update, context): return
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
     if not user:
@@ -1869,6 +1995,8 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     if await handle_admin_text(update, context): return
+    user_id = update.effective_user.id
+    if await ban_check(update, context): return
     text = update.message.text.strip()
     if text == BTN_GET_NUMBER: await send_get_number_panel(update, context)
     elif text == BTN_BALANCE: await send_balance_panel(update, context)
@@ -1906,7 +2034,7 @@ def main():
     application.add_handler(CallbackQueryHandler(withdraw_callback, pattern="^withdraw$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(CallbackQueryHandler(toggle_cc_callback, pattern="^toggle_cc$"))
-    # User Manager handlers
+    # User Manager
     application.add_handler(CallbackQueryHandler(lambda u,c: user_manager_menu(u,c,u.callback_query.from_user.id), pattern="^admin_user_manager$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: um_search_prompt(u,c,u.callback_query.from_user.id), pattern="^um_search$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: send_user_list_file(u,c), pattern="^um_download$"))
@@ -1914,7 +2042,12 @@ def main():
     application.add_handler(CallbackQueryHandler(lambda u,c: um_edit_balance_prompt(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_editbal\|"))
     application.add_handler(CallbackQueryHandler(lambda u,c: um_ban_toggle(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_ban\|"))
     application.add_handler(CallbackQueryHandler(lambda u,c: user_manager_menu(u,c,u.callback_query.from_user.id), pattern="^um_back$"))
-    # Broadcast: handle ALL message types when state is waiting_broadcast
+    # Database
+    application.add_handler(CallbackQueryHandler(lambda u,c: database_menu(u,c,u.callback_query.from_user.id), pattern="^admin_database$"))
+    application.add_handler(CallbackQueryHandler(db_download, pattern="^db_download$"))
+    application.add_handler(CallbackQueryHandler(db_upload_prompt, pattern="^db_upload$"))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_db_upload), group=0)
+    # Broadcast & file upload
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file_upload))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
@@ -1925,7 +2058,7 @@ def main():
         job_queue.run_repeating(monitor_otp_api, interval=OTP_POLL_INTERVAL, first=OTP_POLL_INTERVAL)
         job_queue.run_repeating(cleanup_expired_job, interval=60, first=60)
     
-    print(f"✅ Multi-admin, User Manager, Broadcast, Group OTP active")
+    print(f"✅ Multi-admin, User Manager, Broadcast, Group OTP, Database active")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
