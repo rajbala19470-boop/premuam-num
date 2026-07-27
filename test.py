@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete Final – Multi‑API, Fixed Upload, All Features)
+# bot.py — SR NUMBER HUB (Complete Final – All Features, Fixed Upload)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -23,9 +23,9 @@ BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 ADMIN_IDS = [8744359777]
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
-OTP_API_URL = "http://127.0.0.1:5080/all_otp"          # default API (will still be used)
+OTP_API_URL = "http://127.0.0.1:5080/all_otp"
 OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
-OTP_POLL_INTERVAL = 4   # seconds for default API
+OTP_POLL_INTERVAL = 4   # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -929,7 +929,7 @@ async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await reply_or_edit(update, text, reply_markup=admin_back_button())
 
-# ==================== DATABASE DOWNLOAD/UPLOAD ====================
+# ==================== DATABASE DOWNLOAD/UPLOAD (unchanged) ====================
 async def database_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id): await update.callback_query.answer("Admin mode required!", show_alert=True); return
     kb = InlineKeyboardMarkup([
@@ -1029,7 +1029,6 @@ async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     ])
     await reply_or_edit(update, "MANAGE API\n\nSelect an option:", reply_markup=kb)
 
-# ---------- ADD API KEY ----------
 async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     admin_panel_state[user_id] = "api_add_name"
     await reply_or_edit(update, "Send the panel name:", reply_markup=admin_cancel_keyboard())
@@ -1071,7 +1070,6 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         return True
     return False
 
-# ---------- REMOVE API KEY ----------
 async def api_remove_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id): return
     keys = db_fetch_all("SELECT id, panel_name, token FROM api_keys WHERE active=1")
@@ -1094,7 +1092,6 @@ async def api_remove_execute(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer("API key removed!")
     await api_remove_list(update, context, user_id)
 
-# ---------- LIST API KEYS ----------
 async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id): return
     keys = db_fetch_all("SELECT id, panel_name, base_url, token, interval_sec FROM api_keys WHERE active=1")
@@ -1270,9 +1267,7 @@ def format_group_otp(entry):
     keyboard = InlineKeyboardMarkup([[otp_btn], [channel_btn, bot_btn]])
     return text, keyboard
 
-# ==================== OTP PROCESSING (for both default and per-API) ====================
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
-    """Process OTPs: send to group and DM. Use context.bot or standalone bot."""
     if context:
         bot = context.bot
     now = datetime.now()
@@ -1295,7 +1290,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         if not number or not otp_code:
             continue
         
-        # Group
         if GROUP_ID:
             already_sent = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=0", (number, otp_code))
             if not already_sent:
@@ -1313,7 +1307,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 except Exception as e:
                     print(f"Group OTP failed: {e}")
         
-        # DM
         if number in num_map:
             try:
                 otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -1360,7 +1353,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 except Exception as e:
                     print(f"DM OTP failed for {uid}: {e}")
 
-# ==================== DEFAULT API MONITOR ====================
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     try:
         resp = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
@@ -1370,7 +1362,6 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Default API error: {e}")
 
-# ==================== PER-API TASK (standalone) ====================
 async def poll_api(api_id):
     while True:
         key = db_fetch_one("SELECT base_url, token, interval_sec, active FROM api_keys WHERE id=? AND active=1", (api_id,))
@@ -1381,7 +1372,7 @@ async def poll_api(api_id):
             resp = requests.get(f"{base_url}/all_otp?token={token}", timeout=10)
             if resp.status_code == 200 and resp.json().get("status") == "success":
                 otps = resp.json().get("data", {}).get("otps", [])
-                await process_otps(otps, bot=application.bot)  # use global application
+                await process_otps(otps, bot=application.bot)
         except Exception as e:
             print(f"API {api_id} error: {e}")
         await asyncio.sleep(interval)
@@ -1437,6 +1428,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id):
         return False
 
+    # Broadcast accepts any message type
     if state == "waiting_broadcast":
         msg = update.message
         users = db_fetch_all("SELECT user_id FROM users WHERE banned=0")
@@ -2156,7 +2148,7 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     if await handle_admin_text(update, context): return
-    if await handle_api_add_text(update, context): return  # handle API adding steps
+    if await handle_api_add_text(update, context): return
     user_id = update.effective_user.id
     if await ban_check(update, context): return
     text = update.message.text.strip()
@@ -2169,12 +2161,20 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     print(f"Error: {context.error}")
 
 # ==================== MAIN ====================
-application = None  # will be set in main()
+application = None
 
 def main():
     global application
     application = Application.builder().token(BOT_TOKEN).build()
-    # Register all handlers
+
+    # File handlers with HIGH priority
+    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_file_upload), group=0)
+    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_db_upload), group=0)
+
+    # Broadcast and other admin text states
+    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
+
+    # Command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("enteradmin", enter_admin_command))
     application.add_handler(CommandHandler("exitadmin", exit_admin_command))
@@ -2182,6 +2182,8 @@ def main():
     application.add_handler(CommandHandler("removeadmin", remove_admin_command))
     application.add_handler(CommandHandler("country", group_country_command))
     application.add_handler(CommandHandler("service", group_service_command))
+
+    # All callback handlers
     application.add_handler(CallbackQueryHandler(service_selection_callback, pattern="^svc_sel\|"))
     application.add_handler(CallbackQueryHandler(country_selection_callback, pattern="^cnt_sel\|"))
     application.add_handler(CallbackQueryHandler(back_to_services_callback, pattern="^back_to_services$"))
@@ -2211,23 +2213,22 @@ def main():
     application.add_handler(CallbackQueryHandler(lambda u,c: database_menu(u,c,u.callback_query.from_user.id), pattern="^admin_database$"))
     application.add_handler(CallbackQueryHandler(db_download, pattern="^db_download$"))
     application.add_handler(CallbackQueryHandler(db_upload_prompt, pattern="^db_upload$"))
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_db_upload), group=0)
     # Manage API
     application.add_handler(CallbackQueryHandler(lambda u,c: manage_api_menu(u,c,u.callback_query.from_user.id), pattern="^admin_manage_api$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: api_add_start(u,c,u.callback_query.from_user.id), pattern="^api_add$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: api_remove_list(u,c,u.callback_query.from_user.id), pattern="^api_remove$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: api_list(u,c,u.callback_query.from_user.id), pattern="^api_list$"))
     application.add_handler(CallbackQueryHandler(api_remove_execute, pattern=r"^api_rem_\d+$"))
-    # Broadcast & file upload
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_file_upload))
+
+    # Text handler for remaining messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+
     application.add_error_handler(error_handler)
 
+    # Start default API monitor + per‑API tasks
     job_queue = application.job_queue
     if job_queue:
         job_queue.run_repeating(monitor_otp_api, interval=OTP_POLL_INTERVAL, first=OTP_POLL_INTERVAL)
-    # Start per-API tasks
     for api_id in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
         asyncio.create_task(poll_api(api_id[0]))
 
