@@ -25,7 +25,7 @@ ADMIN_IDS = [8744359777]
 OTP_GROUP_URL = "https://t.me/SRotpHub"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
 OTP_API_TOKEN = "f6323f11f0bb59b4e6be2cb92f1a63a8"
-OTP_POLL_INTERVAL = 0.5   # seconds
+OTP_POLL_INTERVAL = 1    # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
