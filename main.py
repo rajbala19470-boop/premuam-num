@@ -1,4 +1,4 @@
-# bot.py — RGX NUMBER BOT (Complete Final – All Features)
+# bot.py — SR NUMBER HUB (Complete Final – All Features)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile
 from datetime import datetime, timedelta
@@ -134,6 +134,7 @@ admin_mode = {}
 admin_panel_state = {}
 admin_temp_data = {}
 last_activation_data = {}
+user_manager_state = {}
 
 def safe_url(url: str) -> str | None:
     if url and isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("tg://")):
@@ -190,12 +191,12 @@ def emoji_tag(emoji_id: str, fallback: str = " ") -> str:
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
 def country_flag_emoji(country_name: str) -> str:
-    eid = get_country_info(country_name).get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
+    eid = get_country_info(country_name).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
     return emoji_tag(eid, "🏁")
 
 def service_emoji_tag(service_name: str) -> str:
     row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
-    eid = row[0] if row and row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
+    eid = row[0] if row and row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     return emoji_tag(eid, "⚙️")
 
 # ==================== KEYBOARD BUILDERS ====================
@@ -484,7 +485,6 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-# ==================== FORMAT NUMBERS MESSAGE (WITH REMOVE CC) ====================
 def format_numbers_message(country, service, numbers, user_id=None, first_name=None):
     if first_name is None:
         first_name = "User"
@@ -541,7 +541,6 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
     ])
     return message, InlineKeyboardMarkup(rows)
 
-# ==================== STOCK MESSAGES ====================
 def stock_added_message(country, service, count):
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
     svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
@@ -566,19 +565,19 @@ def stock_added_broadcast(country, service, count):
 
 # ==================== WELCOME HTML ====================
 def welcome_html(user_id, first_name):
-    spark = CUSTOM_EMOJIS["WELCOME_SPARKLE"]
-    rocket = CUSTOM_EMOJIS["ROCKET"]
-    id_icon = CUSTOM_EMOJIS["ID_ICON"]
-    check = CUSTOM_EMOJIS["CHECK_MARK"]
-    gamepad = CUSTOM_EMOJIS["GAMEPAD"]
+    spark = CUSTOM_EMOJIS.get("WELCOME_SPARKLE", "")
+    rocket = CUSTOM_EMOJIS.get("ROCKET", "")
+    id_icon = CUSTOM_EMOJIS.get("ID_ICON", "")
+    check = CUSTOM_EMOJIS.get("CHECK_MARK", "")
+    gamepad = CUSTOM_EMOJIS.get("GAMEPAD", "")
     return (
-        f'{emoji_tag(spark, "✨")} Welcome to Developer RGX NUMBER BOT Bot, {first_name}! {emoji_tag(spark, "✨")}\n\n'
+        f'{emoji_tag(spark, "✨")} Welcome to SR NUMBER HUB, {first_name}! {emoji_tag(spark, "✨")}\n\n'
         f'{emoji_tag(rocket, "🚀")} Your Premium Platform for Virtual Numbers.\n\n'
         f'{emoji_tag(id_icon, "🆔")} Your ID: <code>{user_id}</code>\n'
         f'{emoji_tag(check, "✅")} You are a Verified Member!\n\n'
         f'{emoji_tag(gamepad, "🎮")} Tap a button below to navigate.\n\n'
         '━━━━━━━━━━━━━━━━━━━━\n'
-        '👨‍💻 Developer: RGX NUMBER BOT'
+        '👨‍💻 Developer: SR NUMBER HUB'
     )
 
 # ==================== /start COMMAND ====================
@@ -697,7 +696,7 @@ async def show_withdraw(update: Update, user_id):
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML')
 
 async def show_support(update: Update):
-    await reply_or_edit(update, "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, questions, or requests — contact admin directly.\n\nDeveloper: RGX NUMBER BOT", reply_markup=support_keyboard())
+    await reply_or_edit(update, "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, questions, or requests — contact admin directly.\n\nDeveloper: SR NUMBER HUB", reply_markup=support_keyboard())
 
 # ==================== ADMIN COMMANDS ====================
 async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -705,7 +704,7 @@ async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if is_admin(user_id):
         admin_mode[user_id] = True
         admin_panel_state[user_id] = "main"
-        await update.message.reply_text("ADMIN PANEL\n\nDeveloper: RGX NUMBER BOT\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
+        await update.message.reply_text("ADMIN PANEL\n\nDeveloper: SR NUMBER HUB\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
     else:
         await update.message.reply_text("Unauthorized access!")
 
@@ -756,7 +755,7 @@ async def admin_panel_menu(update: Update, user_id):
         return
     admin_mode[user_id] = True
     admin_panel_state[user_id] = "main"
-    await reply_or_edit(update, "ADMIN PANEL\n\nDeveloper: RGX NUMBER BOT\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
+    await reply_or_edit(update, "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
 
 # ==================== USER MANAGER ====================
 def generate_user_list_text():
@@ -776,7 +775,7 @@ async def send_user_list_file(update: Update, context: ContextTypes.DEFAULT_TYPE
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
         f.write(text)
         f.flush()
-        await update.message.reply_document(document=open(f.name, 'rb'), filename="USER_DATA.txt")
+        await update.callback_query.message.reply_document(document=open(f.name, 'rb'), filename="USER_DATA.txt")
     os.unlink(f.name)
 
 async def user_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
@@ -803,8 +802,14 @@ async def um_search_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, u
 async def um_search_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
-    if not is_admin(user_id): return
+    if not is_admin(user_id):
+        return
+    # Search by user_id first, then by username
     user = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=? OR username=?", (text, text))
+    if not user:
+        # Try numeric only
+        if text.isdigit():
+            user = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=?", (int(text),))
     if not user:
         await update.message.reply_text("User not found.")
         return
@@ -831,10 +836,12 @@ async def show_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         f"Last Active: {last_active}\n\n"
         f"📱 Recent Numbers (20 min):\n{recent_str}"
     )
+    ban_text = "Ban" if not banned else "Unban"
+    ban_style = KBS.DANGER if not banned else KBS.SUCCESS
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("Edit Balance", callback_data=f"um_editbal|{uid}", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", "")))],
-        [InlineKeyboardButton("Ban" if not banned else "Unban", callback_data=f"um_ban|{uid}", style=KBS.DANGER,
+        [InlineKeyboardButton(ban_text, callback_data=f"um_ban|{uid}", style=ban_style,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BAN_USER", "")))],
         [InlineKeyboardButton("Back", callback_data="um_back", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
@@ -1087,7 +1094,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "exit": await exit_admin_callback_query(query, user_id, context.bot)
     elif action == "back":
         admin_panel_state[user_id] = "main"
-        await safe_edit_message(query, "ADMIN PANEL\n\nDeveloper: RGX NUMBER BOT\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
+        await safe_edit_message(query, "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
 
 async def show_admin_stats(update: Update, user_id):
     total_users = db_fetch_one("SELECT COUNT(*) FROM users")[0]
@@ -1439,7 +1446,7 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"Error: {e}")
         admin_panel_state[user_id] = "main"
 
-# ==================== ADMIN TEXT HANDLER ====================
+# ==================== ADMIN TEXT HANDLER (BROADCAST FIX) ====================
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
@@ -1452,6 +1459,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent = 0
         for u in users:
             try:
+                # Copy any message type (text, voice, video, image, document, etc.)
                 await msg.copy(chat_id=u[0])
                 sent += 1
                 await asyncio.sleep(0.05)
@@ -1561,7 +1569,6 @@ def is_duplicate_otp(number, otp_code, current_ts_str):
     return diff <= 0.5
 
 # ==================== GROUP OTP MESSAGE BUILDER ====================
-# Country code map (for group OTP)
 COUNTRY_CODE_MAP = {
     "1": ("US", "🇺🇸", "USA"), "7": ("RU", "🇷🇺", "RUSSIA"), "20": ("EG", "🇪🇬", "EGYPT"),
     "27": ("ZA", "🇿🇦", "SOUTH AFRICA"), "30": ("GR", "🇬🇷", "GREECE"), "31": ("NL", "🇳🇱", "NETHERLANDS"),
@@ -1705,7 +1712,6 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
             if is_duplicate_otp(number, otp_code, otp_timestamp_str):
                 continue
             
-            # ---- SEND TO GROUP (all OTPs) ----
             if GROUP_ID:
                 try:
                     grp_text, grp_kb = format_group_otp({
@@ -1719,7 +1725,6 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
                 except Exception as e:
                     print(f"Group OTP failed: {e}")
             
-            # ---- SEND TO DM (only to assigned users) ----
             if number in num_map:
                 try:
                     otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -1843,14 +1848,14 @@ async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
 
 async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nContact admin directly.\n\nDeveloper: RGX NUMBER BOT", reply_markup=support_keyboard())
+    await update.message.reply_text("CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nContact admin directly.\n\nDeveloper: SR NUMBER HUB", reply_markup=support_keyboard())
 
 async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id): await update.message.reply_text("Unauthorized!"); return
     admin_mode[user_id] = True
     admin_panel_state[user_id] = "main"
-    await update.message.reply_text("ADMIN PANEL\n\nDeveloper: RGX NUMBER BOT", reply_markup=admin_panel_keyboard())
+    await update.message.reply_text("ADMIN PANEL\n\nDeveloper: SR NUMBER HUB", reply_markup=admin_panel_keyboard())
 
 # ==================== GENERIC TEXT HANDLER ====================
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1867,7 +1872,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== MAIN ====================
 def main():
-    print("🔥 Developer RGX NUMBER BOT Bot STARTING...")
+    print("🔥 SR NUMBER HUB Bot STARTING...")
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("enteradmin", enter_admin_command))
@@ -1901,7 +1906,7 @@ def main():
     application.add_handler(CallbackQueryHandler(lambda u,c: um_edit_balance_prompt(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_editbal\|"))
     application.add_handler(CallbackQueryHandler(lambda u,c: um_ban_toggle(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_ban\|"))
     application.add_handler(CallbackQueryHandler(lambda u,c: user_manager_menu(u,c,u.callback_query.from_user.id), pattern="^um_back$"))
-    # Broadcast: handle any message when state is waiting_broadcast
+    # Broadcast: handle ANY message when state is waiting_broadcast
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file_upload))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, um_search_execute), group=2)
