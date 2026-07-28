@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final – OTP Polling & Forwarding Fixed)
+# bot.py — SR NUMBER HUB (Complete Final – All Countries + Fixed Polling & NoneType Error)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -20,14 +20,15 @@ from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
 BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
-SUPER_ADMIN_IDS = [8744359777]          # Only these can add/remove admins
+SUPER_ADMIN_IDS = [8744359777]
+
+# Default API (already added in code)
+DEFAULT_OTP_API_URL = "http://127.0.0.1:6082"
+DEFAULT_OTP_API_TOKEN = "51291490eb18dd389cef91a4090ab5c3"
+OTP_POLL_INTERVAL = 2  # seconds for default API
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
-OTP_API_URL = "http://127.0.0.1:6082"
-OTP_API_TOKEN = "4ec79003d4f0b6317c3c38927720b1c2"
-OTP_POLL_INTERVAL = 1   # seconds
-
-MIN_WITHDRAW = 0.1  # USD
+MIN_WITHDRAW = 0.1
 
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
@@ -35,8 +36,8 @@ ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/+76nQ1vvAzy04ZWE0"
-BOT_URL = "https://t.me/SrNumberHubBOT"
+CHANNEL_URL = "https://t.me/your_channel"
+BOT_URL = "https://t.me/your_bot"
 
 # Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
@@ -896,6 +897,18 @@ async def _um_edit_balance_wrapper(update: Update, context: ContextTypes.DEFAULT
 async def _um_ban_toggle_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await um_ban_toggle(query, query.from_user.id, context)
+
+async def _api_add_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await api_add_start(update, context, update.callback_query.from_user.id)
+
+async def _api_remove_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await api_remove_list(update, context, update.callback_query.from_user.id)
+
+async def _api_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await api_list(update, context, update.callback_query.from_user.id)
+
+async def _um_search_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await um_search_prompt(update, context, update.callback_query.from_user.id)
 
 async def user_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
@@ -2024,7 +2037,201 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
                                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
     await reply_or_edit(update, text, reply_markup=kb)
 
-# ==================== OTP PROCESSING (FIXED) ====================
+# ==================== FULL COUNTRY CODE MAP ====================
+COUNTRY_CODE_MAP = {
+    "1": ("US", "🇺🇸", "United States"),
+    "7": ("RU", "🇷🇺", "Russia"),
+    "20": ("EG", "🇪🇬", "Egypt"),
+    "27": ("ZA", "🇿🇦", "South Africa"),
+    "30": ("GR", "🇬🇷", "Greece"),
+    "31": ("NL", "🇳🇱", "Netherlands"),
+    "32": ("BE", "🇧🇪", "Belgium"),
+    "33": ("FR", "🇫🇷", "France"),
+    "34": ("ES", "🇪🇸", "Spain"),
+    "36": ("HU", "🇭🇺", "Hungary"),
+    "39": ("IT", "🇮🇹", "Italy"),
+    "40": ("RO", "🇷🇴", "Romania"),
+    "41": ("CH", "🇨🇭", "Switzerland"),
+    "43": ("AT", "🇦🇹", "Austria"),
+    "44": ("GB", "🇬🇧", "United Kingdom"),
+    "45": ("DK", "🇩🇰", "Denmark"),
+    "46": ("SE", "🇸🇪", "Sweden"),
+    "47": ("NO", "🇳🇴", "Norway"),
+    "48": ("PL", "🇵🇱", "Poland"),
+    "49": ("DE", "🇩🇪", "Germany"),
+    "51": ("PE", "🇵🇪", "Peru"),
+    "52": ("MX", "🇲🇽", "Mexico"),
+    "53": ("CU", "🇨🇺", "Cuba"),
+    "54": ("AR", "🇦🇷", "Argentina"),
+    "55": ("BR", "🇧🇷", "Brazil"),
+    "56": ("CL", "🇨🇱", "Chile"),
+    "57": ("CO", "🇨🇴", "Colombia"),
+    "58": ("VE", "🇻🇪", "Venezuela"),
+    "60": ("MY", "🇲🇾", "Malaysia"),
+    "61": ("AU", "🇦🇺", "Australia"),
+    "62": ("ID", "🇮🇩", "Indonesia"),
+    "63": ("PH", "🇵🇭", "Philippines"),
+    "64": ("NZ", "🇳🇿", "New Zealand"),
+    "65": ("SG", "🇸🇬", "Singapore"),
+    "66": ("TH", "🇹🇭", "Thailand"),
+    "81": ("JP", "🇯🇵", "Japan"),
+    "82": ("KR", "🇰🇷", "South Korea"),
+    "84": ("VN", "🇻🇳", "Vietnam"),
+    "86": ("CN", "🇨🇳", "China"),
+    "90": ("TR", "🇹🇷", "Turkey"),
+    "91": ("IN", "🇮🇳", "India"),
+    "92": ("PK", "🇵🇰", "Pakistan"),
+    "93": ("AF", "🇦🇫", "Afghanistan"),
+    "94": ("LK", "🇱🇰", "Sri Lanka"),
+    "95": ("MM", "🇲🇲", "Myanmar"),
+    "98": ("IR", "🇮🇷", "Iran"),
+    "211": ("SS", "🇸🇸", "South Sudan"),
+    "212": ("MA", "🇲🇦", "Morocco"),
+    "213": ("DZ", "🇩🇿", "Algeria"),
+    "216": ("TN", "🇹🇳", "Tunisia"),
+    "218": ("LY", "🇱🇾", "Libya"),
+    "220": ("GM", "🇬🇲", "Gambia"),
+    "221": ("SN", "🇸🇳", "Senegal"),
+    "222": ("MR", "🇲🇷", "Mauritania"),
+    "223": ("ML", "🇲🇱", "Mali"),
+    "224": ("GN", "🇬🇳", "Guinea"),
+    "225": ("CI", "🇨🇮", "Ivory Coast"),
+    "226": ("BF", "🇧🇫", "Burkina Faso"),
+    "227": ("NE", "🇳🇪", "Niger"),
+    "228": ("TG", "🇹🇬", "Togo"),
+    "229": ("BJ", "🇧🇯", "Benin"),
+    "230": ("MU", "🇲🇺", "Mauritius"),
+    "231": ("LR", "🇱🇷", "Liberia"),
+    "232": ("SL", "🇸🇱", "Sierra Leone"),
+    "233": ("GH", "🇬🇭", "Ghana"),
+    "234": ("NG", "🇳🇬", "Nigeria"),
+    "235": ("TD", "🇹🇩", "Chad"),
+    "236": ("CF", "🇨🇫", "Central African Republic"),
+    "237": ("CM", "🇨🇲", "Cameroon"),
+    "238": ("CV", "🇨🇻", "Cape Verde"),
+    "239": ("ST", "🇸🇹", "Sao Tome and Principe"),
+    "240": ("GQ", "🇬🇶", "Equatorial Guinea"),
+    "241": ("GA", "🇬🇦", "Gabon"),
+    "242": ("CG", "🇨🇬", "Congo"),
+    "243": ("CD", "🇨🇩", "DR Congo"),
+    "244": ("AO", "🇦🇴", "Angola"),
+    "245": ("GW", "🇬🇼", "Guinea-Bissau"),
+    "246": ("IO", "🇮🇴", "British Indian Ocean Territory"),
+    "248": ("SC", "🇸🇨", "Seychelles"),
+    "249": ("SD", "🇸🇩", "Sudan"),
+    "250": ("RW", "🇷🇼", "Rwanda"),
+    "251": ("ET", "🇪🇹", "Ethiopia"),
+    "252": ("SO", "🇸🇴", "Somalia"),
+    "253": ("DJ", "🇩🇯", "Djibouti"),
+    "254": ("KE", "🇰🇪", "Kenya"),
+    "255": ("TZ", "🇹🇿", "Tanzania"),
+    "256": ("UG", "🇺🇬", "Uganda"),
+    "257": ("BI", "🇧🇮", "Burundi"),
+    "258": ("MZ", "🇲🇿", "Mozambique"),
+    "260": ("ZM", "🇿🇲", "Zambia"),
+    "261": ("MG", "🇲🇬", "Madagascar"),
+    "262": ("RE", "🇷🇪", "Reunion"),
+    "263": ("ZW", "🇿🇼", "Zimbabwe"),
+    "264": ("NA", "🇳🇦", "Namibia"),
+    "265": ("MW", "🇲🇼", "Malawi"),
+    "266": ("LS", "🇱🇸", "Lesotho"),
+    "267": ("BW", "🇧🇼", "Botswana"),
+    "268": ("SZ", "🇸🇿", "Eswatini"),
+    "269": ("KM", "🇰🇲", "Comoros"),
+    "290": ("SH", "🇸🇭", "Saint Helena"),
+    "291": ("ER", "🇪🇷", "Eritrea"),
+    "297": ("AW", "🇦🇼", "Aruba"),
+    "298": ("FO", "🇫🇴", "Faroe Islands"),
+    "299": ("GL", "🇬🇱", "Greenland"),
+    "350": ("GI", "🇬🇮", "Gibraltar"),
+    "351": ("PT", "🇵🇹", "Portugal"),
+    "352": ("LU", "🇱🇺", "Luxembourg"),
+    "353": ("IE", "🇮🇪", "Ireland"),
+    "354": ("IS", "🇮🇸", "Iceland"),
+    "355": ("AL", "🇦🇱", "Albania"),
+    "356": ("MT", "🇲🇹", "Malta"),
+    "357": ("CY", "🇨🇾", "Cyprus"),
+    "358": ("FI", "🇫🇮", "Finland"),
+    "359": ("BG", "🇧🇬", "Bulgaria"),
+    "370": ("LT", "🇱🇹", "Lithuania"),
+    "371": ("LV", "🇱🇻", "Latvia"),
+    "372": ("EE", "🇪🇪", "Estonia"),
+    "373": ("MD", "🇲🇩", "Moldova"),
+    "374": ("AM", "🇦🇲", "Armenia"),
+    "375": ("BY", "🇧🇾", "Belarus"),
+    "376": ("AD", "🇦🇩", "Andorra"),
+    "377": ("MC", "🇲🇨", "Monaco"),
+    "378": ("SM", "🇸🇲", "San Marino"),
+    "380": ("UA", "🇺🇦", "Ukraine"),
+    "381": ("RS", "🇷🇸", "Serbia"),
+    "382": ("ME", "🇲🇪", "Montenegro"),
+    "383": ("XK", "🇽🇰", "Kosovo"),
+    "385": ("HR", "🇭🇷", "Croatia"),
+    "386": ("SI", "🇸🇮", "Slovenia"),
+    "387": ("BA", "🇧🇦", "Bosnia and Herzegovina"),
+    "389": ("MK", "🇲🇰", "North Macedonia"),
+    "420": ("CZ", "🇨🇿", "Czech Republic"),
+    "421": ("SK", "🇸🇰", "Slovakia"),
+    "423": ("LI", "🇱🇮", "Liechtenstein"),
+    "500": ("FK", "🇫🇰", "Falkland Islands"),
+    "501": ("BZ", "🇧🇿", "Belize"),
+    "502": ("GT", "🇬🇹", "Guatemala"),
+    "503": ("SV", "🇸🇻", "El Salvador"),
+    "504": ("HN", "🇭🇳", "Honduras"),
+    "505": ("NI", "🇳🇮", "Nicaragua"),
+    "506": ("CR", "🇨🇷", "Costa Rica"),
+    "507": ("PA", "🇵🇦", "Panama"),
+    "509": ("HT", "🇭🇹", "Haiti"),
+    "590": ("GP", "🇬🇵", "Guadeloupe"),
+    "591": ("BO", "🇧🇴", "Bolivia"),
+    "592": ("GY", "🇬🇾", "Guyana"),
+    "593": ("EC", "🇪🇨", "Ecuador"),
+    "594": ("GF", "🇬🇫", "French Guiana"),
+    "595": ("PY", "🇵🇾", "Paraguay"),
+    "596": ("MQ", "🇲🇶", "Martinique"),
+    "597": ("SR", "🇸🇷", "Suriname"),
+    "598": ("UY", "🇺🇾", "Uruguay"),
+    "599": ("BQ", "🇧🇶", "Caribbean Netherlands"),
+    "880": ("BD", "🇧🇩", "Bangladesh"),
+    "960": ("MV", "🇲🇻", "Maldives"),
+    "961": ("LB", "🇱🇧", "Lebanon"),
+    "962": ("JO", "🇯🇴", "Jordan"),
+    "963": ("SY", "🇸🇾", "Syria"),
+    "964": ("IQ", "🇮🇶", "Iraq"),
+    "965": ("KW", "🇰🇼", "Kuwait"),
+    "966": ("SA", "🇸🇦", "Saudi Arabia"),
+    "967": ("YE", "🇾🇪", "Yemen"),
+    "968": ("OM", "🇴🇲", "Oman"),
+    "970": ("PS", "🇵🇸", "Palestine"),
+    "971": ("AE", "🇦🇪", "UAE"),
+    "972": ("IL", "🇮🇱", "Israel"),
+    "973": ("BH", "🇧🇭", "Bahrain"),
+    "974": ("QA", "🇶🇦", "Qatar"),
+    "975": ("BT", "🇧🇹", "Bhutan"),
+    "976": ("MN", "🇲🇳", "Mongolia"),
+    "977": ("NP", "🇳🇵", "Nepal"),
+    "992": ("TJ", "🇹🇯", "Tajikistan"),
+    "993": ("TM", "🇹🇲", "Turkmenistan"),
+    "994": ("AZ", "🇦🇿", "Azerbaijan"),
+    "995": ("GE", "🇬🇪", "Georgia"),
+    "996": ("KG", "🇰🇬", "Kyrgyzstan"),
+    "998": ("UZ", "🇺🇿", "Uzbekistan"),
+}
+ISO_TO_INFO = {v[0]: (v[1], v[2]) for v in COUNTRY_CODE_MAP.values()}
+
+def get_country_code(country_name):
+    if not country_name:
+        return ""
+    lower = country_name.lower()
+    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
+        if lower == name.lower() or lower == iso.lower() or lower == code:
+            return iso
+    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
+        if lower in name.lower() or name.lower() in lower:
+            return iso
+    return country_name.upper()[:2]
+
+# ==================== OTP PROCESSING ====================
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
@@ -2040,24 +2247,6 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
         return False
     diff = abs((current_ts - last_ts).total_seconds())
     return diff <= 0.5
-
-COUNTRY_CODE_MAP = {
-    "1": ("US", "🇺🇸", "USA"), "7": ("RU", "🇷🇺", "RUSSIA"), "20": ("EG", "🇪🇬", "EGYPT"),
-    # ... (your full map)
-}
-ISO_TO_INFO = {v[0]: (v[1], v[2]) for v in COUNTRY_CODE_MAP.values()}
-
-def get_country_code(country_name):
-    if not country_name:
-        return ""
-    lower = country_name.lower()
-    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
-        if lower == name.lower() or lower == iso.lower() or lower == code:
-            return iso
-    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
-        if lower in name.lower() or name.lower() in lower:
-            return iso
-    return country_name.upper()[:2]
 
 def format_group_otp(entry):
     number = entry.get("number", "")
@@ -2224,9 +2413,9 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     print(f"DM OTP failed for {uid}: {e}")
     save_user_data_json()
 
-async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
+async def monitor_default_api(context: ContextTypes.DEFAULT_TYPE):
     try:
-        resp = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
+        resp = requests.get(f"{DEFAULT_OTP_API_URL}/all_otp?token={DEFAULT_OTP_API_TOKEN}", timeout=10)
         if resp.status_code == 200 and resp.json().get("status") == "success":
             otps = resp.json().get("data", {}).get("otps", [])
             await process_otps(otps, bot=context.bot)
@@ -2234,7 +2423,7 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
         print(f"Default API error: {e}")
 
 async def poll_api(api_id):
-    # Wait until bot is ready
+    # Wait until bot is fully ready
     while not application or not application.bot:
         await asyncio.sleep(1)
     while True:
@@ -2315,7 +2504,7 @@ def main():
     application.add_handler(CallbackQueryHandler(fu_service_callback, pattern=r"^fu_service\|"))
     # User Manager wrappers
     application.add_handler(CallbackQueryHandler(_user_manager_wrapper, pattern="^admin_user_manager$"))
-    application.add_handler(CallbackQueryHandler(lambda u,c: um_search_prompt(u,c,u.callback_query.from_user.id), pattern="^um_search$"))
+    application.add_handler(CallbackQueryHandler(_um_search_wrapper, pattern="^um_search$"))
     application.add_handler(CallbackQueryHandler(send_user_list_file, pattern="^um_download$"))
     application.add_handler(CallbackQueryHandler(um_stats, pattern="^um_stats$"))
     application.add_handler(CallbackQueryHandler(_um_edit_balance_wrapper, pattern=r"^um_editbal\|"))
@@ -2327,9 +2516,9 @@ def main():
     application.add_handler(CallbackQueryHandler(db_upload_prompt, pattern="^db_upload$"))
     # Manage API wrapper
     application.add_handler(CallbackQueryHandler(_manage_api_wrapper, pattern="^admin_manage_api$"))
-    application.add_handler(CallbackQueryHandler(lambda u,c: api_add_start(u,c,u.callback_query.from_user.id), pattern="^api_add$"))
-    application.add_handler(CallbackQueryHandler(lambda u,c: api_remove_list(u,c,u.callback_query.from_user.id), pattern="^api_remove$"))
-    application.add_handler(CallbackQueryHandler(lambda u,c: api_list(u,c,u.callback_query.from_user.id), pattern="^api_list$"))
+    application.add_handler(CallbackQueryHandler(_api_add_wrapper, pattern="^api_add$"))
+    application.add_handler(CallbackQueryHandler(_api_remove_wrapper, pattern="^api_remove$"))
+    application.add_handler(CallbackQueryHandler(_api_list_wrapper, pattern="^api_list$"))
     application.add_handler(CallbackQueryHandler(api_remove_execute, pattern=r"^api_rem_\d+$"))
 
     # Text handler
@@ -2337,18 +2526,18 @@ def main():
 
     application.add_error_handler(error_handler)
 
-    # Job queue
-    job_queue = application.job_queue
-    if job_queue:
-        job_queue.run_repeating(monitor_otp_api, interval=OTP_POLL_INTERVAL, first=OTP_POLL_INTERVAL)
-        job_queue.run_repeating(lambda ctx: save_user_data_json(), interval=60, first=10)
+    # Job queue for default API
+    if application.job_queue:
+        application.job_queue.run_repeating(monitor_default_api, interval=OTP_POLL_INTERVAL, first=OTP_POLL_INTERVAL)
+        application.job_queue.run_repeating(lambda ctx: save_user_data_json(), interval=60, first=10)
 
-    # Start API polling tasks after bot is initialized
+    # Start added API polling after bot is initialized
     async def start_api_tasks(app):
         print("🚀 Starting added API polling tasks...")
         for (api_id,) in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
             asyncio.create_task(poll_api(api_id))
             print(f"   ➤ Started polling for API {api_id}")
+
     application.post_init = start_api_tasks
 
     save_user_data_json()
