@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final Full – OTP Fix, All Features)
+# bot.py — SR NUMBER HUB (Final – OTP Polling & Forwarding Fixed)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -23,9 +23,9 @@ BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 SUPER_ADMIN_IDS = [8744359777]          # Only these can add/remove admins
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
-OTP_API_URL = "http://127.0.0.1:6082/all_otp"
-OTP_API_TOKEN = "450c4f8545cc543e791da30e0166f12c"
-OTP_POLL_INTERVAL = 2   # seconds
+OTP_API_URL = "http://127.0.0.1:5080/all_otp"
+OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
+OTP_POLL_INTERVAL = 4   # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -2043,7 +2043,7 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
 
 COUNTRY_CODE_MAP = {
     "1": ("US", "🇺🇸", "USA"), "7": ("RU", "🇷🇺", "RUSSIA"), "20": ("EG", "🇪🇬", "EGYPT"),
-    # ... (your full country map here)
+    # ... (your full map)
 }
 ISO_TO_INFO = {v[0]: (v[1], v[2]) for v in COUNTRY_CODE_MAP.values()}
 
@@ -2134,8 +2134,11 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
     if context:
         bot = context.bot
     if not bot:
-        print("❌ process_otps: No bot instance!")
-        return
+        if application and application.bot:
+            bot = application.bot
+        else:
+            print("❌ process_otps: No bot instance!")
+            return
     print(f"⚙️ Processing {len(otps_list)} OTPs")
     now = datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -2231,7 +2234,9 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
         print(f"Default API error: {e}")
 
 async def poll_api(api_id):
-    """Poll a specific API and process OTPs."""
+    # Wait until bot is ready
+    while not application or not application.bot:
+        await asyncio.sleep(1)
     while True:
         key = db_fetch_one("SELECT base_url, token, interval_sec, active FROM api_keys WHERE id=? AND active=1", (api_id,))
         if not key:
@@ -2243,7 +2248,6 @@ async def poll_api(api_id):
                 otps = resp.json().get("data", {}).get("otps", [])
                 if otps:
                     print(f"✅ API {api_id}: {len(otps)} OTP received")
-                # Directly use application.bot (it's always available)
                 await process_otps(otps, bot=application.bot)
         except Exception as e:
             print(f"API {api_id} error: {e}")
@@ -2341,9 +2345,10 @@ def main():
 
     # Start API polling tasks after bot is initialized
     async def start_api_tasks(app):
-        for api_id in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
-            asyncio.create_task(poll_api(api_id[0]))
-
+        print("🚀 Starting added API polling tasks...")
+        for (api_id,) in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
+            asyncio.create_task(poll_api(api_id))
+            print(f"   ➤ Started polling for API {api_id}")
     application.post_init = start_api_tasks
 
     save_user_data_json()
