@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final with all features)
+# bot.py — SR NUMBER HUB (Complete Final with All Fixes)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -1036,419 +1036,24 @@ async def db_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_panel_state[user_id] = "waiting_db_upload"
     await query.edit_message_text("Upload the sr-number-data.zip file to restore the database.", reply_markup=admin_cancel_keyboard())
 
-async def handle_db_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ==================== SINGLE DOCUMENT HANDLER (FIX) ====================
+async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Single handler for both stock (.txt) and database (.zip) uploads,
+    depending on the current admin state.
+    """
     user_id = update.effective_user.id
-    if not is_admin(user_id) or admin_panel_state.get(user_id) != "waiting_db_upload":
+    if not is_admin(user_id):
         return
+
     document = update.message.document
-    if not document or not document.file_name.endswith('.zip'):
-        await update.message.reply_text("Please upload the correct sr-number-data.zip file.")
+    if not document:
         return
-    file = await context.bot.get_file(document.file_id)
-    tmpdir = tempfile.mkdtemp()
-    zip_path = os.path.join(tmpdir, "upload.zip")
-    await file.download_to_drive(zip_path)
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            zf.extractall(tmpdir)
-        for root, dirs, files in os.walk(tmpdir):
-            for fname in files:
-                full = os.path.join(root, fname)
-                if fname == "mrisbrand_master.db":
-                    global conn, c
-                    conn.close()
-                    shutil.copy2(full, DB_PATH)
-                    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-                    c = conn.cursor()
-                elif fname == "countries.json":
-                    shutil.copy2(full, "countries.json")
-                    global COUNTRIES_DATA
-                    COUNTRIES_DATA = load_countries_db()
-                elif fname == "user_data.json":
-                    shutil.copy2(full, USER_DATA_FILE)
-                elif fname == "emoji.py":
-                    shutil.copy2(full, "emoji.py")
-    except Exception as e:
-        await update.message.reply_text(f"Error restoring database: {e}")
-        return
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
-    admin_panel_state[user_id] = "main"
-    await update.message.reply_text("✅ Database restored successfully!", reply_markup=admin_panel_keyboard())
 
-# ==================== MANAGE API ====================
-async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    if not is_admin(user_id): return
-    admin_panel_state[user_id] = "manage_api"
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("ADD API KEY", callback_data="api_add", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))],
-        [InlineKeyboardButton("REMOVE API KEY", callback_data="api_remove", style=KBS.DANGER,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("REMOVE_API_KEY", "")))],
-        [InlineKeyboardButton("LIST API KEY", callback_data="api_list", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("LIST_API_KEY", "")))],
-        [InlineKeyboardButton("Back", callback_data="admin_back", style=KBS.DANGER,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
-    ])
-    await reply_or_edit(update, "MANAGE API\n\nSelect an option:", reply_markup=kb)
-
-async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    admin_panel_state[user_id] = "api_add_name"
-    await reply_or_edit(update, "Send the panel name:", reply_markup=admin_cancel_keyboard())
-
-async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
-    if not state or not state.startswith("api_add_"):
-        return False
-    text = update.message.text.strip()
-    if state == "api_add_name":
-        admin_temp_data[user_id] = {"panel_name": text}
-        admin_panel_state[user_id] = "api_add_url"
-        await update.message.reply_text("Send the API base URL:", reply_markup=admin_cancel_keyboard())
-        return True
-    elif state == "api_add_url":
-        admin_temp_data[user_id]["base_url"] = text
-        admin_panel_state[user_id] = "api_add_token"
-        await update.message.reply_text("Send the API token:", reply_markup=admin_cancel_keyboard())
-        return True
-    elif state == "api_add_token":
-        admin_temp_data[user_id]["token"] = text
-        admin_panel_state[user_id] = "api_add_interval"
-        await update.message.reply_text("Send the polling interval (seconds):", reply_markup=admin_cancel_keyboard())
-        return True
-    elif state == "api_add_interval":
-        try:
-            interval = int(text)
-        except ValueError:
-            await update.message.reply_text("Invalid number. Try again.")
-            return True
-        data = admin_temp_data.pop(user_id)
-        db_exec("INSERT INTO api_keys (panel_name, base_url, token, interval_sec, active) VALUES (?,?,?,?,1)",
-                (data["panel_name"], data["base_url"], data["token"], interval))
-        api_id = db_fetch_one("SELECT last_insert_rowid()")[0]
-        asyncio.create_task(poll_api(api_id))
-        admin_panel_state[user_id] = "main"
-        await update.message.reply_text("✅ API key added and polling started!", reply_markup=admin_panel_keyboard())
-        return True
-    return False
-
-async def api_remove_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    if not is_admin(user_id): return
-    keys = db_fetch_all("SELECT id, panel_name, token FROM api_keys WHERE active=1")
-    rows = []
-    for k in keys:
-        short = k[2][:5] if len(k[2]) > 5 else k[2]
-        rows.append([InlineKeyboardButton(f"❌ {k[1]} ({short}...)", callback_data=f"api_rem_{k[0]}",
-                                          style=KBS.DANGER,
-                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))])
-    rows.append([InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
-                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await reply_or_edit(update, "Select API key to remove:", reply_markup=InlineKeyboardMarkup(rows))
-
-async def api_remove_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    if not is_admin(user_id): return
-    api_id = int(query.data.split("_")[-1])
-    db_exec("UPDATE api_keys SET active=0 WHERE id=?", (api_id,))
-    await query.answer("API key removed!")
-    await api_remove_list(update, context, user_id)
-
-async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    if not is_admin(user_id): return
-    keys = db_fetch_all("SELECT id, panel_name, base_url, token, interval_sec FROM api_keys WHERE active=1")
-    if not keys:
-        text = "No active API keys."
-    else:
-        lines = ["**Active API Keys:**\n"]
-        for k in keys:
-            lines.append(f"• {k[1]} | {k[3][:12]}... | Interval: {k[4]}s")
-        text = "\n".join(lines)
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
-                                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
-    await reply_or_edit(update, text, reply_markup=kb)
-
-# ==================== OTP PROCESSING (shared) ====================
-def is_duplicate_otp_dm(number, otp_code, current_ts_str):
-    try:
-        current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
-    except:
-        return False
-    rows = db_fetch_all("SELECT timestamp FROM otps WHERE number=? AND otp=? AND user_id!=0 ORDER BY timestamp DESC LIMIT 1", (number, otp_code))
-    if not rows:
-        return False
-    last_ts_str = rows[0][0]
-    try:
-        last_ts = datetime.strptime(last_ts_str, "%Y-%m-%d %H:%M:%S")
-    except:
-        return False
-    diff = abs((current_ts - last_ts).total_seconds())
-    return diff <= 0.5
-
-COUNTRY_CODE_MAP = {
-    "1": ("US", "🇺🇸", "USA"), "7": ("RU", "🇷🇺", "RUSSIA"), "20": ("EG", "🇪🇬", "EGYPT"),
-    "27": ("ZA", "🇿🇦", "SOUTH AFRICA"), "30": ("GR", "🇬🇷", "GREECE"), "31": ("NL", "🇳🇱", "NETHERLANDS"),
-    "33": ("FR", "🇫🇷", "FRANCE"), "34": ("ES", "🇪🇸", "SPAIN"), "39": ("IT", "🇮🇹", "ITALY"),
-    "40": ("RO", "🇷🇴", "ROMANIA"), "41": ("CH", "🇨🇭", "SWITZERLAND"), "43": ("AT", "🇦🇹", "AUSTRIA"),
-    "44": ("GB", "🇬🇧", "UNITED KINGDOM"), "46": ("SE", "🇸🇪", "SWEDEN"), "48": ("PL", "🇵🇱", "POLAND"),
-    "49": ("DE", "🇩🇪", "GERMANY"), "51": ("PE", "🇵🇪", "PERU"), "52": ("MX", "🇲🇽", "MEXICO"),
-    "54": ("AR", "🇦🇷", "ARGENTINA"), "55": ("BR", "🇧🇷", "BRAZIL"), "56": ("CL", "🇨🇱", "CHILE"),
-    "57": ("CO", "🇨🇴", "COLOMBIA"), "58": ("VE", "🇻🇪", "VENEZUELA"), "60": ("MY", "🇲🇾", "MALAYSIA"),
-    "62": ("ID", "🇮🇩", "INDONESIA"), "63": ("PH", "🇵🇭", "PHILIPPINES"), "66": ("TH", "🇹🇭", "THAILAND"),
-    "81": ("JP", "🇯🇵", "JAPAN"), "82": ("KR", "🇰🇷", "SOUTH KOREA"), "84": ("VN", "🇻🇳", "VIETNAM"),
-    "86": ("CN", "🇨🇳", "CHINA"), "90": ("TR", "🇹🇷", "TURKEY"), "91": ("IN", "🇮🇳", "INDIA"),
-    "92": ("PK", "🇵🇰", "PAKISTAN"), "93": ("AF", "🇦🇫", "AFGHANISTAN"), "94": ("LK", "🇱🇰", "SRI LANKA"),
-    "95": ("MM", "🇲🇲", "MYANMAR"), "98": ("IR", "🇮🇷", "IRAN"), "211": ("SS", "🇸🇸", "SOUTH SUDAN"),
-    "212": ("MA", "🇲🇦", "MOROCCO"), "213": ("DZ", "🇩🇿", "ALGERIA"), "216": ("TN", "🇹🇳", "TUNISIA"),
-    "218": ("LY", "🇱🇾", "LIBYA"), "220": ("GM", "🇬🇲", "GAMBIA"), "221": ("SN", "🇸🇳", "SENEGAL"),
-    "222": ("MR", "🇲🇷", "MAURITANIA"), "223": ("ML", "🇲🇱", "MALI"), "224": ("GN", "🇬🇳", "GUINEA"),
-    "225": ("CI", "🇨🇮", "IVORY COAST"), "226": ("BF", "🇧🇫", "BURKINA FASO"), "227": ("NE", "🇳🇪", "NIGER"),
-    "228": ("TG", "🇹🇬", "TOGO"), "229": ("BJ", "🇧🇯", "BENIN"), "230": ("MU", "🇲🇺", "MAURITIUS"),
-    "231": ("LR", "🇱🇷", "LIBERIA"), "232": ("SL", "🇸🇱", "SIERRA LEONE"), "233": ("GH", "🇬🇭", "GHANA"),
-    "234": ("NG", "🇳🇬", "NIGERIA"), "235": ("TD", "🇹🇩", "CHAD"), "236": ("CF", "🇨🇫", "CENTRAL AFRICAN REPUBLIC"),
-    "237": ("CM", "🇨🇲", "CAMEROON"), "238": ("CV", "🇨🇻", "CAPE VERDE"), "239": ("ST", "🇸🇹", "SAO TOME AND PRINCIPE"),
-    "240": ("GQ", "🇬🇶", "EQUATORIAL GUINEA"), "241": ("GA", "🇬🇦", "GABON"), "242": ("CG", "🇨🇬", "CONGO"),
-    "243": ("CD", "🇨🇩", "DR CONGO"), "244": ("AO", "🇦🇴", "ANGOLA"), "245": ("GW", "🇬🇼", "GUINEA-BISSAU"),
-    "246": ("IO", "🇮🇴", "BRITISH INDIAN OCEAN TERRITORY"), "248": ("SC", "🇸🇨", "SEYCHELLES"),
-    "249": ("SD", "🇸🇩", "SUDAN"), "250": ("RW", "🇷🇼", "RWANDA"), "251": ("ET", "🇪🇹", "ETHIOPIA"),
-    "252": ("SO", "🇸🇴", "SOMALIA"), "253": ("DJ", "🇩🇯", "DJIBOUTI"), "254": ("KE", "🇰🇪", "KENYA"),
-    "255": ("TZ", "🇹🇿", "TANZANIA"), "256": ("UG", "🇺🇬", "UGANDA"), "257": ("BI", "🇧🇮", "BURUNDI"),
-    "258": ("MZ", "🇲🇿", "MOZAMBIQUE"), "260": ("ZM", "🇿🇲", "ZAMBIA"), "261": ("MG", "🇲🇬", "MADAGASCAR"),
-    "262": ("RE", "🇷🇪", "REUNION"), "263": ("ZW", "🇿🇼", "ZIMBABWE"), "264": ("NA", "🇳🇦", "NAMIBIA"),
-    "265": ("MW", "🇲🇼", "MALAWI"), "266": ("LS", "🇱🇸", "LESOTHO"), "267": ("BW", "🇧🇼", "BOTSWANA"),
-    "268": ("SZ", "🇸🇿", "ESWATINI"), "269": ("KM", "🇰🇲", "COMOROS"), "290": ("SH", "🇸🇭", "SAINT HELENA"),
-    "291": ("ER", "🇪🇷", "ERITREA"), "297": ("AW", "🇦🇼", "ARUBA"), "298": ("FO", "🇫🇴", "FAROE ISLANDS"),
-    "299": ("GL", "🇬🇱", "GREENLAND"), "350": ("GI", "🇬🇮", "GIBRALTAR"), "351": ("PT", "🇵🇹", "PORTUGAL"),
-    "352": ("LU", "🇱🇺", "LUXEMBOURG"), "353": ("IE", "🇮🇪", "IRELAND"), "354": ("IS", "🇮🇸", "ICELAND"),
-    "355": ("AL", "🇦🇱", "ALBANIA"), "356": ("MT", "🇲🇹", "MALTA"), "357": ("CY", "🇨🇾", "CYPRUS"),
-    "358": ("FI", "🇫🇮", "FINLAND"), "359": ("BG", "🇧🇬", "BULGARIA"), "370": ("LT", "🇱🇹", "LITHUANIA"),
-    "371": ("LV", "🇱🇻", "LATVIA"), "372": ("EE", "🇪🇪", "ESTONIA"), "373": ("MD", "🇲🇩", "MOLDOVA"),
-    "374": ("AM", "🇦🇲", "ARMENIA"), "375": ("BY", "🇧🇾", "BELARUS"), "376": ("AD", "🇦🇩", "ANDORRA"),
-    "377": ("MC", "🇲🇨", "MONACO"), "378": ("SM", "🇸🇲", "SAN MARINO"), "380": ("UA", "🇺🇦", "UKRAINE"),
-    "381": ("RS", "🇷🇸", "SERBIA"), "382": ("ME", "🇲🇪", "MONTENEGRO"), "383": ("XK", "🇽🇰", "KOSOVO"),
-    "385": ("HR", "🇭🇷", "CROATIA"), "386": ("SI", "🇸🇮", "SLOVENIA"), "387": ("BA", "🇧🇦", "BOSNIA AND HERZEGOVINA"),
-    "389": ("MK", "🇲🇰", "NORTH MACEDONIA"), "420": ("CZ", "🇨🇿", "CZECH REPUBLIC"), "421": ("SK", "🇸🇰", "SLOVAKIA"),
-    "423": ("LI", "🇱🇮", "LIECHTENSTEIN"), "500": ("FK", "🇫🇰", "FALKLAND ISLANDS"), "501": ("BZ", "🇧🇿", "BELIZE"),
-    "502": ("GT", "🇬🇹", "GUATEMALA"), "503": ("SV", "🇸🇻", "EL SALVADOR"), "504": ("HN", "🇭🇳", "HONDURAS"),
-    "505": ("NI", "🇳🇮", "NICARAGUA"), "506": ("CR", "🇨🇷", "COSTA RICA"), "507": ("PA", "🇵🇦", "PANAMA"),
-    "509": ("HT", "🇭🇹", "HAITI"), "590": ("GP", "🇬🇵", "GUADELOUPE"), "591": ("BO", "🇧🇴", "BOLIVIA"),
-    "592": ("GY", "🇬🇾", "GUYANA"), "593": ("EC", "🇪🇨", "ECUADOR"), "594": ("GF", "🇬🇫", "FRENCH GUIANA"),
-    "595": ("PY", "🇵🇾", "PARAGUAY"), "596": ("MQ", "🇲🇶", "MARTINIQUE"), "597": ("SR", "🇸🇷", "SURINAME"),
-    "598": ("UY", "🇺🇾", "URUGUAY"), "599": ("BQ", "🇧🇶", "CARIBBEAN NETHERLANDS"), "880": ("BD", "🇧🇩", "BANGLADESH"),
-    "960": ("MV", "🇲🇻", "MALDIVES"), "961": ("LB", "🇱🇧", "LEBANON"), "962": ("JO", "🇯🇴", "JORDAN"),
-    "963": ("SY", "🇸🇾", "SYRIA"), "964": ("IQ", "🇮🇶", "IRAQ"), "965": ("KW", "🇰🇼", "KUWAIT"),
-    "966": ("SA", "🇸🇦", "SAUDI ARABIA"), "967": ("YE", "🇾🇪", "YEMEN"), "968": ("OM", "🇴🇲", "OMAN"),
-    "970": ("PS", "🇵🇸", "PALESTINE"), "971": ("AE", "🇦🇪", "UAE"), "972": ("IL", "🇮🇱", "ISRAEL"),
-    "973": ("BH", "🇧🇭", "BAHRAIN"), "974": ("QA", "🇶🇦", "QATAR"), "975": ("BT", "🇧🇹", "BHUTAN"),
-    "976": ("MN", "🇲🇳", "MONGOLIA"), "977": ("NP", "🇳🇵", "NEPAL"), "992": ("TJ", "🇹🇯", "TAJIKISTAN"),
-    "993": ("TM", "🇹🇲", "TURKMENISTAN"), "994": ("AZ", "🇦🇿", "AZERBAIJAN"), "995": ("GE", "🇬🇪", "GEORGIA"),
-    "996": ("KG", "🇰🇬", "KYRGYZSTAN"), "998": ("UZ", "🇺🇿", "UZBEKISTAN"),
-}
-ISO_TO_INFO = {v[0]: (v[1], v[2]) for v in COUNTRY_CODE_MAP.values()}
-
-def get_country_code(country_name):
-    if not country_name:
-        return ""
-    lower = country_name.lower()
-    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
-        if lower == name.lower() or lower == iso.lower() or lower == code:
-            return iso
-    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
-        if lower in name.lower() or name.lower() in lower:
-            return iso
-    return country_name.upper()[:2]
-
-def format_group_otp(entry):
-    number = entry.get("number", "")
-    otp_code = entry.get("otp", "")
-    service_name = entry.get("service", "Unknown")
-    country_raw = entry.get("country", entry.get("country_code", "?"))
-    country_iso = entry.get("country_code", "")
-    if not country_iso and country_raw:
-        country_iso = get_country_code(country_raw) or "??"
     
-    country_emoji_id = None
-    if country_iso:
-        row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.upper(),))
-        if not row:
-            row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.lower(),))
-        if row and row[0]:
-            country_emoji_id = row[0]
-    if not country_emoji_id and country_iso and country_iso.lower() in DEFAULT_EMOJIS["countries"]:
-        country_emoji_id = DEFAULT_EMOJIS["countries"][country_iso.lower()]
-    if not country_emoji_id and country_raw and country_raw.lower() in DEFAULT_EMOJIS["countries"]:
-        country_emoji_id = DEFAULT_EMOJIS["countries"][country_raw.lower()]
-    
-    flag_fallback = ISO_TO_INFO.get(country_iso, ("🏳", ""))[0] if country_iso else "🏳"
-    if country_emoji_id:
-        country_display = f'<tg-emoji emoji-id="{country_emoji_id}">{flag_fallback}</tg-emoji><b>{country_iso}</b>'
-    else:
-        country_display = f'{flag_fallback}<b>{country_iso}</b>'
-    
-    service_emoji_id = None
-    row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='service' AND key=?", (service_name.lower(),))
-    if row and row[0]:
-        service_emoji_id = row[0]
-    if not service_emoji_id and service_name.lower() in DEFAULT_EMOJIS["services"]:
-        service_emoji_id = DEFAULT_EMOJIS["services"][service_name.lower()]
-    if service_emoji_id:
-        service_display = f'<tg-emoji emoji-id="{service_emoji_id}">🔧</tg-emoji>'
-    else:
-        service_display = f'#{service_name.capitalize()}'
-    
-    clean = number.replace('+', '').replace(' ', '').strip()
-    if len(clean) >= 9:
-        prefix, suffix = clean[:5], clean[-4:]
-    else:
-        prefix, suffix = clean, ""
-    separator_tag = f'<tg-emoji emoji-id="{EMOJI_SEPARATOR}">➖</tg-emoji>'
-    if suffix:
-        masked = f'<b>+{prefix}{separator_tag}{suffix}</b>'
-    else:
-        masked = f'<b>+{clean}</b>'
-    
-    prefix_tag = f'<tg-emoji emoji-id="{EMOJI_PREFIX}">🤖</tg-emoji>'
-    text = f"{prefix_tag} {country_display} | {service_display} {masked}"
-    
-    otp_btn = InlineKeyboardButton(
-        otp_code,
-        copy_text=CopyTextButton(text=otp_code),
-        style=KBS.SUCCESS,
-        icon_custom_emoji_id=EMOJI_OTP_BUTTON
-    )
-    channel_btn = InlineKeyboardButton(
-        "𝐂𝐇𝐀𝐍𝐍𝐄𝐋", url=CHANNEL_URL,
-        style=KBS.PRIMARY,
-        icon_custom_emoji_id=EMOJI_CHANNEL_BUTTON
-    )
-    bot_btn = InlineKeyboardButton(
-        "𝐁𝐎𝐓", url=BOT_URL,
-        style=KBS.PRIMARY,
-        icon_custom_emoji_id=EMOJI_BOT_BUTTON
-    )
-    keyboard = InlineKeyboardMarkup([[otp_btn], [channel_btn, bot_btn]])
-    return text, keyboard
-
-async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
-    if context:
-        bot = context.bot
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    active_rows = db_fetch_all(
-        "SELECT number, user_id, country, assigned_date FROM numbers WHERE status='active' AND expiry_time > ?",
-        (now_str,))
-    num_map = {}
-    for num, uid, country, assigned in active_rows:
-        clean = num.replace('+', '')
-        num_map.setdefault(clean, []).append((uid, country, assigned))
-    
-    for otp_entry in otps_list:
-        number = otp_entry.get("number", "")
-        otp_code = otp_entry.get("otp", "")
-        service_name = otp_entry.get("service", "Unknown")
-        otp_timestamp_str = otp_entry.get("timestamp", now_str)
-        message = otp_entry.get("message", "")[:200]
-        
-        if not number or not otp_code:
-            continue
-        
-        if GROUP_ID:
-            already_sent = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=0", (number, otp_code))
-            if not already_sent:
-                db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
-                        (number, otp_code, message, otp_timestamp_str))
-                try:
-                    grp_text, grp_kb = format_group_otp({
-                        "number": number,
-                        "otp": otp_code,
-                        "service": service_name,
-                        "country_code": otp_entry.get("country_code", ""),
-                        "country": otp_entry.get("country", "")
-                    })
-                    await bot.send_message(chat_id=GROUP_ID, text=grp_text, parse_mode="HTML", reply_markup=grp_kb)
-                except Exception as e:
-                    print(f"Group OTP failed: {e}")
-        
-        if number in num_map:
-            try:
-                otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
-            except:
-                otp_timestamp = now
-            for uid, country, assigned_date_str in num_map[number]:
-                if db_fetch_one("SELECT banned FROM users WHERE user_id=? AND banned=1", (uid,)):
-                    continue
-                try:
-                    assigned_date = datetime.strptime(assigned_date_str, "%Y-%m-%d %H:%M:%S")
-                except:
-                    assigned_date = now
-                if otp_timestamp < assigned_date:
-                    continue
-                if is_duplicate_otp_dm(number, otp_code, otp_timestamp_str):
-                    continue
-                country_data = get_country_info(country)
-                payout_str = country_data.get("payout", "0.001$")
-                try:
-                    reward = parse_payout(payout_str)
-                except:
-                    reward = 0.001
-                db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
-                        (reward, uid))
-                db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
-                        (number, otp_code, message, otp_timestamp_str, uid))
-                flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-                country_iso = country_data.get("iso", "").upper()
-                svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
-                svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
-                header = (
-                    f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
-                    f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b>\n'
-                    f'{emoji_tag("6204108584381322968", "📱")} <b>NUMBER</b>: +{number}\n'
-                    f'{emoji_tag("5976327845696251345", "📲")} <b>APP</b>: {emoji_tag(svc_eid, "⚙️")} <b>{service_name}</b>\n'
-                    f'💰 <b>BALANCE ADDED</b>: <code>+${reward}</code>{emoji_tag("5976788549658221281", "💵")}'
-                )
-                button = InlineKeyboardMarkup([[
-                    InlineKeyboardButton(text=otp_code, copy_text=CopyTextButton(text=otp_code),
-                                         style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon("5330115548900501467"))
-                ]])
-                try:
-                    await bot.send_message(uid, header, reply_markup=button, parse_mode='HTML')
-                except Exception as e:
-                    print(f"DM OTP failed for {uid}: {e}")
-    # Save JSON after OTP processing (balance changes)
-    save_user_data_json()
-
-async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
-    try:
-        resp = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
-        if resp.status_code == 200 and resp.json().get("status") == "success":
-            otps = resp.json().get("data", {}).get("otps", [])
-            await process_otps(otps, context=context)
-    except Exception as e:
-        print(f"Default API error: {e}")
-
-async def poll_api(api_id):
-    while True:
-        key = db_fetch_one("SELECT base_url, token, interval_sec, active FROM api_keys WHERE id=? AND active=1", (api_id,))
-        if not key:
-            break
-        base_url, token, interval, _ = key
-        try:
-            resp = requests.get(f"{base_url}/all_otp?token={token}", timeout=10)
-            if resp.status_code == 200 and resp.json().get("status") == "success":
-                otps = resp.json().get("data", {}).get("otps", [])
-                await process_otps(otps, bot=application.bot)
-        except Exception as e:
-            print(f"API {api_id} error: {e}")
-        await asyncio.sleep(interval)
-
-# ==================== FILE UPLOAD (FIXED) ====================
-async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not is_admin(user_id) or admin_panel_state.get(user_id) != "waiting_file":
-        return
-    try:
-        document = update.message.document
+    if state == "waiting_file":
+        # ----- STOCK UPLOAD -----
         if not document.file_name.endswith('.txt'):
             await update.message.reply_text("Please upload a .txt file!")
             return
@@ -1458,7 +1063,6 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await file.download_to_drive(file_path)
         
         count, country, service = load_numbers_from_file(file_path, document.file_name)
-        
         if count > 0:
             emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
             if not emoji_row:
@@ -1482,6 +1086,7 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     continue
             admin_panel_state[user_id] = "main"
         else:
+            # Fallback: manual country/service selection
             admin_temp_data[user_id] = {
                 "pending_file_path": file_path,
                 "pending_filename": document.file_name
@@ -1499,10 +1104,51 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             admin_panel_state[user_id] = "waiting_fu_country"
-    except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
-        admin_panel_state[user_id] = "main"
+        return
 
+    elif state == "waiting_db_upload":
+        # ----- DATABASE RESTORE -----
+        if not document.file_name.endswith('.zip'):
+            await update.message.reply_text("Please upload the correct sr-number-data.zip file.")
+            return
+        file = await context.bot.get_file(document.file_id)
+        tmpdir = tempfile.mkdtemp()
+        zip_path = os.path.join(tmpdir, "upload.zip")
+        await file.download_to_drive(zip_path)
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(tmpdir)
+            for root, dirs, files in os.walk(tmpdir):
+                for fname in files:
+                    full = os.path.join(root, fname)
+                    if fname == "mrisbrand_master.db":
+                        global conn, c
+                        conn.close()
+                        shutil.copy2(full, DB_PATH)
+                        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                        c = conn.cursor()
+                    elif fname == "countries.json":
+                        shutil.copy2(full, "countries.json")
+                        global COUNTRIES_DATA
+                        COUNTRIES_DATA = load_countries_db()
+                    elif fname == "user_data.json":
+                        shutil.copy2(full, USER_DATA_FILE)
+                    elif fname == "emoji.py":
+                        shutil.copy2(full, "emoji.py")
+        except Exception as e:
+            await update.message.reply_text(f"Error restoring database: {e}")
+            return
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        admin_panel_state[user_id] = "main"
+        await update.message.reply_text("✅ Database restored successfully!", reply_markup=admin_panel_keyboard())
+        return
+
+    # Unexpected document – ignore
+    else:
+        await update.message.reply_text("No action taken – please use the admin panel.")
+
+# ==================== FORCE UPLOAD CALLBACKS (unchanged) ====================
 async def fu_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -2300,9 +1946,8 @@ def main():
     global application
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # File handlers with HIGH priority
-    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_file_upload), group=0)
-    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_db_upload), group=0)
+    # Single document handler (fixes the NoneType error)
+    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_all_documents), group=0)
 
     # Broadcast and other admin text states
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
