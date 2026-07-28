@@ -23,7 +23,7 @@ BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 SUPER_ADMIN_IDS = [8744359777]          # Only these can add/remove admins
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
-OTP_API_URL = "http://0.0.0.0:5000"
+OTP_API_URL = "http://0.0.0.0:6080"
 OTP_API_TOKEN = "63f139a40a49e5cfb08c2c420d9ff420"
 OTP_POLL_INTERVAL = 2   # seconds
 
