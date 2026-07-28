@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final, All Fixes & Features)
+# bot.py — SR NUMBER HUB (Final with all features)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -60,6 +60,7 @@ CUSTOM_EMOJIS["LIST_API_KEY"] = "6307686831735444755"
 DB_DIR = "NUMBER-PANEL-DATA"
 os.makedirs(DB_DIR, exist_ok=True)
 DB_PATH = os.path.join(DB_DIR, "mrisbrand_master.db")
+USER_DATA_FILE = os.path.join(DB_DIR, "user_data.json")
 
 # ==================== DATABASE SETUP ====================
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -832,6 +833,31 @@ async def admin_panel_menu(update: Update, user_id):
     admin_panel_state[user_id] = "main"
     await reply_or_edit(update, "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
 
+# ==================== USER DATA JSON SAVE/LOAD ====================
+def save_user_data_json():
+    """Save all user data from DB into user_data.json."""
+    users = db_fetch_all("SELECT user_id, username, first_name, joined_date, last_active, balance, withdrawn, total_otp, banned FROM users")
+    data = {"users": {}, "total_users": 0}
+    for u in users:
+        uid, username, first_name, joined, last, bal, wd, tot, banned = u
+        data["users"][str(uid)] = {
+            "username": username or "",
+            "first_name": first_name or "",
+            "joined_date": joined or "",
+            "last_active": last or "",
+            "balance": round(bal or 0.0, 3),
+            "withdrawn": round(wd or 0.0, 3),
+            "total_otp": tot or 0,
+            "banned": banned or 0,
+            "status": "banned" if banned else "active"
+        }
+    data["total_users"] = len(data["users"])
+    try:
+        with open(USER_DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving user_data.json: {e}")
+
 # ==================== USER MANAGER ====================
 def generate_user_list_text():
     users = db_fetch_all("SELECT user_id, first_name, balance, withdrawn, total_otp, banned FROM users ORDER BY user_id")
@@ -922,6 +948,7 @@ async def um_ban_toggle(query, user_id, context: ContextTypes.DEFAULT_TYPE):
         return
     new_ban = 0 if user[0] else 1
     db_exec("UPDATE users SET banned = ? WHERE user_id = ?", (new_ban, target_uid))
+    save_user_data_json()  # immediate save after ban/unban
     await query.answer(f"User {'banned' if new_ban else 'unbanned'}!")
     if new_ban:
         try:
@@ -960,7 +987,7 @@ async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await reply_or_edit(update, text, reply_markup=admin_back_button())
 
-# ==================== DATABASE DOWNLOAD/UPLOAD ====================
+# ==================== DATABASE DOWNLOAD/UPLOAD (with user_data.json) ====================
 async def database_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id): await update.callback_query.answer("Admin mode required!", show_alert=True); return
     kb = InlineKeyboardMarkup([
@@ -978,11 +1005,15 @@ async def db_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     if not is_admin(user_id): return
     await query.answer("Preparing database download...")
+    # Ensure latest user data JSON is saved
+    save_user_data_json()
     tmpdir = tempfile.mkdtemp()
     try:
         shutil.copy2(DB_PATH, os.path.join(tmpdir, "mrisbrand_master.db"))
         if os.path.exists("countries.json"):
             shutil.copy2("countries.json", os.path.join(tmpdir, "countries.json"))
+        if os.path.exists(USER_DATA_FILE):
+            shutil.copy2(USER_DATA_FILE, os.path.join(tmpdir, "user_data.json"))
         if os.path.exists("emoji.py"):
             shutil.copy2("emoji.py", os.path.join(tmpdir, "emoji.py"))
         zip_path = os.path.join(tmpdir, "sr-number-data.zip")
@@ -1023,7 +1054,6 @@ async def handle_db_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for root, dirs, files in os.walk(tmpdir):
             for fname in files:
                 full = os.path.join(root, fname)
-                rel = os.path.relpath(full, tmpdir)
                 if fname == "mrisbrand_master.db":
                     global conn, c
                     conn.close()
@@ -1034,6 +1064,8 @@ async def handle_db_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     shutil.copy2(full, "countries.json")
                     global COUNTRIES_DATA
                     COUNTRIES_DATA = load_countries_db()
+                elif fname == "user_data.json":
+                    shutil.copy2(full, USER_DATA_FILE)
                 elif fname == "emoji.py":
                     shutil.copy2(full, "emoji.py")
     except Exception as e:
@@ -1383,6 +1415,8 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     await bot.send_message(uid, header, reply_markup=button, parse_mode='HTML')
                 except Exception as e:
                     print(f"DM OTP failed for {uid}: {e}")
+    # Save JSON after OTP processing (balance changes)
+    save_user_data_json()
 
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -1423,11 +1457,9 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         file_path = f"uploads/{document.file_name}"
         await file.download_to_drive(file_path)
         
-        # Try automatic parsing
         count, country, service = load_numbers_from_file(file_path, document.file_name)
         
         if count > 0:
-            # Success – proceed as before
             emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
             if not emoji_row:
                 admin_temp_data[user_id] = {"pending_service_emoji": service, "country": country, "count": count}
@@ -1450,7 +1482,6 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     continue
             admin_panel_state[user_id] = "main"
         else:
-            # Parsing failed – ask admin to choose country and service manually
             admin_temp_data[user_id] = {
                 "pending_file_path": file_path,
                 "pending_filename": document.file_name
@@ -1531,7 +1562,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id):
         return False
 
-    # Broadcast accepts any message type
     if state == "waiting_broadcast":
         msg = update.message
         users = db_fetch_all("SELECT user_id FROM users WHERE banned=0")
@@ -1573,9 +1603,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Session expired.")
             return True
         try:
-            parts = text.split(' ', 1)
-            amount_str = parts[0]
-            amount = float(amount_str)
+            amount = float(text.split()[0])
         except ValueError:
             await update.message.reply_text("Invalid amount. Use format: +0.5 or -0.2")
             return True
@@ -1585,6 +1613,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return True
         new_balance = (current[0] or 0.0) + amount
         db_exec("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, target_uid))
+        save_user_data_json()
         await update.message.reply_text(f"Balance updated for {target_uid}. New balance: ${new_balance:.3f}")
         admin_panel_state[user_id] = "main"
         await admin_panel_menu(update, user_id)
@@ -2023,7 +2052,7 @@ async def country_delete_direct(query, user_id, country_name):
         await query.answer("Country not found!", show_alert=True)
     await country_delete_select(query, user_id)
 
-# ==================== SERVICE SELECTION AFTER COUNTRY ADD (SINGLE COLUMN) ====================
+# SINGLE-COLUMN service list after country add
 async def country_add_service_selection(update: Update, user_id, country_name):
     services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     rows = []
@@ -2337,11 +2366,17 @@ def main():
     job_queue = application.job_queue
     if job_queue:
         job_queue.run_repeating(monitor_otp_api, interval=OTP_POLL_INTERVAL, first=OTP_POLL_INTERVAL)
+        # Periodic JSON save every 60 seconds
+        job_queue.run_repeating(lambda ctx: save_user_data_json(), interval=60, first=10)
     for api_id in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
         asyncio.create_task(poll_api(api_id[0]))
 
+    # Initial JSON save
+    save_user_data_json()
+
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
     print(f"✅ Multi-admin, User Manager, Multi-API, Database active")
+    print(f"✅ User data JSON saved to {USER_DATA_FILE}")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
