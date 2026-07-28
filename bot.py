@@ -25,18 +25,18 @@ SUPER_ADMIN_IDS = [8744359777]          # Only these can add/remove admins
 OTP_GROUP_URL = "https://t.me/SRotpHub"
 OTP_API_URL = "http://127.0.0.1:5080/all_otp"
 OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
-OTP_POLL_INTERVAL = 1   # seconds
+OTP_POLL_INTERVAL = 4   # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
-ADMIN2_TELEGRAM = "t.me/SR_ADMIN_SANTO"
+ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/+76nQ1vvAzy04ZWE0"
-BOT_URL = "https://t.me/SrNumberHubBOT"
+CHANNEL_URL = "https://t.me/your_channel"
+BOT_URL = "https://t.me/your_bot"
 
 # Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
@@ -1922,6 +1922,114 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
     admin_mode[user_id] = True
     admin_panel_state[user_id] = "main"
     await update.message.reply_text("ADMIN PANEL\n\nDeveloper: SR NUMBER HUB", reply_markup=admin_panel_keyboard())
+
+# ==================== MANAGE API FUNCTIONS ====================
+async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    if not is_admin(user_id): return
+    admin_panel_state[user_id] = "manage_api"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("ADD API KEY", callback_data="api_add", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))],
+        [InlineKeyboardButton("REMOVE API KEY", callback_data="api_remove", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("REMOVE_API_KEY", "")))],
+        [InlineKeyboardButton("LIST API KEY", callback_data="api_list", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("LIST_API_KEY", "")))],
+        [InlineKeyboardButton("Back", callback_data="admin_back", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
+    ])
+    await reply_or_edit(update, "MANAGE API\n\nSelect an option:", reply_markup=kb)
+
+async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    admin_panel_state[user_id] = "api_add_name"
+    await reply_or_edit(update, "Send the panel name:", reply_markup=admin_cancel_keyboard())
+
+async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = admin_panel_state.get(user_id)
+    if not state or not state.startswith("api_add_"):
+        return False
+    text = update.message.text.strip()
+    if state == "api_add_name":
+        admin_temp_data[user_id] = {"panel_name": text}
+        admin_panel_state[user_id] = "api_add_url"
+        await update.message.reply_text("Send the API base URL:", reply_markup=admin_cancel_keyboard())
+        return True
+    elif state == "api_add_url":
+        admin_temp_data[user_id]["base_url"] = text
+        admin_panel_state[user_id] = "api_add_token"
+        await update.message.reply_text("Send the API token:", reply_markup=admin_cancel_keyboard())
+        return True
+    elif state == "api_add_token":
+        admin_temp_data[user_id]["token"] = text
+        admin_panel_state[user_id] = "api_add_interval"
+        await update.message.reply_text("Send the polling interval (seconds):", reply_markup=admin_cancel_keyboard())
+        return True
+    elif state == "api_add_interval":
+        try:
+            interval = int(text)
+        except ValueError:
+            await update.message.reply_text("Invalid number. Try again.")
+            return True
+        data = admin_temp_data.pop(user_id)
+        db_exec("INSERT INTO api_keys (panel_name, base_url, token, interval_sec, active) VALUES (?,?,?,?,1)",
+                (data["panel_name"], data["base_url"], data["token"], interval))
+        api_id = db_fetch_one("SELECT last_insert_rowid()")[0]
+        asyncio.create_task(poll_api(api_id))
+        admin_panel_state[user_id] = "main"
+        await update.message.reply_text("✅ API key added and polling started!", reply_markup=admin_panel_keyboard())
+        return True
+    return False
+
+async def api_remove_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    if not is_admin(user_id): return
+    keys = db_fetch_all("SELECT id, panel_name, token FROM api_keys WHERE active=1")
+    rows = []
+    for k in keys:
+        short = k[2][:5] if len(k[2]) > 5 else k[2]
+        rows.append([InlineKeyboardButton(f"❌ {k[1]} ({short}...)", callback_data=f"api_rem_{k[0]}",
+                                          style=KBS.DANGER,
+                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))])
+    rows.append([InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
+                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
+    await reply_or_edit(update, "Select API key to remove:", reply_markup=InlineKeyboardMarkup(rows))
+
+async def api_remove_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id): return
+    api_id = int(query.data.split("_")[-1])
+    db_exec("UPDATE api_keys SET active=0 WHERE id=?", (api_id,))
+    await query.answer("API key removed!")
+    await api_remove_list(update, context, user_id)
+
+async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    if not is_admin(user_id): return
+    keys = db_fetch_all("SELECT id, panel_name, base_url, token, interval_sec FROM api_keys WHERE active=1")
+    if not keys:
+        text = "No active API keys."
+    else:
+        lines = ["**Active API Keys:**\n"]
+        for k in keys:
+            lines.append(f"• {k[1]} | {k[3][:12]}... | Interval: {k[4]}s")
+        text = "\n".join(lines)
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
+                                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
+    await reply_or_edit(update, text, reply_markup=kb)
+
+async def poll_api(api_id):
+    while True:
+        key = db_fetch_one("SELECT base_url, token, interval_sec, active FROM api_keys WHERE id=? AND active=1", (api_id,))
+        if not key:
+            break
+        base_url, token, interval, _ = key
+        try:
+            resp = requests.get(f"{base_url}/all_otp?token={token}", timeout=10)
+            if resp.status_code == 200 and resp.json().get("status") == "success":
+                otps = resp.json().get("data", {}).get("otps", [])
+                await process_otps(otps, bot=application.bot)
+        except Exception as e:
+            print(f"API {api_id} error: {e}")
+        await asyncio.sleep(interval)
 
 # ==================== GENERIC TEXT HANDLER ====================
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
