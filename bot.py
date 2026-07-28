@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final – OTP Forwarding Fix)
+# bot.py — SR NUMBER HUB (Final Full – OTP Fix, All Features)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -879,7 +879,7 @@ async def send_user_list_file(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.callback_query.message.reply_document(document=open(f.name, 'rb'), filename="USER_DATA.txt")
     os.unlink(f.name)
 
-# ---- Async wrapper functions (replacing lambdas) ----
+# Async wrappers (replacing lambdas)
 async def _user_manager_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await user_manager_menu(update, context, update.callback_query.from_user.id)
 
@@ -897,7 +897,6 @@ async def _um_ban_toggle_wrapper(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await um_ban_toggle(query, query.from_user.id, context)
 
-# The user_manager_menu itself
 async def user_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         await update.callback_query.answer("Admin mode required!", show_alert=True)
@@ -2025,7 +2024,7 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
                                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
     await reply_or_edit(update, text, reply_markup=kb)
 
-# ==================== OTP PROCESSING (Fixed) ====================
+# ==================== OTP PROCESSING (FIXED) ====================
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
@@ -2044,7 +2043,7 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
 
 COUNTRY_CODE_MAP = {
     "1": ("US", "🇺🇸", "USA"), "7": ("RU", "🇷🇺", "RUSSIA"), "20": ("EG", "🇪🇬", "EGYPT"),
-    # ... (your full map)
+    # ... (your full country map here)
 }
 ISO_TO_INFO = {v[0]: (v[1], v[2]) for v in COUNTRY_CODE_MAP.values()}
 
@@ -2132,13 +2131,12 @@ def format_group_otp(entry):
     return text, keyboard
 
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
-    """Process OTPs and forward to group and users"""
     if context:
         bot = context.bot
     if not bot:
-        print("⚠️ process_otps: No bot instance provided!")
+        print("❌ process_otps: No bot instance!")
         return
-        
+    print(f"⚙️ Processing {len(otps_list)} OTPs")
     now = datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     active_rows = db_fetch_all(
@@ -2224,7 +2222,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
     save_user_data_json()
 
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
-    """Default OTP API monitor"""
     try:
         resp = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
         if resp.status_code == 200 and resp.json().get("status") == "success":
@@ -2234,7 +2231,7 @@ async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
         print(f"Default API error: {e}")
 
 async def poll_api(api_id):
-    """Poll a specific API and process OTPs"""
+    """Poll a specific API and process OTPs."""
     while True:
         key = db_fetch_one("SELECT base_url, token, interval_sec, active FROM api_keys WHERE id=? AND active=1", (api_id,))
         if not key:
@@ -2244,10 +2241,10 @@ async def poll_api(api_id):
             resp = requests.get(f"{base_url}/all_otp?token={token}", timeout=10)
             if resp.status_code == 200 and resp.json().get("status") == "success":
                 otps = resp.json().get("data", {}).get("otps", [])
-                if application and application.bot:
-                    await process_otps(otps, bot=application.bot)
-                else:
-                    print(f"API {api_id}: Bot not ready")
+                if otps:
+                    print(f"✅ API {api_id}: {len(otps)} OTP received")
+                # Directly use application.bot (it's always available)
+                await process_otps(otps, bot=application.bot)
         except Exception as e:
             print(f"API {api_id} error: {e}")
         await asyncio.sleep(interval)
@@ -2347,7 +2344,7 @@ def main():
         for api_id in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
             asyncio.create_task(poll_api(api_id[0]))
 
-    application.post_init = start_api_tasks  # run after bot is ready
+    application.post_init = start_api_tasks
 
     save_user_data_json()
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
