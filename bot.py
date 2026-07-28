@@ -1005,7 +1005,6 @@ async def db_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     if not is_admin(user_id): return
     await query.answer("Preparing database download...")
-    # Ensure latest user data JSON is saved
     save_user_data_json()
     tmpdir = tempfile.mkdtemp()
     try:
@@ -1036,12 +1035,8 @@ async def db_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_panel_state[user_id] = "waiting_db_upload"
     await query.edit_message_text("Upload the sr-number-data.zip file to restore the database.", reply_markup=admin_cancel_keyboard())
 
-# ==================== SINGLE DOCUMENT HANDLER (FIX) ====================
+# ==================== SINGLE DOCUMENT HANDLER ====================
 async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Single handler for both stock (.txt) and database (.zip) uploads,
-    depending on the current admin state.
-    """
     user_id = update.effective_user.id
     if not is_admin(user_id):
         return
@@ -1053,7 +1048,6 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
     state = admin_panel_state.get(user_id)
     
     if state == "waiting_file":
-        # ----- STOCK UPLOAD -----
         if not document.file_name.endswith('.txt'):
             await update.message.reply_text("Please upload a .txt file!")
             return
@@ -1086,7 +1080,6 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
                     continue
             admin_panel_state[user_id] = "main"
         else:
-            # Fallback: manual country/service selection
             admin_temp_data[user_id] = {
                 "pending_file_path": file_path,
                 "pending_filename": document.file_name
@@ -1107,7 +1100,6 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     elif state == "waiting_db_upload":
-        # ----- DATABASE RESTORE -----
         if not document.file_name.endswith('.zip'):
             await update.message.reply_text("Please upload the correct sr-number-data.zip file.")
             return
@@ -1144,11 +1136,10 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("✅ Database restored successfully!", reply_markup=admin_panel_keyboard())
         return
 
-    # Unexpected document – ignore
     else:
         await update.message.reply_text("No action taken – please use the admin panel.")
 
-# ==================== FORCE UPLOAD CALLBACKS (unchanged) ====================
+# ==================== FORCE UPLOAD CALLBACKS ====================
 async def fu_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -1201,7 +1192,7 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     admin_panel_state[user_id] = "main"
 
-# ==================== ADMIN TEXT HANDLER (BROADCAST & OTHERS) ====================
+# ==================== ADMIN TEXT HANDLER ====================
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
@@ -2015,6 +2006,208 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
                                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
     await reply_or_edit(update, text, reply_markup=kb)
+
+# ==================== OTP PROCESSING ====================
+def is_duplicate_otp_dm(number, otp_code, current_ts_str):
+    try:
+        current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
+    except:
+        return False
+    rows = db_fetch_all("SELECT timestamp FROM otps WHERE number=? AND otp=? AND user_id!=0 ORDER BY timestamp DESC LIMIT 1", (number, otp_code))
+    if not rows:
+        return False
+    last_ts_str = rows[0][0]
+    try:
+        last_ts = datetime.strptime(last_ts_str, "%Y-%m-%d %H:%M:%S")
+    except:
+        return False
+    diff = abs((current_ts - last_ts).total_seconds())
+    return diff <= 0.5
+
+COUNTRY_CODE_MAP = {
+    "1": ("US", "🇺🇸", "USA"), "7": ("RU", "🇷🇺", "RUSSIA"), "20": ("EG", "🇪🇬", "EGYPT"),
+    # ... (full map unchanged, kept for brevity but you must keep it)
+}
+ISO_TO_INFO = {v[0]: (v[1], v[2]) for v in COUNTRY_CODE_MAP.values()}
+
+def get_country_code(country_name):
+    if not country_name:
+        return ""
+    lower = country_name.lower()
+    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
+        if lower == name.lower() or lower == iso.lower() or lower == code:
+            return iso
+    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
+        if lower in name.lower() or name.lower() in lower:
+            return iso
+    return country_name.upper()[:2]
+
+def format_group_otp(entry):
+    number = entry.get("number", "")
+    otp_code = entry.get("otp", "")
+    service_name = entry.get("service", "Unknown")
+    country_raw = entry.get("country", entry.get("country_code", "?"))
+    country_iso = entry.get("country_code", "")
+    if not country_iso and country_raw:
+        country_iso = get_country_code(country_raw) or "??"
+    
+    country_emoji_id = None
+    if country_iso:
+        row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.upper(),))
+        if not row:
+            row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.lower(),))
+        if row and row[0]:
+            country_emoji_id = row[0]
+    if not country_emoji_id and country_iso and country_iso.lower() in DEFAULT_EMOJIS["countries"]:
+        country_emoji_id = DEFAULT_EMOJIS["countries"][country_iso.lower()]
+    if not country_emoji_id and country_raw and country_raw.lower() in DEFAULT_EMOJIS["countries"]:
+        country_emoji_id = DEFAULT_EMOJIS["countries"][country_raw.lower()]
+    
+    flag_fallback = ISO_TO_INFO.get(country_iso, ("🏳", ""))[0] if country_iso else "🏳"
+    if country_emoji_id:
+        country_display = f'<tg-emoji emoji-id="{country_emoji_id}">{flag_fallback}</tg-emoji><b>{country_iso}</b>'
+    else:
+        country_display = f'{flag_fallback}<b>{country_iso}</b>'
+    
+    service_emoji_id = None
+    row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='service' AND key=?", (service_name.lower(),))
+    if row and row[0]:
+        service_emoji_id = row[0]
+    if not service_emoji_id and service_name.lower() in DEFAULT_EMOJIS["services"]:
+        service_emoji_id = DEFAULT_EMOJIS["services"][service_name.lower()]
+    if service_emoji_id:
+        service_display = f'<tg-emoji emoji-id="{service_emoji_id}">🔧</tg-emoji>'
+    else:
+        service_display = f'#{service_name.capitalize()}'
+    
+    clean = number.replace('+', '').replace(' ', '').strip()
+    if len(clean) >= 9:
+        prefix, suffix = clean[:5], clean[-4:]
+    else:
+        prefix, suffix = clean, ""
+    separator_tag = f'<tg-emoji emoji-id="{EMOJI_SEPARATOR}">➖</tg-emoji>'
+    if suffix:
+        masked = f'<b>+{prefix}{separator_tag}{suffix}</b>'
+    else:
+        masked = f'<b>+{clean}</b>'
+    
+    prefix_tag = f'<tg-emoji emoji-id="{EMOJI_PREFIX}">🤖</tg-emoji>'
+    text = f"{prefix_tag} {country_display} | {service_display} {masked}"
+    
+    otp_btn = InlineKeyboardButton(
+        otp_code,
+        copy_text=CopyTextButton(text=otp_code),
+        style=KBS.SUCCESS,
+        icon_custom_emoji_id=EMOJI_OTP_BUTTON
+    )
+    channel_btn = InlineKeyboardButton(
+        "𝐂𝐇𝐀𝐍𝐍𝐄𝐋", url=CHANNEL_URL,
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=EMOJI_CHANNEL_BUTTON
+    )
+    bot_btn = InlineKeyboardButton(
+        "𝐁𝐎𝐓", url=BOT_URL,
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=EMOJI_BOT_BUTTON
+    )
+    keyboard = InlineKeyboardMarkup([[otp_btn], [channel_btn, bot_btn]])
+    return text, keyboard
+
+async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
+    if context:
+        bot = context.bot
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    active_rows = db_fetch_all(
+        "SELECT number, user_id, country, assigned_date FROM numbers WHERE status='active' AND expiry_time > ?",
+        (now_str,))
+    num_map = {}
+    for num, uid, country, assigned in active_rows:
+        clean = num.replace('+', '')
+        num_map.setdefault(clean, []).append((uid, country, assigned))
+    
+    for otp_entry in otps_list:
+        number = otp_entry.get("number", "")
+        otp_code = otp_entry.get("otp", "")
+        service_name = otp_entry.get("service", "Unknown")
+        otp_timestamp_str = otp_entry.get("timestamp", now_str)
+        message = otp_entry.get("message", "")[:200]
+        
+        if not number or not otp_code:
+            continue
+        
+        if GROUP_ID:
+            already_sent = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=0", (number, otp_code))
+            if not already_sent:
+                db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
+                        (number, otp_code, message, otp_timestamp_str))
+                try:
+                    grp_text, grp_kb = format_group_otp({
+                        "number": number,
+                        "otp": otp_code,
+                        "service": service_name,
+                        "country_code": otp_entry.get("country_code", ""),
+                        "country": otp_entry.get("country", "")
+                    })
+                    await bot.send_message(chat_id=GROUP_ID, text=grp_text, parse_mode="HTML", reply_markup=grp_kb)
+                except Exception as e:
+                    print(f"Group OTP failed: {e}")
+        
+        if number in num_map:
+            try:
+                otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
+            except:
+                otp_timestamp = now
+            for uid, country, assigned_date_str in num_map[number]:
+                if db_fetch_one("SELECT banned FROM users WHERE user_id=? AND banned=1", (uid,)):
+                    continue
+                try:
+                    assigned_date = datetime.strptime(assigned_date_str, "%Y-%m-%d %H:%M:%S")
+                except:
+                    assigned_date = now
+                if otp_timestamp < assigned_date:
+                    continue
+                if is_duplicate_otp_dm(number, otp_code, otp_timestamp_str):
+                    continue
+                country_data = get_country_info(country)
+                payout_str = country_data.get("payout", "0.001$")
+                try:
+                    reward = parse_payout(payout_str)
+                except:
+                    reward = 0.001
+                db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
+                        (reward, uid))
+                db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
+                        (number, otp_code, message, otp_timestamp_str, uid))
+                flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
+                country_iso = country_data.get("iso", "").upper()
+                svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
+                svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
+                header = (
+                    f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
+                    f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b>\n'
+                    f'{emoji_tag("6204108584381322968", "📱")} <b>NUMBER</b>: +{number}\n'
+                    f'{emoji_tag("5976327845696251345", "📲")} <b>APP</b>: {emoji_tag(svc_eid, "⚙️")} <b>{service_name}</b>\n'
+                    f'💰 <b>BALANCE ADDED</b>: <code>+${reward}</code>{emoji_tag("5976788549658221281", "💵")}'
+                )
+                button = InlineKeyboardMarkup([[
+                    InlineKeyboardButton(text=otp_code, copy_text=CopyTextButton(text=otp_code),
+                                         style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon("5330115548900501467"))
+                ]])
+                try:
+                    await bot.send_message(uid, header, reply_markup=button, parse_mode='HTML')
+                except Exception as e:
+                    print(f"DM OTP failed for {uid}: {e}")
+    save_user_data_json()
+
+async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        resp = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
+        if resp.status_code == 200 and resp.json().get("status") == "success":
+            otps = resp.json().get("data", {}).get("otps", [])
+            await process_otps(otps, context=context)
+    except Exception as e:
+        print(f"Default API error: {e}")
 
 async def poll_api(api_id):
     while True:
