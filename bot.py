@@ -23,9 +23,9 @@ BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 SUPER_ADMIN_IDS = [8744359777]          # Only these can add/remove admins
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
-OTP_API_URL = "http://127.0.0.1:5080/all_otp"
-OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
-OTP_POLL_INTERVAL = 4   # seconds
+OTP_API_URL = "http://127.0.0.1:6082"
+OTP_API_TOKEN = "4ec79003d4f0b6317c3c38927720b1c2"
+OTP_POLL_INTERVAL = 1   # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -35,8 +35,8 @@ ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/your_channel"
-BOT_URL = "https://t.me/your_bot"
+CHANNEL_URL = "https://t.me/+76nQ1vvAzy04ZWE0"
+BOT_URL = "https://t.me/SrNumberHubBOT"
 
 # Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
