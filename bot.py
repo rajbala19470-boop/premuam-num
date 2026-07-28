@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete Final with All Fixes)
+# bot.py — SR NUMBER HUB (Final – OTP Forwarding Fix)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -23,9 +23,9 @@ BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 SUPER_ADMIN_IDS = [8744359777]          # Only these can add/remove admins
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
-OTP_API_URL = "http://127.0.0.1:6082"
-OTP_API_TOKEN = "38429357a75ec798f8b8a00dbf0fd946"
-OTP_POLL_INTERVAL = 2   # seconds
+OTP_API_URL = "http://127.0.0.1:5080/all_otp"
+OTP_API_TOKEN = "46c78242c14e02f41ac5e0799122c36f"
+OTP_POLL_INTERVAL = 4   # seconds
 
 MIN_WITHDRAW = 0.1  # USD
 
@@ -35,8 +35,8 @@ ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/+76nQ1vvAzy04ZWE0"
-BOT_URL = "https://t.me/SrNumberHubBOT"
+CHANNEL_URL = "https://t.me/your_channel"
+BOT_URL = "https://t.me/your_bot"
 
 # Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
@@ -879,6 +879,25 @@ async def send_user_list_file(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.callback_query.message.reply_document(document=open(f.name, 'rb'), filename="USER_DATA.txt")
     os.unlink(f.name)
 
+# ---- Async wrapper functions (replacing lambdas) ----
+async def _user_manager_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await user_manager_menu(update, context, update.callback_query.from_user.id)
+
+async def _database_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await database_menu(update, context, update.callback_query.from_user.id)
+
+async def _manage_api_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await manage_api_menu(update, context, update.callback_query.from_user.id)
+
+async def _um_edit_balance_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await um_edit_balance_prompt(query, query.from_user.id, context)
+
+async def _um_ban_toggle_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await um_ban_toggle(query, query.from_user.id, context)
+
+# The user_manager_menu itself
 async def user_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         await update.callback_query.answer("Admin mode required!", show_alert=True)
@@ -948,7 +967,7 @@ async def um_ban_toggle(query, user_id, context: ContextTypes.DEFAULT_TYPE):
         return
     new_ban = 0 if user[0] else 1
     db_exec("UPDATE users SET banned = ? WHERE user_id = ?", (new_ban, target_uid))
-    save_user_data_json()  # immediate save after ban/unban
+    save_user_data_json()
     await query.answer(f"User {'banned' if new_ban else 'unbanned'}!")
     if new_ban:
         try:
@@ -987,7 +1006,7 @@ async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await reply_or_edit(update, text, reply_markup=admin_back_button())
 
-# ==================== DATABASE DOWNLOAD/UPLOAD (with user_data.json) ====================
+# ==================== DATABASE DOWNLOAD/UPLOAD ====================
 async def database_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id): await update.callback_query.answer("Admin mode required!", show_alert=True); return
     kb = InlineKeyboardMarkup([
@@ -1037,14 +1056,13 @@ async def db_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== SINGLE DOCUMENT HANDLER ====================
 async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.document:
+        return
     user_id = update.effective_user.id
     if not is_admin(user_id):
         return
 
     document = update.message.document
-    if not document:
-        return
-
     state = admin_panel_state.get(user_id)
     
     if state == "waiting_file":
@@ -1522,9 +1540,9 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "giveaway": await request_giveaway(update, user_id)
     elif action == "country_manager": await country_manager_menu(update, user_id)
     elif action == "service_manager": await service_manager_menu(update, user_id)
-    elif action == "user_manager": await user_manager_menu(update, context, user_id)
-    elif action == "database": await database_menu(update, context, user_id)
-    elif action == "manage_api": await manage_api_menu(update, context, user_id)
+    elif action == "user_manager": await _user_manager_wrapper(update, context)
+    elif action == "database": await _database_wrapper(update, context)
+    elif action == "manage_api": await _manage_api_wrapper(update, context)
     elif action == "exit": await exit_admin_callback_query(query, user_id, context.bot)
     elif action == "back":
         admin_panel_state[user_id] = "main"
@@ -1835,7 +1853,7 @@ async def handle_service_emoji_set(update: Update, context: ContextTypes.DEFAULT
     await service_manager_menu(update, user_id)
     return True
 
-# ==================== /country & /service COMMANDS (GROUP EMOJIS) ====================
+# ==================== /country & /service COMMANDS ====================
 async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Admin only.")
@@ -2007,7 +2025,7 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
                                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
     await reply_or_edit(update, text, reply_markup=kb)
 
-# ==================== OTP PROCESSING ====================
+# ==================== OTP PROCESSING (Fixed) ====================
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
@@ -2026,7 +2044,7 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
 
 COUNTRY_CODE_MAP = {
     "1": ("US", "🇺🇸", "USA"), "7": ("RU", "🇷🇺", "RUSSIA"), "20": ("EG", "🇪🇬", "EGYPT"),
-    # ... (full map unchanged, kept for brevity but you must keep it)
+    # ... (your full map)
 }
 ISO_TO_INFO = {v[0]: (v[1], v[2]) for v in COUNTRY_CODE_MAP.values()}
 
@@ -2114,8 +2132,13 @@ def format_group_otp(entry):
     return text, keyboard
 
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
+    """Process OTPs and forward to group and users"""
     if context:
         bot = context.bot
+    if not bot:
+        print("⚠️ process_otps: No bot instance provided!")
+        return
+        
     now = datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     active_rows = db_fetch_all(
@@ -2201,15 +2224,17 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
     save_user_data_json()
 
 async def monitor_otp_api(context: ContextTypes.DEFAULT_TYPE):
+    """Default OTP API monitor"""
     try:
         resp = requests.get(f"{OTP_API_URL}?token={OTP_API_TOKEN}", timeout=10)
         if resp.status_code == 200 and resp.json().get("status") == "success":
             otps = resp.json().get("data", {}).get("otps", [])
-            await process_otps(otps, context=context)
+            await process_otps(otps, bot=context.bot)
     except Exception as e:
         print(f"Default API error: {e}")
 
 async def poll_api(api_id):
+    """Poll a specific API and process OTPs"""
     while True:
         key = db_fetch_one("SELECT base_url, token, interval_sec, active FROM api_keys WHERE id=? AND active=1", (api_id,))
         if not key:
@@ -2219,7 +2244,10 @@ async def poll_api(api_id):
             resp = requests.get(f"{base_url}/all_otp?token={token}", timeout=10)
             if resp.status_code == 200 and resp.json().get("status") == "success":
                 otps = resp.json().get("data", {}).get("otps", [])
-                await process_otps(otps, bot=application.bot)
+                if application and application.bot:
+                    await process_otps(otps, bot=application.bot)
+                else:
+                    print(f"API {api_id}: Bot not ready")
         except Exception as e:
             print(f"API {api_id} error: {e}")
         await asyncio.sleep(interval)
@@ -2247,7 +2275,7 @@ def main():
     global application
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Single document handler (fixes the NoneType error)
+    # Single document handler
     application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_all_documents), group=0)
 
     # Broadcast and other admin text states
@@ -2263,7 +2291,7 @@ def main():
     application.add_handler(CommandHandler("country", group_country_command))
     application.add_handler(CommandHandler("service", group_service_command))
 
-    # All callback handlers
+    # Callback handlers
     application.add_handler(CallbackQueryHandler(service_selection_callback, pattern="^svc_sel\|"))
     application.add_handler(CallbackQueryHandler(country_selection_callback, pattern="^cnt_sel\|"))
     application.add_handler(CallbackQueryHandler(back_to_services_callback, pattern="^back_to_services$"))
@@ -2284,42 +2312,44 @@ def main():
     # Force upload callbacks
     application.add_handler(CallbackQueryHandler(fu_country_callback, pattern=r"^fu_country\|"))
     application.add_handler(CallbackQueryHandler(fu_service_callback, pattern=r"^fu_service\|"))
-    # User Manager
-    application.add_handler(CallbackQueryHandler(lambda u,c: user_manager_menu(u,c,u.callback_query.from_user.id), pattern="^admin_user_manager$"))
+    # User Manager wrappers
+    application.add_handler(CallbackQueryHandler(_user_manager_wrapper, pattern="^admin_user_manager$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: um_search_prompt(u,c,u.callback_query.from_user.id), pattern="^um_search$"))
-    application.add_handler(CallbackQueryHandler(lambda u,c: send_user_list_file(u,c), pattern="^um_download$"))
-    application.add_handler(CallbackQueryHandler(lambda u,c: um_stats(u,c), pattern="^um_stats$"))
-    application.add_handler(CallbackQueryHandler(lambda u,c: um_edit_balance_prompt(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_editbal\|"))
-    application.add_handler(CallbackQueryHandler(lambda u,c: um_ban_toggle(u.callback_query, u.callback_query.from_user.id, c), pattern=r"^um_ban\|"))
-    application.add_handler(CallbackQueryHandler(lambda u,c: user_manager_menu(u,c,u.callback_query.from_user.id), pattern="^um_back$"))
-    # Database
-    application.add_handler(CallbackQueryHandler(lambda u,c: database_menu(u,c,u.callback_query.from_user.id), pattern="^admin_database$"))
+    application.add_handler(CallbackQueryHandler(send_user_list_file, pattern="^um_download$"))
+    application.add_handler(CallbackQueryHandler(um_stats, pattern="^um_stats$"))
+    application.add_handler(CallbackQueryHandler(_um_edit_balance_wrapper, pattern=r"^um_editbal\|"))
+    application.add_handler(CallbackQueryHandler(_um_ban_toggle_wrapper, pattern=r"^um_ban\|"))
+    application.add_handler(CallbackQueryHandler(_user_manager_wrapper, pattern="^um_back$"))
+    # Database wrapper
+    application.add_handler(CallbackQueryHandler(_database_wrapper, pattern="^admin_database$"))
     application.add_handler(CallbackQueryHandler(db_download, pattern="^db_download$"))
     application.add_handler(CallbackQueryHandler(db_upload_prompt, pattern="^db_upload$"))
-    # Manage API
-    application.add_handler(CallbackQueryHandler(lambda u,c: manage_api_menu(u,c,u.callback_query.from_user.id), pattern="^admin_manage_api$"))
+    # Manage API wrapper
+    application.add_handler(CallbackQueryHandler(_manage_api_wrapper, pattern="^admin_manage_api$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: api_add_start(u,c,u.callback_query.from_user.id), pattern="^api_add$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: api_remove_list(u,c,u.callback_query.from_user.id), pattern="^api_remove$"))
     application.add_handler(CallbackQueryHandler(lambda u,c: api_list(u,c,u.callback_query.from_user.id), pattern="^api_list$"))
     application.add_handler(CallbackQueryHandler(api_remove_execute, pattern=r"^api_rem_\d+$"))
 
-    # Text handler for remaining messages
+    # Text handler
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
     application.add_error_handler(error_handler)
 
-    # Start default API monitor + per‑API tasks
+    # Job queue
     job_queue = application.job_queue
     if job_queue:
         job_queue.run_repeating(monitor_otp_api, interval=OTP_POLL_INTERVAL, first=OTP_POLL_INTERVAL)
-        # Periodic JSON save every 60 seconds
         job_queue.run_repeating(lambda ctx: save_user_data_json(), interval=60, first=10)
-    for api_id in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
-        asyncio.create_task(poll_api(api_id[0]))
 
-    # Initial JSON save
+    # Start API polling tasks after bot is initialized
+    async def start_api_tasks(app):
+        for api_id in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
+            asyncio.create_task(poll_api(api_id[0]))
+
+    application.post_init = start_api_tasks  # run after bot is ready
+
     save_user_data_json()
-
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
     print(f"✅ Multi-admin, User Manager, Multi-API, Database active")
     print(f"✅ User data JSON saved to {USER_DATA_FILE}")
