@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final Fix – No Default API, Lambda-Free Job Queue)
+# bot.py — SR NUMBER HUB (Final – Multi‑API Polling, All Features)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
