@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete Final – All Countries + Fixed Polling & NoneType Error)
+# bot.py — SR NUMBER HUB (Final – No Default API, All APIs Polled via Admin)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -21,11 +21,6 @@ from emoji import CUSTOM_EMOJIS
 # ==================== CONFIGURATION ====================
 BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 SUPER_ADMIN_IDS = [8744359777]
-
-# Default API (already added in code)
-DEFAULT_OTP_API_URL = "http://127.0.0.1:5000"
-DEFAULT_OTP_API_TOKEN = "38e8d14c021472200097d5067be1b15c"
-OTP_POLL_INTERVAL = 2  # seconds for default API
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
 MIN_WITHDRAW = 0.1
@@ -2328,7 +2323,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         else:
             print("❌ process_otps: No bot instance!")
             return
-    print(f"⚙️ Processing {len(otps_list)} OTPs")
     now = datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     active_rows = db_fetch_all(
@@ -2413,17 +2407,8 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     print(f"DM OTP failed for {uid}: {e}")
     save_user_data_json()
 
-async def monitor_default_api(context: ContextTypes.DEFAULT_TYPE):
-    try:
-        resp = requests.get(f"{DEFAULT_OTP_API_URL}/all_otp?token={DEFAULT_OTP_API_TOKEN}", timeout=10)
-        if resp.status_code == 200 and resp.json().get("status") == "success":
-            otps = resp.json().get("data", {}).get("otps", [])
-            await process_otps(otps, bot=context.bot)
-    except Exception as e:
-        print(f"Default API error: {e}")
-
 async def poll_api(api_id):
-    # Wait until bot is fully ready
+    """Poll a specific API using the format: curl {base_url}/all_otp?token={token}"""
     while not application or not application.bot:
         await asyncio.sleep(1)
     while True:
@@ -2435,8 +2420,6 @@ async def poll_api(api_id):
             resp = requests.get(f"{base_url}/all_otp?token={token}", timeout=10)
             if resp.status_code == 200 and resp.json().get("status") == "success":
                 otps = resp.json().get("data", {}).get("otps", [])
-                if otps:
-                    print(f"✅ API {api_id}: {len(otps)} OTP received")
                 await process_otps(otps, bot=application.bot)
         except Exception as e:
             print(f"API {api_id} error: {e}")
@@ -2526,12 +2509,11 @@ def main():
 
     application.add_error_handler(error_handler)
 
-    # Job queue for default API
+    # Job queue: only JSON save (no default API)
     if application.job_queue:
-        application.job_queue.run_repeating(monitor_default_api, interval=OTP_POLL_INTERVAL, first=OTP_POLL_INTERVAL)
         application.job_queue.run_repeating(lambda ctx: save_user_data_json(), interval=60, first=10)
 
-    # Start added API polling after bot is initialized
+    # Start API polling tasks after bot is initialized
     async def start_api_tasks(app):
         print("🚀 Starting added API polling tasks...")
         for (api_id,) in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
