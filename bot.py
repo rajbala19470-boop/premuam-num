@@ -31,8 +31,8 @@ ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/your_channel"
-BOT_URL = "https://t.me/your_bot"
+CHANNEL_URL = "https://t.me/+76nQ1vvAzy04ZWE0"
+BOT_URL = "https://t.me/SrNumberHubBOT"
 
 # Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
