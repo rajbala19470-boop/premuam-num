@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final – No Default API, All APIs Polled via Admin)
+# bot.py — SR NUMBER HUB (Final Fix – No Default API, Lambda-Free Job Queue)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -853,6 +853,9 @@ def save_user_data_json():
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"Error saving user_data.json: {e}")
+
+async def periodic_json_save(context: ContextTypes.DEFAULT_TYPE):
+    save_user_data_json()
 
 # ==================== USER MANAGER ====================
 def generate_user_list_text():
@@ -2511,7 +2514,7 @@ def main():
 
     # Job queue: only JSON save (no default API)
     if application.job_queue:
-        application.job_queue.run_repeating(lambda ctx: save_user_data_json(), interval=60, first=10)
+        application.job_queue.run_repeating(periodic_json_save, interval=60, first=10)
 
     # Start API polling tasks after bot is initialized
     async def start_api_tasks(app):
