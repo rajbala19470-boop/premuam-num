@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final – Multi‑API Polling, All Features)
+# bot.py — SR NUMBER HUB (Final – Rich Message Group OTP + All Features)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -31,8 +31,8 @@ ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/+76nQ1vvAzy04ZWE0"
-BOT_URL = "https://t.me/SrNumberHubBOT"
+CHANNEL_URL = "https://t.me/your_channel"
+BOT_URL = "https://t.me/your_bot"
 
 # Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
@@ -40,6 +40,10 @@ EMOJI_SEPARATOR = "6307542847251814164"
 EMOJI_OTP_BUTTON = "6206420230269310869"
 EMOJI_CHANNEL_BUTTON = "6204010762206189094"
 EMOJI_BOT_BUTTON = "5339267587337370029"
+
+# Emoji for expandable SMS
+LEFT_ARROW_EMOJI = "6068830682359010545"   # 👈
+SEND_EMOJI = "5433614747381538714"         # 📤
 
 # ==================== CUSTOM EMOJIS ADDITIONS ====================
 CUSTOM_EMOJIS["USER_MANAGER"] = "6307777408300753473"
@@ -2229,6 +2233,100 @@ def get_country_code(country_name):
             return iso
     return country_name.upper()[:2]
 
+# ==================== RICH MESSAGE GROUP OTP ====================
+def format_group_otp_rich(entry):
+    number = entry.get("number", "")
+    otp_code = entry.get("otp", "")
+    service_name = entry.get("service", "Unknown")
+    country_raw = entry.get("country", entry.get("country_code", "?"))
+    country_iso = entry.get("country_code", "")
+    if not country_iso and country_raw:
+        country_iso = get_country_code(country_raw) or "??"
+    
+    # Country emoji
+    country_emoji_id = None
+    if country_iso:
+        row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.upper(),))
+        if not row:
+            row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.lower(),))
+        if row and row[0]:
+            country_emoji_id = row[0]
+    if not country_emoji_id and country_iso and country_iso.lower() in DEFAULT_EMOJIS["countries"]:
+        country_emoji_id = DEFAULT_EMOJIS["countries"][country_iso.lower()]
+    if not country_emoji_id:
+        country_emoji_id = "5293993521026453119"  # default flag
+    
+    # Service emoji
+    service_emoji_id = None
+    svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
+    if svc_row and svc_row[0]:
+        service_emoji_id = svc_row[0]
+    if not service_emoji_id:
+        service_emoji_id = CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "6204108584381322968")
+    
+    # Masked number
+    clean = number.replace('+', '').replace(' ', '').strip()
+    if len(clean) >= 9:
+        prefix, suffix = clean[:5], clean[-4:]
+    else:
+        prefix, suffix = clean, ""
+    sep_tag = f'<tg-emoji emoji-id="{EMOJI_SEPARATOR}">➖</tg-emoji>'
+    masked = f"<b>+{prefix}{sep_tag}{suffix}</b>" if suffix else f"<b>+{clean}</b>"
+    
+    # Top line
+    top_line = (
+        f'<tg-emoji emoji-id="{EMOJI_PREFIX}">🤖</tg-emoji> '
+        f'<tg-emoji emoji-id="{country_emoji_id}">🏳</tg-emoji><b>{country_iso}</b> | '
+        f'<tg-emoji emoji-id="{service_emoji_id}">🔧</tg-emoji> {masked}'
+    )
+    
+    # SMS expand block
+    message_text = entry.get("message", "")[:500]
+    sms_safe = message_text.replace("<", "&lt;").replace(">", "&gt;")
+    summary = (
+        f'<tg-emoji emoji-id="{LEFT_ARROW_EMOJI}">👈</tg-emoji> '
+        f'<b>View Full SMS</b> '
+        f'<tg-emoji emoji-id="{SEND_EMOJI}">📤</tg-emoji>'
+    )
+    details_block = (
+        f'<details>'
+        f'<summary>{summary}</summary>'
+        f'<blockquote><b>{sms_safe}</b></blockquote>'
+        f'</details>'
+    )
+    
+    html = f'<p>{top_line}</p>\n{details_block}'
+    
+    # Inline keyboard
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": otp_code,
+                    "icon_custom_emoji_id": EMOJI_OTP_BUTTON,
+                    "style": "success",
+                    "copy_text": {"text": otp_code}
+                }
+            ],
+            [
+                {
+                    "text": "𝐂𝐇𝐀𝐍𝐍𝐄𝐋",
+                    "icon_custom_emoji_id": EMOJI_CHANNEL_BUTTON,
+                    "style": "primary",
+                    "url": CHANNEL_URL
+                },
+                {
+                    "text": "𝐁𝐎𝐓",
+                    "icon_custom_emoji_id": EMOJI_BOT_BUTTON,
+                    "style": "primary",
+                    "url": BOT_URL
+                }
+            ]
+        ]
+    }
+    return html, keyboard
+
+
 # ==================== OTP PROCESSING ====================
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
@@ -2245,77 +2343,6 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
         return False
     diff = abs((current_ts - last_ts).total_seconds())
     return diff <= 0.5
-
-def format_group_otp(entry):
-    number = entry.get("number", "")
-    otp_code = entry.get("otp", "")
-    service_name = entry.get("service", "Unknown")
-    country_raw = entry.get("country", entry.get("country_code", "?"))
-    country_iso = entry.get("country_code", "")
-    if not country_iso and country_raw:
-        country_iso = get_country_code(country_raw) or "??"
-    
-    country_emoji_id = None
-    if country_iso:
-        row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.upper(),))
-        if not row:
-            row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.lower(),))
-        if row and row[0]:
-            country_emoji_id = row[0]
-    if not country_emoji_id and country_iso and country_iso.lower() in DEFAULT_EMOJIS["countries"]:
-        country_emoji_id = DEFAULT_EMOJIS["countries"][country_iso.lower()]
-    if not country_emoji_id and country_raw and country_raw.lower() in DEFAULT_EMOJIS["countries"]:
-        country_emoji_id = DEFAULT_EMOJIS["countries"][country_raw.lower()]
-    
-    flag_fallback = ISO_TO_INFO.get(country_iso, ("🏳", ""))[0] if country_iso else "🏳"
-    if country_emoji_id:
-        country_display = f'<tg-emoji emoji-id="{country_emoji_id}">{flag_fallback}</tg-emoji><b>{country_iso}</b>'
-    else:
-        country_display = f'{flag_fallback}<b>{country_iso}</b>'
-    
-    service_emoji_id = None
-    row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='service' AND key=?", (service_name.lower(),))
-    if row and row[0]:
-        service_emoji_id = row[0]
-    if not service_emoji_id and service_name.lower() in DEFAULT_EMOJIS["services"]:
-        service_emoji_id = DEFAULT_EMOJIS["services"][service_name.lower()]
-    if service_emoji_id:
-        service_display = f'<tg-emoji emoji-id="{service_emoji_id}">🔧</tg-emoji>'
-    else:
-        service_display = f'#{service_name.capitalize()}'
-    
-    clean = number.replace('+', '').replace(' ', '').strip()
-    if len(clean) >= 9:
-        prefix, suffix = clean[:5], clean[-4:]
-    else:
-        prefix, suffix = clean, ""
-    separator_tag = f'<tg-emoji emoji-id="{EMOJI_SEPARATOR}">➖</tg-emoji>'
-    if suffix:
-        masked = f'<b>+{prefix}{separator_tag}{suffix}</b>'
-    else:
-        masked = f'<b>+{clean}</b>'
-    
-    prefix_tag = f'<tg-emoji emoji-id="{EMOJI_PREFIX}">🤖</tg-emoji>'
-    text = f"{prefix_tag} {country_display} | {service_display} {masked}"
-    
-    otp_btn = InlineKeyboardButton(
-        otp_code,
-        copy_text=CopyTextButton(text=otp_code),
-        style=KBS.SUCCESS,
-        icon_custom_emoji_id=EMOJI_OTP_BUTTON
-    )
-    channel_btn = InlineKeyboardButton(
-        "𝐂𝐇𝐀𝐍𝐍𝐄𝐋", url=CHANNEL_URL,
-        style=KBS.PRIMARY,
-        icon_custom_emoji_id=EMOJI_CHANNEL_BUTTON
-    )
-    bot_btn = InlineKeyboardButton(
-        "𝐁𝐎𝐓", url=BOT_URL,
-        style=KBS.PRIMARY,
-        icon_custom_emoji_id=EMOJI_BOT_BUTTON
-    )
-    keyboard = InlineKeyboardMarkup([[otp_btn], [channel_btn, bot_btn]])
-    return text, keyboard
 
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
     if context:
@@ -2346,23 +2373,32 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         if not number or not otp_code:
             continue
         
+        # Rich message to group
         if GROUP_ID:
             already_sent = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=0", (number, otp_code))
             if not already_sent:
                 db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
                         (number, otp_code, message, otp_timestamp_str))
                 try:
-                    grp_text, grp_kb = format_group_otp({
+                    grp_html, grp_kb = format_group_otp_rich({
                         "number": number,
                         "otp": otp_code,
                         "service": service_name,
                         "country_code": otp_entry.get("country_code", ""),
-                        "country": otp_entry.get("country", "")
+                        "country": otp_entry.get("country", ""),
+                        "message": message
                     })
-                    await bot.send_message(chat_id=GROUP_ID, text=grp_text, parse_mode="HTML", reply_markup=grp_kb)
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
+                    payload = {
+                        "chat_id": GROUP_ID,
+                        "rich_message": {"html": grp_html},
+                        "reply_markup": grp_kb
+                    }
+                    requests.post(url, json=payload, timeout=10)
                 except Exception as e:
-                    print(f"Group OTP failed: {e}")
+                    print(f"Group Rich message failed: {e}")
         
+        # DM to user (existing logic)
         if number in num_map:
             try:
                 otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -2512,11 +2548,11 @@ def main():
 
     application.add_error_handler(error_handler)
 
-    # Job queue: only JSON save (no default API)
+    # Job queue: only JSON save
     if application.job_queue:
         application.job_queue.run_repeating(periodic_json_save, interval=60, first=10)
 
-    # Start API polling tasks after bot is initialized
+    # Start added API polling after bot is initialized
     async def start_api_tasks(app):
         print("🚀 Starting added API polling tasks...")
         for (api_id,) in db_fetch_all("SELECT id FROM api_keys WHERE active=1"):
@@ -2527,7 +2563,7 @@ def main():
 
     save_user_data_json()
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
-    print(f"✅ Multi-admin, User Manager, Multi-API, Database active")
+    print(f"✅ Multi-admin, User Manager, Multi-API, Rich Message Group OTP active")
     print(f"✅ User data JSON saved to {USER_DATA_FILE}")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
