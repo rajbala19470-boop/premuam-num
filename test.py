@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final – All Latest Updates)
+# bot.py — SR NUMBER HUB (Final – Auto-Clean, Fixed Inline Format, Admin Panel Updated)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -79,6 +79,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS users
               current_number TEXT DEFAULT NULL, current_country TEXT DEFAULT NULL,
               current_service TEXT DEFAULT NULL, number_expiry TEXT DEFAULT NULL,
               last_menu_message_id INTEGER DEFAULT NULL,
+              last_bot_message_id INTEGER DEFAULT NULL,
               remove_cc INTEGER DEFAULT 0,
               banned INTEGER DEFAULT 0)''')
 
@@ -139,6 +140,9 @@ try:
 except sqlite3.OperationalError: pass
 try:
     c.execute("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0")
+except sqlite3.OperationalError: pass
+try:
+    c.execute("ALTER TABLE users ADD COLUMN last_bot_message_id INTEGER DEFAULT NULL")
 except sqlite3.OperationalError: pass
 try:
     c.execute("ALTER TABLE services ADD COLUMN emoji_id TEXT DEFAULT ''")
@@ -326,7 +330,7 @@ def support_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([buttons])
 
 def admin_panel_keyboard() -> InlineKeyboardMarkup:
-    # removed: Delete Stock, Give Account, Exit Admin
+    # Removed: Delete Stock, Give Account, Exit Admin
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("User Manager", callback_data="admin_user_manager", style=KBS.PRIMARY,
@@ -516,18 +520,24 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
     service_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service,))
     service_eid = service_eid_row[0] if service_eid_row and service_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
 
+    # Premium phone icon ID
+    phone_icon_id = "5197474438970363734"  # same as SELECT_SERVICE_SUFFIX
+
     header = (
-        f'📱 <b>THIS IS YOUR</b> <b>{country}</b> {country_flag_emoji(country)} <b>NUMBERS</b> '
-        f'{emoji_tag("5197474438970363734", "📱")}\n\n'
+        f'{emoji_tag(phone_icon_id, "📱")} <b>THIS IS YOUR</b> <b>{country}</b> '
+        f'{country_flag_emoji(country)} <b>NUMBERS</b> {emoji_tag(phone_icon_id, "📱")}\n\n'
     )
     rows = []
+    # Country flag Unicode for button text
+    flag_unicode = ISO_TO_INFO.get(get_country_code(country), ("🏳", ""))[0] if get_country_code(country) else "🏳"
     for number in numbers:
         display_num = number
         copy_num = number
         if remove_cc == 1 and country_code and number.startswith(country_code):
             display_num = number[len(country_code):]
             copy_num = display_num
-        btn_text = f'{service_emoji_tag(service)} | {country_flag_emoji(country)} {display_num}'
+        # Button text: flag + number (no HTML tags), use icon_custom_emoji_id for service emoji
+        btn_text = f'{flag_unicode} | {display_num}'
         rows.append([InlineKeyboardButton(
             text=btn_text,
             copy_text=CopyTextButton(text=copy_num),
@@ -596,6 +606,32 @@ def welcome_html(user_id, first_name):
         '👨‍💻 Developer: SR NUMBER HUB'
     )
 
+# ==================== AUTO-CLEAN HELPERS ====================
+async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete user's message and previous bot message."""
+    user_id = update.effective_user.id
+    # Delete user message
+    try:
+        if update.message:
+            await update.message.delete()
+    except:
+        pass
+    # Delete previous bot message
+    row = db_fetch_one("SELECT last_bot_message_id FROM users WHERE user_id=?", (user_id,))
+    if row and row[0]:
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=row[0])
+        except:
+            pass
+        db_exec("UPDATE users SET last_bot_message_id=NULL WHERE user_id=?", (user_id,))
+
+async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None):
+    """Delete old messages and send new bot message, store its ID."""
+    await delete_previous_messages(update, context)
+    sent = await context.bot.send_message(chat_id=update.effective_user.id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, update.effective_user.id))
+    return sent
+
 # ==================== /start COMMAND ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -605,7 +641,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = update.effective_user.first_name or "User"
     ensure_user(user_id, username, first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
-    await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
+    # Clean previous messages
+    await delete_previous_messages(update, context)
+    sent = await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
+    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -646,13 +685,19 @@ async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None):
     elif hasattr(target, 'callback_query') and target.callback_query:
         await safe_edit_message(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode)
     else:
+        # If not callback, we should use clean send for bottom menu.
+        # This function is used for other messages too, but we'll handle separately.
         await target.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
 # ==================== MAIN MENU CALLBACKS ====================
 async def show_main_menu(update: Update, user_id, first_name):
     ensure_user(user_id, update.effective_user.username, first_name)
-    # No inline keyboard for main menu; bottom keyboard is persistent
-    await reply_or_edit(update, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML')
+    # No inline keyboard, just edit if callback, or send clean if from bottom menu?
+    # For now, if callback, edit; else ignore.
+    if isinstance(update, CallbackQuery):
+        await safe_edit_message(update, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML')
+    else:
+        await send_clean_message(update, update.effective_user.first_name or "User", welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML')
 
 async def show_get_number(update: Update, context, user_id, first_name):
     ensure_user(user_id, update.effective_user.username, first_name)
@@ -661,7 +706,10 @@ async def show_get_number(update: Update, context, user_id, first_name):
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_SERVICE_PREFIX"], "🔧")} <b>Select service</b> '
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"], "📱")}'
     )
-    await reply_or_edit(update, text, reply_markup=services_keyboard(), parse_mode='HTML')
+    if isinstance(update, CallbackQuery):
+        await safe_edit_message(update, text, reply_markup=services_keyboard(), parse_mode='HTML')
+    else:
+        await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML')
 
 async def show_balance(update: Update, user_id):
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
@@ -686,7 +734,10 @@ async def show_balance(update: Update, user_id):
         InlineKeyboardButton(f"WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon("5445353829304387411"))
     ]])
-    await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML')
+    if isinstance(update, CallbackQuery):
+        await safe_edit_message(update, text, reply_markup=kb, parse_mode='HTML')
+    else:
+        await send_clean_message(update, None, text, reply_markup=kb, parse_mode='HTML')
 
 async def show_withdraw(update: Update, user_id):
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
@@ -723,10 +774,17 @@ async def show_withdraw(update: Update, user_id):
             f'{emoji_tag("4958503072801228000", "📢")} KINDLY GRAB SOME OTP TO WITHDRAW YOU BALANCE {emoji_tag("4956721670690702265", "✅")}'
         )
         kb = None
-    await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML')
+    if isinstance(update, CallbackQuery):
+        await safe_edit_message(update, text, reply_markup=kb, parse_mode='HTML')
+    else:
+        await send_clean_message(update, None, text, reply_markup=kb, parse_mode='HTML')
 
 async def show_support(update: Update):
-    await reply_or_edit(update, "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, questions, or requests — contact admin directly.\n\nDeveloper: SR NUMBER HUB", reply_markup=support_keyboard())
+    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, questions, or requests — contact admin directly.\n\nDeveloper: SR NUMBER HUB"
+    if isinstance(update, CallbackQuery):
+        await safe_edit_message(update, text, reply_markup=support_keyboard())
+    else:
+        await send_clean_message(update, None, text, reply_markup=support_keyboard())
 
 # ==================== ADMIN COMMANDS ====================
 async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -734,7 +792,7 @@ async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if is_admin(user_id):
         admin_mode[user_id] = True
         admin_panel_state[user_id] = "main"
-        await update.message.reply_text("ADMIN PANEL\n\nDeveloper: SR NUMBER HUB\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
+        await send_clean_message(update, context, "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
     else:
         await update.message.reply_text("Unauthorized access!")
 
@@ -743,7 +801,7 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if user_id in admin_mode:
         admin_mode.pop(user_id, None)
         admin_panel_state.pop(user_id, None)
-        await update.message.reply_text("Admin mode deactivated!", reply_markup=bottom_menu_keyboard(user_id))
+        await send_clean_message(update, context, "Admin mode deactivated!", reply_markup=bottom_menu_keyboard(user_id))
     else:
         await update.message.reply_text("You're not in admin mode!")
 
@@ -809,7 +867,10 @@ async def admin_panel_menu(update: Update, user_id):
         return
     admin_mode[user_id] = True
     admin_panel_state[user_id] = "main"
-    await reply_or_edit(update, "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
+    if isinstance(update, CallbackQuery):
+        await safe_edit_message(update, "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
+    else:
+        await send_clean_message(update, None, "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB\n\nSelect an action below:", reply_markup=admin_panel_keyboard())
 
 # ==================== USER DATA JSON SAVE/LOAD ====================
 def save_user_data_json():
@@ -1908,7 +1969,7 @@ async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TY
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_SERVICE_PREFIX"], "🔧")} <b>Select service</b> '
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"], "📱")}'
     )
-    await update.message.reply_text(text, reply_markup=services_keyboard(), parse_mode='HTML')
+    await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML')
 
 async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1935,17 +1996,18 @@ async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         InlineKeyboardButton(f"WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon("5445353829304387411"))
     ]])
-    await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
+    await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML')
 
 async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nContact admin directly.\n\nDeveloper: SR NUMBER HUB", reply_markup=support_keyboard())
+    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nContact admin directly.\n\nDeveloper: SR NUMBER HUB"
+    await send_clean_message(update, context, text, reply_markup=support_keyboard())
 
 async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id): await update.message.reply_text("Unauthorized!"); return
     admin_mode[user_id] = True
     admin_panel_state[user_id] = "main"
-    await update.message.reply_text("ADMIN PANEL\n\nDeveloper: SR NUMBER HUB", reply_markup=admin_panel_keyboard())
+    await send_clean_message(update, context, "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB", reply_markup=admin_panel_keyboard())
 
 # ==================== MANAGE API FUNCTIONS ====================
 async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
