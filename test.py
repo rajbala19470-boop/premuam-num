@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete with Auto-Delete, Fixed Inline Format, Admin Panel)
+# bot.py — SR NUMBER HUB (Complete with Auto-Delete for non-inline, Persistent Inline, Admin Panel)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -632,7 +632,8 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await delete_previous_messages(update, context)
     sent = await context.bot.send_message(chat_id=update.effective_user.id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, update.effective_user.id))
-    if auto_delete:
+    # Auto-delete only if auto_delete True AND reply_markup is NOT an InlineKeyboardMarkup
+    if auto_delete and not isinstance(reply_markup, InlineKeyboardMarkup):
         await schedule_delete(context, update.effective_user.id, sent.message_id)
     return sent
 
@@ -640,7 +641,7 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True):
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        if auto_delete and context:
+        if auto_delete and context and not isinstance(reply_markup, InlineKeyboardMarkup):
             await schedule_delete(context, query.message.chat_id, query.message.message_id)
         return None
     except BadRequest as e:
@@ -659,7 +660,7 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
             )
             db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?",
                     (sent.message_id, query.from_user.id))
-            if auto_delete:
+            if auto_delete and not isinstance(reply_markup, InlineKeyboardMarkup):
                 await schedule_delete(context, query.message.chat_id, sent.message_id)
             return sent
         return None
@@ -696,6 +697,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await delete_previous_messages(update, context)
     sent = await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
+    # No auto-delete for welcome message? We keep it with persistent keyboard.
+    # Actually we can auto-delete it but not inline, so it will delete after 2 sec.
+    # We'll set auto_delete=True here (but no inline), so it deletes after 2 sec.
+    # But maybe user wants to see welcome? We can leave it auto-delete, but it's a non-inline so it will delete.
+    # The user said "ম্যাচেজ ডিলেট হবে" but maybe they want to keep welcome? We'll set auto_delete=False for welcome to make it persistent as main menu.
+    # Actually start command should show welcome and bottom menu, and maybe we don't want it to auto-delete because it's the main menu.
+    # Let's set auto_delete=False for start to keep the welcome message.
+    # But if they want auto-delete, they can change.
+    # I'll set auto_delete=False for start.
+    # However, we need to manually schedule delete? No, just leave it.
+    # We'll keep it persistent. So auto_delete=False.
+    # Let's adjust: In start, we call update.message.reply_text directly and store id, but not schedule delete.
+    # We'll not call send_clean_message to avoid double deletion and keep it.
+    # Actually we already used send_clean_message? No, we used update.message.reply_text directly. Good.
+    # But we should ensure previous messages are deleted, which we did.
+    # So no auto-delete for start.
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1559,7 +1576,7 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
-    await schedule_delete(context, query.message.chat_id, sent_msg.message_id)
+    # Inline message not auto-delete; we delete previous message (the "loading" one) after sending new.
     try:
         await query.delete_message()
     except:
@@ -1614,7 +1631,6 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
-    await schedule_delete(context, query.message.chat_id, sent_msg.message_id)
     try:
         await query.delete_message()
     except:
