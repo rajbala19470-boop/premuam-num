@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final – Auto-Delete, Fixed Inline Format, Admin Panel Updated)
+# bot.py — SR NUMBER HUB (Complete with Auto-Delete, Fixed Inline Format, Admin Panel)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -22,7 +22,7 @@ from emoji import CUSTOM_EMOJIS
 BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 SUPER_ADMIN_IDS = [8744359777]
 
-AUTO_DELETE_DELAY = 2   # সেকেন্ড
+AUTO_DELETE_DELAY = 2   # seconds
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
 MIN_WITHDRAW = 0.1
@@ -522,15 +522,13 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
     service_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service,))
     service_eid = service_eid_row[0] if service_eid_row and service_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
 
-    # Premium phone icon ID
-    phone_icon_id = "5197474438970363734"  # same as SELECT_SERVICE_SUFFIX
+    phone_icon_id = "5197474438970363734"
 
     header = (
         f'{emoji_tag(phone_icon_id, "📱")} <b>THIS IS YOUR</b> <b>{country}</b> '
         f'{country_flag_emoji(country)} <b>NUMBERS</b> {emoji_tag(phone_icon_id, "📱")}\n\n'
     )
     rows = []
-    # Country flag Unicode for button text
     flag_unicode = ISO_TO_INFO.get(get_country_code(country), ("🏳", ""))[0] if get_country_code(country) else "🏳"
     for number in numbers:
         display_num = number
@@ -538,7 +536,6 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
         if remove_cc == 1 and country_code and number.startswith(country_code):
             display_num = number[len(country_code):]
             copy_num = display_num
-        # Button text: flag + number (no HTML tags), use icon_custom_emoji_id for service emoji
         btn_text = f'{flag_unicode} | {display_num}'
         rows.append([InlineKeyboardButton(
             text=btn_text,
@@ -610,15 +607,12 @@ def welcome_html(user_id, first_name):
 
 # ==================== AUTO-CLEAN HELPERS ====================
 async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Delete user's message and previous bot message."""
     user_id = update.effective_user.id
-    # Delete user message
     try:
         if update.message:
             await update.message.delete()
     except:
         pass
-    # Delete previous bot message
     row = db_fetch_one("SELECT last_bot_message_id FROM users WHERE user_id=?", (user_id,))
     if row and row[0]:
         try:
@@ -628,7 +622,6 @@ async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT
         db_exec("UPDATE users SET last_bot_message_id=NULL WHERE user_id=?", (user_id,))
 
 async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = AUTO_DELETE_DELAY):
-    """Schedule a message deletion after delay seconds."""
     if context.job_queue:
         context.job_queue.run_once(
             lambda ctx: ctx.bot.delete_message(chat_id=chat_id, message_id=message_id),
@@ -636,7 +629,6 @@ async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
         )
 
 async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True):
-    """Delete old messages and send new bot message, store its ID."""
     await delete_previous_messages(update, context)
     sent = await context.bot.send_message(chat_id=update.effective_user.id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, update.effective_user.id))
@@ -646,7 +638,6 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 # ==================== SAFE EDIT / SEND FALLBACK ====================
 async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True):
-    """Try to edit; if message is gone, send a new one and update DB."""
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         if auto_delete and context:
@@ -692,6 +683,43 @@ async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, c
         else:
             if hasattr(target, 'message') and target.message:
                 await target.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+# ==================== START COMMAND ====================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if await ban_check(update, context):
+        return
+    username = update.effective_user.username
+    first_name = update.effective_user.first_name or "User"
+    ensure_user(user_id, username, first_name)
+    db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
+    await delete_previous_messages(update, context)
+    sent = await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
+    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
+
+# ==================== BAN CHECK ====================
+async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    banned = db_fetch_one("SELECT banned FROM users WHERE user_id=?", (user_id,))
+    if banned and banned[0]:
+        text = (
+            f'{emoji_tag("6206077285720659346", "🚫")} <b>Now You Can\'t Use Me</b> {emoji_tag("6206003549722122915", "😢")}\n'
+            f'{emoji_tag("6206267591426578467", "📞")} <b>CONTACT TO SUPPORT ADMINS</b> {emoji_tag("6206319341487527808", "👨‍💼")}'
+        )
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(text, reply_markup=support_keyboard(), parse_mode='HTML')
+        else:
+            await update.message.reply_text(text, reply_markup=support_keyboard(), parse_mode='HTML')
+        return True
+    return False
+
+# ==================== ADMIN CHECKS ====================
+def is_admin(user_id):
+    return db_fetch_one("SELECT user_id FROM admins WHERE user_id=?", (user_id,)) is not None
+
+def is_super_admin(user_id):
+    return user_id in SUPER_ADMIN_IDS
 
 # ==================== MAIN MENU CALLBACKS ====================
 async def show_main_menu(update: Update, user_id, first_name, context: ContextTypes.DEFAULT_TYPE = None):
@@ -882,7 +910,6 @@ async def admin_panel_menu(update: Update, user_id, context: ContextTypes.DEFAUL
 
 # ==================== USER DATA JSON SAVE/LOAD ====================
 def save_user_data_json():
-    """Save all user data from DB into user_data.json."""
     users = db_fetch_all("SELECT user_id, username, first_name, joined_date, last_active, balance, withdrawn, total_otp, banned FROM users")
     data = {"users": {}, "total_users": 0}
     for u in users:
@@ -929,7 +956,7 @@ async def send_user_list_file(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.callback_query.message.reply_document(document=open(f.name, 'rb'), filename="USER_DATA.txt")
     os.unlink(f.name)
 
-# Async wrappers (replacing lambdas)
+# Async wrappers
 async def _user_manager_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await user_manager_menu(update, context, update.callback_query.from_user.id)
 
@@ -1273,7 +1300,7 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     admin_panel_state[user_id] = "main"
 
-# ==================== ADMIN TEXT HANDLER (with FAST BROADCAST) ====================
+# ==================== ADMIN TEXT HANDLER ====================
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
@@ -1285,7 +1312,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users = db_fetch_all("SELECT user_id FROM users WHERE banned=0")
         user_ids = [u[0] for u in users]
 
-        # 5-10x faster broadcast using asyncio.gather + Semaphore
         semaphore = asyncio.Semaphore(20)
         sent_counter = 0
 
@@ -1533,7 +1559,6 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
-    # Schedule auto-delete for this sent message too
     await schedule_delete(context, query.message.chat_id, sent_msg.message_id)
     try:
         await query.delete_message()
@@ -1798,7 +1823,7 @@ async def country_add_service_selection(update: Update, user_id, country_name, c
     services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     rows = []
     for s in services:
-        rows.append([InlineKeyboardButton(       # one button per row
+        rows.append([InlineKeyboardButton(
             s[1],
             callback_data=f"cnt_add_svc|{country_name}|{s[0]}",
             style=KBS.PRIMARY,
