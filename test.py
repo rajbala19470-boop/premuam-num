@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete with Auto-Delete for non-inline, Persistent Inline, Admin Panel)
+# bot.py — SR NUMBER HUB (Final: Persistent Reply Keyboard with Auto-Delete Inline)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -148,6 +148,9 @@ try:
 except sqlite3.OperationalError: pass
 try:
     c.execute("ALTER TABLE services ADD COLUMN emoji_id TEXT DEFAULT ''")
+except sqlite3.OperationalError: pass
+try:
+    c.execute("ALTER TABLE users ADD COLUMN keyboard_message_id INTEGER DEFAULT NULL")
 except sqlite3.OperationalError: pass
 
 default_services = ["WhatsApp", "Telegram", "Facebook", "IMO", "Google", "Tinder", "Uber", "Instagram", "Twitter", "Snapchat"]
@@ -615,10 +618,14 @@ async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT
         pass
     row = db_fetch_one("SELECT last_bot_message_id FROM users WHERE user_id=?", (user_id,))
     if row and row[0]:
-        try:
-            await context.bot.delete_message(chat_id=user_id, message_id=row[0])
-        except:
-            pass
+        kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
+        kb_id = kb_id_row[0] if kb_id_row else None
+        if row[0] != kb_id:
+            try:
+                await context.bot.delete_message(chat_id=user_id, message_id=row[0])
+            except:
+                pass
+        # Regardless, clear last_bot_message_id to avoid retrying
         db_exec("UPDATE users SET last_bot_message_id=NULL WHERE user_id=?", (user_id,))
 
 async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = AUTO_DELETE_DELAY):
@@ -628,30 +635,53 @@ async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
             when=delay
         )
 
-async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True):
+async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True, persistent_menu: bool = True):
+    user_id = update.effective_user.id
     await delete_previous_messages(update, context)
-    sent = await context.bot.send_message(chat_id=update.effective_user.id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
-    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, update.effective_user.id))
-    # Auto-delete only if auto_delete True AND reply_markup is NOT an InlineKeyboardMarkup
-    if auto_delete and not isinstance(reply_markup, InlineKeyboardMarkup):
-        await schedule_delete(context, update.effective_user.id, sent.message_id)
+    
+    if persistent_menu and not isinstance(reply_markup, InlineKeyboardMarkup):
+        reply_markup = bottom_menu_keyboard(user_id)
+    
+    sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
+    
+    # If the message contains the reply keyboard, store its ID as keyboard anchor
+    if isinstance(reply_markup, ReplyKeyboardMarkup):
+        old_kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
+        old_kb_id = old_kb_id_row[0] if old_kb_id_row else None
+        if old_kb_id and old_kb_id != sent.message_id:
+            try:
+                await context.bot.delete_message(chat_id=user_id, message_id=old_kb_id)
+            except:
+                pass
+        db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
+    
+    # Schedule deletion for inline or normal messages, but not for reply keyboard anchor
+    if auto_delete and not isinstance(reply_markup, ReplyKeyboardMarkup):
+        await schedule_delete(context, user_id, sent.message_id)
     return sent
 
 # ==================== SAFE EDIT / SEND FALLBACK ====================
-async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True):
+async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False):
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        if auto_delete and context and not isinstance(reply_markup, InlineKeyboardMarkup):
+        # If editing an inline message, schedule deletion? We'll schedule if auto_delete and not reply keyboard.
+        if auto_delete and context and not isinstance(reply_markup, ReplyKeyboardMarkup):
             await schedule_delete(context, query.message.chat_id, query.message.message_id)
         return None
     except BadRequest as e:
         if "Message is not modified" in str(e):
             return None
         if context and context.bot:
+            user_id = query.from_user.id
             try:
                 await query.message.delete()
             except:
                 pass
+            
+            if persistent_menu and not isinstance(reply_markup, InlineKeyboardMarkup):
+                reply_markup = bottom_menu_keyboard(user_id)
+            
             sent = await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=text,
@@ -659,8 +689,19 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
                 parse_mode=parse_mode
             )
             db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?",
-                    (sent.message_id, query.from_user.id))
-            if auto_delete and not isinstance(reply_markup, InlineKeyboardMarkup):
+                    (sent.message_id, user_id))
+            
+            if isinstance(reply_markup, ReplyKeyboardMarkup):
+                old_kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
+                old_kb_id = old_kb_id_row[0] if old_kb_id_row else None
+                if old_kb_id and old_kb_id != sent.message_id:
+                    try:
+                        await context.bot.delete_message(chat_id=user_id, message_id=old_kb_id)
+                    except:
+                        pass
+                db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
+            
+            if auto_delete and not isinstance(reply_markup, ReplyKeyboardMarkup):
                 await schedule_delete(context, query.message.chat_id, sent.message_id)
             return sent
         return None
@@ -673,14 +714,14 @@ async def safe_edit_message(query, text, **kwargs):
             raise
 
 # ==================== REPLY OR EDIT ====================
-async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True):
+async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False):
     if isinstance(target, CallbackQuery):
-        await edit_or_send(target, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete)
+        await edit_or_send(target, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, persistent_menu=persistent_menu)
     elif hasattr(target, 'callback_query') and target.callback_query:
-        await edit_or_send(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete)
+        await edit_or_send(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, persistent_menu=persistent_menu)
     else:
         if context:
-            await send_clean_message(target, context, text, reply_markup=reply_markup, parse_mode=parse_mode, auto_delete=auto_delete)
+            await send_clean_message(target, context, text, reply_markup=reply_markup, parse_mode=parse_mode, auto_delete=auto_delete, persistent_menu=persistent_menu)
         else:
             if hasattr(target, 'message') and target.message:
                 await target.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -697,22 +738,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await delete_previous_messages(update, context)
     sent = await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-    # No auto-delete for welcome message? We keep it with persistent keyboard.
-    # Actually we can auto-delete it but not inline, so it will delete after 2 sec.
-    # We'll set auto_delete=True here (but no inline), so it deletes after 2 sec.
-    # But maybe user wants to see welcome? We can leave it auto-delete, but it's a non-inline so it will delete.
-    # The user said "ম্যাচেজ ডিলেট হবে" but maybe they want to keep welcome? We'll set auto_delete=False for welcome to make it persistent as main menu.
-    # Actually start command should show welcome and bottom menu, and maybe we don't want it to auto-delete because it's the main menu.
-    # Let's set auto_delete=False for start to keep the welcome message.
-    # But if they want auto-delete, they can change.
-    # I'll set auto_delete=False for start.
-    # However, we need to manually schedule delete? No, just leave it.
-    # We'll keep it persistent. So auto_delete=False.
-    # Let's adjust: In start, we call update.message.reply_text directly and store id, but not schedule delete.
-    # We'll not call send_clean_message to avoid double deletion and keep it.
-    # Actually we already used send_clean_message? No, we used update.message.reply_text directly. Good.
-    # But we should ensure previous messages are deleted, which we did.
-    # So no auto-delete for start.
+    db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -742,10 +768,10 @@ def is_super_admin(user_id):
 async def show_main_menu(update: Update, user_id, first_name, context: ContextTypes.DEFAULT_TYPE = None):
     ensure_user(user_id, update.effective_user.username, first_name)
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', context=context)
+        await edit_or_send(update, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', context=context, persistent_menu=True)
     else:
         if context:
-            await send_clean_message(update, context, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML')
+            await send_clean_message(update, context, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', persistent_menu=True)
 
 async def show_get_number(update: Update, context, user_id, first_name):
     ensure_user(user_id, update.effective_user.username, first_name)
@@ -830,12 +856,21 @@ async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_T
             await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML')
 
 async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
-    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, questions, or requests — contact admin directly.\n\nDeveloper: SR NUMBER HUB"
+    text = "CONTACT SUPPORT\n\n"
+    if ADMIN_WHATSAPP:
+        text += f"Admin WhatsApp: {ADMIN_WHATSAPP}\n"
+    if ADMIN_TELEGRAM:
+        text += f"Admin Telegram: {ADMIN_TELEGRAM}\n"
+    if ADMIN2_WHATSAPP:
+        text += f"Admin2 WhatsApp: {ADMIN2_WHATSAPP}\n"
+    if ADMIN2_TELEGRAM:
+        text += f"Admin2 Telegram: {ADMIN2_TELEGRAM}\n"
+    text += "\nDeveloper: SR NUMBER HUB"
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, text, reply_markup=support_keyboard(), context=context)
+        await edit_or_send(update, text, context=context, persistent_menu=True)
     else:
         if context:
-            await send_clean_message(update, context, text, reply_markup=support_keyboard())
+            await send_clean_message(update, context, text, persistent_menu=True)
 
 # ==================== ADMIN COMMANDS ====================
 async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1576,7 +1611,8 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
-    # Inline message not auto-delete; we delete previous message (the "loading" one) after sending new.
+    # Schedule deletion of this inline message (since it's inline, it will be deleted after 2s, but keyboard anchor remains)
+    await schedule_delete(context, query.message.chat_id, sent_msg.message_id)
     try:
         await query.delete_message()
     except:
@@ -1631,6 +1667,7 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
+    await schedule_delete(context, query.message.chat_id, sent_msg.message_id)
     try:
         await query.delete_message()
     except:
@@ -2055,8 +2092,17 @@ async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML')
 
 async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nContact admin directly.\n\nDeveloper: SR NUMBER HUB"
-    await send_clean_message(update, context, text, reply_markup=support_keyboard())
+    text = "CONTACT SUPPORT\n\n"
+    if ADMIN_WHATSAPP:
+        text += f"Admin WhatsApp: {ADMIN_WHATSAPP}\n"
+    if ADMIN_TELEGRAM:
+        text += f"Admin Telegram: {ADMIN_TELEGRAM}\n"
+    if ADMIN2_WHATSAPP:
+        text += f"Admin2 WhatsApp: {ADMIN2_WHATSAPP}\n"
+    if ADMIN2_TELEGRAM:
+        text += f"Admin2 Telegram: {ADMIN2_TELEGRAM}\n"
+    text += "\nDeveloper: SR NUMBER HUB"
+    await send_clean_message(update, context, text, persistent_menu=True)
 
 async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
