@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final with custom balance emojis, persistent menu, no inline auto-delete)
+# bot.py — SR NUMBER HUB (Final with custom balance emojis, persistent menu, no inline auto-delete, KBS for all buttons)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
