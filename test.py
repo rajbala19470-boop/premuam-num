@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final with custom balance emojis, persistent menu, no inline auto-delete, KBS for all buttons)
+# bot.py — SR NUMBER HUB (Final with custom balance emojis, persistent menu, no inline auto-delete, Admin Panel fixed)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -2131,6 +2131,20 @@ async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Now send inline support message
     sent_inline = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=support_keyboard())
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent_inline.message_id, user_id))
+
+async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("Unauthorized!")
+        return
+    admin_mode[user_id] = True
+    admin_panel_state[user_id] = "main"
+    await send_clean_message(
+        update, context,
+        "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB",
+        reply_markup=admin_panel_keyboard(),
+        auto_delete=False
+    )
 
 # ==================== MANAGE API FUNCTIONS ====================
 async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
