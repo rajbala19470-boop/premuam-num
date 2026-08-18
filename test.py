@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final with custom balance emojis, persistent menu, no inline auto-delete, Admin Panel fixed)
+# bot.py — SR NUMBER HUB (Complete with all fixes)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -763,7 +763,11 @@ def is_super_admin(user_id):
 
 # ==================== MAIN MENU CALLBACKS ====================
 async def show_main_menu(update: Update, user_id, first_name, context: ContextTypes.DEFAULT_TYPE = None):
-    ensure_user(user_id, update.effective_user.username, first_name)
+    # Safe username extraction
+    username = None
+    if hasattr(update, 'effective_user') and update.effective_user:
+        username = update.effective_user.username
+    ensure_user(user_id, username, first_name)
     if isinstance(update, CallbackQuery):
         await edit_or_send(update, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', context=context, persistent_menu=True)
     else:
@@ -1618,6 +1622,15 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
         await edit_or_send(query, "Select a Country:", reply_markup=countries_for_service_keyboard(service), context=context)
         return
 
+    # Delete previous numbers message if exists
+    old_data = last_activation_data.get(user_id)
+    if old_data:
+        old_msg_id = old_data[3]
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=old_msg_id)
+        except:
+            pass
+
     expiry = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for number in numbers:
@@ -1630,7 +1643,6 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
-    # No schedule_delete for inline; it will remain until next action
     try:
         await query.delete_message()
     except:
@@ -1674,6 +1686,16 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer(f"No more {country} {service} numbers!", show_alert=True)
         await edit_or_send(query, f"Select a Country for {service}:", reply_markup=countries_for_service_keyboard(service), context=context)
         return
+
+    # Delete previous numbers message if exists
+    old_data = last_activation_data.get(user_id)
+    if old_data:
+        old_msg_id = old_data[3]
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=old_msg_id)
+        except:
+            pass
+
     expiry = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for number in numbers:
