@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final: Persistent Reply Keyboard with Auto-Delete Inline)
+# bot.py — SR NUMBER HUB (Final with custom balance emojis, persistent menu, no inline auto-delete)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -22,7 +22,7 @@ from emoji import CUSTOM_EMOJIS
 BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 SUPER_ADMIN_IDS = [8744359777]
 
-AUTO_DELETE_DELAY = 2   # seconds
+AUTO_DELETE_DELAY = 2   # seconds (only for plain messages)
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
 MIN_WITHDRAW = 0.1
@@ -625,7 +625,6 @@ async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT
                 await context.bot.delete_message(chat_id=user_id, message_id=row[0])
             except:
                 pass
-        # Regardless, clear last_bot_message_id to avoid retrying
         db_exec("UPDATE users SET last_bot_message_id=NULL WHERE user_id=?", (user_id,))
 
 async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = AUTO_DELETE_DELAY):
@@ -645,7 +644,6 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
     sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
     
-    # If the message contains the reply keyboard, store its ID as keyboard anchor
     if isinstance(reply_markup, ReplyKeyboardMarkup):
         old_kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
         old_kb_id = old_kb_id_row[0] if old_kb_id_row else None
@@ -656,8 +654,8 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 pass
         db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
     
-    # Schedule deletion for inline or normal messages, but not for reply keyboard anchor
-    if auto_delete and not isinstance(reply_markup, ReplyKeyboardMarkup):
+    # Only auto-delete if reply_markup is None (no inline, no reply keyboard)
+    if auto_delete and reply_markup is None:
         await schedule_delete(context, user_id, sent.message_id)
     return sent
 
@@ -665,8 +663,7 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False):
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        # If editing an inline message, schedule deletion? We'll schedule if auto_delete and not reply keyboard.
-        if auto_delete and context and not isinstance(reply_markup, ReplyKeyboardMarkup):
+        if auto_delete and context and reply_markup is None:
             await schedule_delete(context, query.message.chat_id, query.message.message_id)
         return None
     except BadRequest as e:
@@ -701,7 +698,7 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
                         pass
                 db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
             
-            if auto_delete and not isinstance(reply_markup, ReplyKeyboardMarkup):
+            if auto_delete and reply_markup is None:
                 await schedule_delete(context, query.message.chat_id, sent.message_id)
             return sent
         return None
@@ -794,15 +791,24 @@ async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TY
     balance = balance or 0.0
     withdrawn = withdrawn or 0.0
     total_otp = total_otp or 0
+
+    # Custom emoji IDs for balance
+    emoji_clipboard = "4958506272551863292"   # 📋
+    emoji_id = "5197269100878907942"          # 🆔
+    emoji_money = "4958926882994127612"       # 💰
+    emoji_withdraw = "5445221832074483553"    # 💸
+    emoji_warning = "4958534696645428119"     # ⚠️
+    emoji_inbox = "5197288647275071607"       # 📨
+
     text = (
         f'{emoji_tag(CUSTOM_EMOJIS["PROFILE_ICON"], "👤")} '
-        f'<a href="tg://user?id={user_id}">{first_name}</a> YOUR DETAILS 📋\n'
+        f'<a href="tg://user?id={user_id}">{first_name}</a> YOUR DETAILS {emoji_tag(emoji_clipboard, "📋")}\n'
         f'------------------------------------------------\n'
-        f'<blockquote><b>🆔 USER ID: <code>{user_id}</code></b></blockquote>\n'
-        f'<blockquote><b>💰 BALANCE: <code>${balance:.3f}</code></b></blockquote>\n'
-        f'<blockquote><b>💸 WITHDRAWED: <code>${withdrawn:.3f}</code></b></blockquote>\n'
-        f'<blockquote><b>⚠️ MINIMUM WITHDRAW: <code>$0.1</code></b></blockquote>\n'
-        f'<blockquote><b>📨 TOTAL OTP: <code>{total_otp}</code></b></blockquote>'
+        f'<blockquote><b>{emoji_tag(emoji_id, "🆔")} USER ID: <code>{user_id}</code></b></blockquote>\n'
+        f'<blockquote><b>{emoji_tag(emoji_money, "💰")} BALANCE: <code>${balance:.3f}</code></b></blockquote>\n'
+        f'<blockquote><b>{emoji_tag(emoji_withdraw, "💸")} WITHDRAWED: <code>${withdrawn:.3f}</code></b></blockquote>\n'
+        f'<blockquote><b>{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>$0.1</code></b></blockquote>\n'
+        f'<blockquote><b>{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code></b></blockquote>'
     )
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton(f"WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
@@ -856,21 +862,34 @@ async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_T
             await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML')
 
 async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
-    text = "CONTACT SUPPORT\n\n"
-    if ADMIN_WHATSAPP:
-        text += f"Admin WhatsApp: {ADMIN_WHATSAPP}\n"
-    if ADMIN_TELEGRAM:
-        text += f"Admin Telegram: {ADMIN_TELEGRAM}\n"
-    if ADMIN2_WHATSAPP:
-        text += f"Admin2 WhatsApp: {ADMIN2_WHATSAPP}\n"
-    if ADMIN2_TELEGRAM:
-        text += f"Admin2 Telegram: {ADMIN2_TELEGRAM}\n"
-    text += "\nDeveloper: SR NUMBER HUB"
+    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: SR NUMBER HUB"
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, text, context=context, persistent_menu=True)
+        user_id = update.effective_user.id
+        # Send inline support message
+        await edit_or_send(update, text, reply_markup=support_keyboard(), context=context, auto_delete=False)
+        # Ensure reply keyboard anchor exists
+        kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
+        if not kb_id_row or not kb_id_row[0]:
+            anchor = await context.bot.send_message(chat_id=user_id, text="Main Menu", reply_markup=bottom_menu_keyboard(user_id))
+            db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (anchor.message_id, user_id))
     else:
         if context:
-            await send_clean_message(update, context, text, persistent_menu=True)
+            await send_clean_message(update, context, text, reply_markup=None, persistent_menu=True)
+
+async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: SR NUMBER HUB"
+    # First ensure reply keyboard anchor
+    kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
+    if kb_id_row and kb_id_row[0]:
+        anchor_id = kb_id_row[0]
+    else:
+        anchor = await context.bot.send_message(chat_id=user_id, text="Main Menu", reply_markup=bottom_menu_keyboard(user_id))
+        anchor_id = anchor.message_id
+        db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (anchor_id, user_id))
+    # Now send inline support message
+    sent_inline = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=support_keyboard())
+    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent_inline.message_id, user_id))
 
 # ==================== ADMIN COMMANDS ====================
 async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1611,8 +1630,7 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
-    # Schedule deletion of this inline message (since it's inline, it will be deleted after 2s, but keyboard anchor remains)
-    await schedule_delete(context, query.message.chat_id, sent_msg.message_id)
+    # No schedule_delete for inline; it will remain until next action
     try:
         await query.delete_message()
     except:
@@ -1667,7 +1685,6 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
-    await schedule_delete(context, query.message.chat_id, sent_msg.message_id)
     try:
         await query.delete_message()
     except:
@@ -2075,15 +2092,24 @@ async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     balance = balance or 0.0
     withdrawn = withdrawn or 0.0
     total_otp = total_otp or 0
+
+    # Custom emoji IDs for balance
+    emoji_clipboard = "4958506272551863292"   # 📋
+    emoji_id = "5197269100878907942"          # 🆔
+    emoji_money = "4958926882994127612"       # 💰
+    emoji_withdraw = "5445221832074483553"    # 💸
+    emoji_warning = "4958534696645428119"     # ⚠️
+    emoji_inbox = "5197288647275071607"       # 📨
+
     text = (
         f'{emoji_tag(CUSTOM_EMOJIS["PROFILE_ICON"], "👤")} '
-        f'<a href="tg://user?id={user_id}">{first_name}</a> YOUR DETAILS 📋\n'
+        f'<a href="tg://user?id={user_id}">{first_name}</a> YOUR DETAILS {emoji_tag(emoji_clipboard, "📋")}\n'
         f'------------------------------------------------\n'
-        f'<blockquote><b>🆔 USER ID: <code>{user_id}</code></b></blockquote>\n'
-        f'<blockquote><b>💰 BALANCE: <code>${balance:.3f}</code></b></blockquote>\n'
-        f'<blockquote><b>💸 WITHDRAWED: <code>${withdrawn:.3f}</code></b></blockquote>\n'
-        f'<blockquote><b>⚠️ MINIMUM WITHDRAW: <code>$0.1</code></b></blockquote>\n'
-        f'<blockquote><b>📨 TOTAL OTP: <code>{total_otp}</code></b></blockquote>'
+        f'<blockquote><b>{emoji_tag(emoji_id, "🆔")} USER ID: <code>{user_id}</code></b></blockquote>\n'
+        f'<blockquote><b>{emoji_tag(emoji_money, "💰")} BALANCE: <code>${balance:.3f}</code></b></blockquote>\n'
+        f'<blockquote><b>{emoji_tag(emoji_withdraw, "💸")} WITHDRAWED: <code>${withdrawn:.3f}</code></b></blockquote>\n'
+        f'<blockquote><b>{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>$0.1</code></b></blockquote>\n'
+        f'<blockquote><b>{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code></b></blockquote>'
     )
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton(f"WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
@@ -2092,24 +2118,19 @@ async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML')
 
 async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = "CONTACT SUPPORT\n\n"
-    if ADMIN_WHATSAPP:
-        text += f"Admin WhatsApp: {ADMIN_WHATSAPP}\n"
-    if ADMIN_TELEGRAM:
-        text += f"Admin Telegram: {ADMIN_TELEGRAM}\n"
-    if ADMIN2_WHATSAPP:
-        text += f"Admin2 WhatsApp: {ADMIN2_WHATSAPP}\n"
-    if ADMIN2_TELEGRAM:
-        text += f"Admin2 Telegram: {ADMIN2_TELEGRAM}\n"
-    text += "\nDeveloper: SR NUMBER HUB"
-    await send_clean_message(update, context, text, persistent_menu=True)
-
-async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not is_admin(user_id): await update.message.reply_text("Unauthorized!"); return
-    admin_mode[user_id] = True
-    admin_panel_state[user_id] = "main"
-    await send_clean_message(update, context, "ADMIN PANEL\n\nDeveloper: SR NUMBER HUB", reply_markup=admin_panel_keyboard(), auto_delete=False)
+    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: SR NUMBER HUB"
+    # First ensure reply keyboard anchor
+    kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
+    if kb_id_row and kb_id_row[0]:
+        anchor_id = kb_id_row[0]
+    else:
+        anchor = await context.bot.send_message(chat_id=user_id, text="Main Menu", reply_markup=bottom_menu_keyboard(user_id))
+        anchor_id = anchor.message_id
+        db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (anchor_id, user_id))
+    # Now send inline support message
+    sent_inline = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=support_keyboard())
+    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent_inline.message_id, user_id))
 
 # ==================== MANAGE API FUNCTIONS ====================
 async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
