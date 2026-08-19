@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete with all fixes + /setcountry & /setservice)
+# bot.py — SR NUMBER HUB (Complete with all fixes + updated message formats)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -569,27 +569,35 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
     ])
     return header, InlineKeyboardMarkup(rows)
 
+# Updated stock messages with blockquote, bold, mono, premium emojis, and payout line
 def stock_added_message(country, service, count):
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
     svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
+    payout = get_country_info(country).get("payout", "0.001$")
+
+    EMOJI_STATS = "4958617898751886363"
+    EMOJI_PACKAGE = "5463412319948148591"
+    EMOJI_CHECK = "4956721670690702265"
+    EMOJI_NUMBER = "6204108584381322968"
+    EMOJI_COUNTRY = "5188540541922480562"
+    EMOJI_SERVICE = "5465590345108589516"
+    EMOJI_PAYOUT = "5445353829304387411"
+    EMOJI_COIN = "6118207206941790766"
+
     return (
-        f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
-        f'<b>NUMBER</b> {emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
-        f'<b>COUNTRY</b> {emoji_tag("5188540541922480562", "🌍")} : {emoji_tag(flag_eid, "🏁")}\n'
-        f'<b>SERVICE</b> {emoji_tag("5465590345108589516", "🔧")} : {emoji_tag(svc_eid, "⚙️")}'
+        f'<blockquote>{emoji_tag(EMOJI_STATS, "📊")} <b>STOCK</b> '
+        f'{emoji_tag(EMOJI_PACKAGE, "📦")} <b>ADDED SUCCESSFULLY</b> '
+        f'{emoji_tag(EMOJI_CHECK, "✅")}</blockquote>\n\n'
+        f'<b>NUMBER</b> {emoji_tag(EMOJI_NUMBER, "📱")} : <code>{count}</code>\n'
+        f'<b>COUNTRY</b> {emoji_tag(EMOJI_COUNTRY, "🌍")} : {emoji_tag(flag_eid, "🏁")}\n'
+        f'<b>SERVICE</b> {emoji_tag(EMOJI_SERVICE, "🔧")} : {emoji_tag(svc_eid, "⚙️")}\n'
+        f'<b>PAYOUT</b> {emoji_tag(EMOJI_PAYOUT, "💰")} : <code>{payout}</code> {emoji_tag(EMOJI_COIN, "🪙")}'
     )
 
 def stock_added_broadcast(country, service, count):
-    flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
-    svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
-    svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
-    return (
-        f'{emoji_tag("4958617898751886363", "📊")} <b>STOCK</b> {emoji_tag("5463412319948148591", "📦")} <b>ADDED SUCCESSFULLY</b> {emoji_tag("4956721670690702265", "✅")}\n\n'
-        f'<b>NUMBER</b> {emoji_tag("6204108584381322968", "📱")} : <b>{count}</b>\n'
-        f'<b>COUNTRY</b> {emoji_tag("5188540541922480562", "🌍")} : {emoji_tag(flag_eid, "🏁")}\n'
-        f'<b>SERVICE</b> {emoji_tag("5465590345108589516", "🔧")} : {emoji_tag(svc_eid, "⚙️")}'
-    )
+    # Same format for broadcast
+    return stock_added_message(country, service, count)
 
 # ==================== WELCOME HTML ====================
 def welcome_html(user_id, first_name):
@@ -2687,10 +2695,12 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 country_iso = country_data.get("iso", "").upper()
                 svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
                 svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
+                # Updated OTP header with blockquote, mono, bold, premium emojis
                 header = (
-                    f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
-                    f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b>\n'
-                    f'{emoji_tag("6204108584381322968", "📱")} <b>NUMBER</b>: +{number}\n'
+                    f'<blockquote>{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
+                    f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b> '
+                    f'{emoji_tag("6100453534422013617", "✨")}</blockquote>\n'
+                    f'{emoji_tag("6204108584381322968", "📱")} <b>NUMBER</b>: <code>+{number}</code>\n'
                     f'{emoji_tag("5976327845696251345", "📲")} <b>APP</b>: {emoji_tag(svc_eid, "⚙️")} <b>{service_name}</b>\n'
                     f'💰 <b>BALANCE ADDED</b>: <code>+${reward}</code>{emoji_tag("5976788549658221281", "💵")}'
                 )
