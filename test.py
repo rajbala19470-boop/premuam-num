@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete with all fixes)
+# bot.py — SR NUMBER HUB (Complete with all fixes + /setcountry & /setservice)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -2056,7 +2056,48 @@ async def handle_service_emoji_set(update: Update, context: ContextTypes.DEFAULT
     await service_manager_menu(update, user_id, context)
     return True
 
-# ==================== /country & /service COMMANDS ====================
+# ==================== /setcountry & /setservice COMMANDS ====================
+async def set_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /setcountry ISO|EMOJI_ID\n"
+            "Example: /setcountry BD|5911365056594973179"
+        )
+        return
+    parts = " ".join(context.args).split("|")
+    if len(parts) != 2:
+        await update.message.reply_text("Invalid format. Use ISO|EMOJI_ID")
+        return
+    iso = parts[0].strip().upper()
+    eid = parts[1].strip()
+    db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('country', ?, ?)", (iso, eid))
+    DEFAULT_EMOJIS["countries"][iso.lower()] = eid
+    await update.message.reply_text(f"✅ Country emoji for {iso} set to <code>{eid}</code>", parse_mode="HTML")
+
+async def set_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /setservice NAME|EMOJI_ID\n"
+            "Example: /setservice PayPal|123456789"
+        )
+        return
+    parts = " ".join(context.args).split("|")
+    if len(parts) != 2:
+        await update.message.reply_text("Invalid format. Use NAME|EMOJI_ID")
+        return
+    name = parts[0].strip().lower()
+    eid = parts[1].strip()
+    db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('service', ?, ?)", (name, eid))
+    DEFAULT_EMOJIS["services"][name.lower()] = eid
+    await update.message.reply_text(f"✅ Service emoji for {name} set to <code>{eid}</code>", parse_mode="HTML")
+
+# ==================== /country & /service COMMANDS (legacy) ====================
 async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Admin only.")
@@ -2714,6 +2755,8 @@ def main():
     application.add_handler(CommandHandler("adminlist", admin_list_command))
     application.add_handler(CommandHandler("country", group_country_command))
     application.add_handler(CommandHandler("service", group_service_command))
+    application.add_handler(CommandHandler("setcountry", set_country_command))
+    application.add_handler(CommandHandler("setservice", set_service_command))
 
     application.add_handler(CallbackQueryHandler(service_selection_callback, pattern="^svc_sel\|"))
     application.add_handler(CallbackQueryHandler(country_selection_callback, pattern="^cnt_sel\|"))
