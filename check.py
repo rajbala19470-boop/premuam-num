@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete with Stock Management + Premium Emojis + Country Map)
+# bot.py — SR NUMBER HUB (Complete with all features)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -22,7 +22,7 @@ from emoji import CUSTOM_EMOJIS
 BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
 SUPER_ADMIN_IDS = [8744359777]
 
-AUTO_DELETE_DELAY = 2   # seconds (only for plain messages)
+AUTO_DELETE_DELAY = 2
 
 OTP_GROUP_URL = "https://t.me/SRotpHub"
 MIN_WITHDRAW = 0.1
@@ -66,13 +66,12 @@ CUSTOM_EMOJIS["UPLOAD"] = "6206046503690048595"
 CUSTOM_EMOJIS["REMOVE"] = "6206108815075579644"
 CUSTOM_EMOJIS["STATUS"] = "6206236607532504295"
 
-# ==================== DATABASE FOLDER ====================
+# ==================== DATABASE SETUP ====================
 DB_DIR = "NUMBER-PANEL-DATA"
 os.makedirs(DB_DIR, exist_ok=True)
 DB_PATH = os.path.join(DB_DIR, "mrisbrand_master.db")
 USER_DATA_FILE = os.path.join(DB_DIR, "user_data.json")
 
-# ==================== DATABASE SETUP ====================
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 db_lock = threading.Lock()
 c = conn.cursor()
@@ -1409,6 +1408,109 @@ async def db_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_panel_state[user_id] = "waiting_db_upload"
     await edit_or_send(query, "Upload the sr-number-data.zip file to restore the database.",
                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
+
+# ==================== SINGLE DOCUMENT HANDLER ====================
+async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.document:
+        return
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    document = update.message.document
+    state = admin_panel_state.get(user_id)
+    
+    if state == "waiting_file":
+        if not document.file_name.endswith('.txt'):
+            await update.message.reply_text("Please upload a .txt file!")
+            return
+        file = await context.bot.get_file(document.file_id)
+        os.makedirs("uploads", exist_ok=True)
+        file_path = f"uploads/{document.file_name}"
+        await file.download_to_drive(file_path)
+        
+        count, country, service = load_numbers_from_file(file_path, document.file_name)
+        if count > 0:
+            emoji_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
+            if not emoji_row:
+                admin_temp_data[user_id] = {"pending_service_emoji": service, "country": country, "count": count}
+                admin_panel_state[user_id] = "waiting_service_emoji_upload"
+                await update.message.reply_text(
+                    f"✅ {count} numbers loaded for {country}.\n"
+                    f"New service '{service}' detected.\n"
+                    "Send the custom emoji ID (or /skip).",
+                    reply_markup=admin_cancel_keyboard())
+                return
+            msg = stock_added_message(country, service, count)
+            await update.message.reply_text(msg, parse_mode='HTML', reply_markup=admin_panel_keyboard())
+            broadcast_msg = stock_added_broadcast(country, service, count)
+            users = db_fetch_all("SELECT user_id FROM users")
+            for u in users:
+                try:
+                    await context.bot.send_message(u[0], broadcast_msg, parse_mode='HTML')
+                    await asyncio.sleep(0.05)
+                except Exception:
+                    continue
+            admin_panel_state[user_id] = "main"
+        else:
+            admin_temp_data[user_id] = {
+                "pending_file_path": file_path,
+                "pending_filename": document.file_name
+            }
+            countries = db_fetch_all("SELECT name FROM countries GROUP BY name ORDER BY name")
+            if not countries:
+                await update.message.reply_text("No countries defined. Add a country first.", reply_markup=admin_panel_keyboard())
+                return
+            keyboard = []
+            for (cname,) in countries:
+                keyboard.append([InlineKeyboardButton(cname, callback_data=f"fu_country|{cname}")])
+            keyboard.append([InlineKeyboardButton("Cancel", callback_data="admin_back")])
+            await update.message.reply_text(
+                "❌ Could not detect country from filename.\nSelect the correct country:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            admin_panel_state[user_id] = "waiting_fu_country"
+        return
+
+    elif state == "waiting_db_upload":
+        if not document.file_name.endswith('.zip'):
+            await update.message.reply_text("Please upload the correct sr-number-data.zip file.")
+            return
+        file = await context.bot.get_file(document.file_id)
+        tmpdir = tempfile.mkdtemp()
+        zip_path = os.path.join(tmpdir, "upload.zip")
+        await file.download_to_drive(zip_path)
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(tmpdir)
+            for root, dirs, files in os.walk(tmpdir):
+                for fname in files:
+                    full = os.path.join(root, fname)
+                    if fname == "mrisbrand_master.db":
+                        global conn, c
+                        conn.close()
+                        shutil.copy2(full, DB_PATH)
+                        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                        c = conn.cursor()
+                    elif fname == "countries.json":
+                        shutil.copy2(full, "countries.json")
+                        global COUNTRIES_DATA
+                        COUNTRIES_DATA = load_countries_db()
+                    elif fname == "user_data.json":
+                        shutil.copy2(full, USER_DATA_FILE)
+                    elif fname == "emoji.py":
+                        shutil.copy2(full, "emoji.py")
+        except Exception as e:
+            await update.message.reply_text(f"Error restoring database: {e}")
+            return
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        admin_panel_state[user_id] = "main"
+        await update.message.reply_text("✅ Database restored successfully!", reply_markup=admin_panel_keyboard())
+        return
+
+    else:
+        await update.message.reply_text("No action taken – please use the admin panel.")
 
 # ==================== FORCE UPLOAD CALLBACKS ====================
 async def fu_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
