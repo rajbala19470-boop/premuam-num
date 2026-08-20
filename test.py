@@ -19,7 +19,7 @@ from telegram.error import BadRequest
 from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8666689980:AAGju2ULiLUA0oCrEdaqsh2Mi6zVNU4ZAL4"
+BOT_TOKEN = "8666689980:AAEeUWdZY36siEUMeQ9G4YrYKFV55F7C6vw"
 SUPER_ADMIN_IDS = [8744359777]
 
 AUTO_DELETE_DELAY = 2   # seconds (only for plain messages)
