@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete with Stock Management + Premium Emojis)
+# bot.py — SR NUMBER HUB (Fixed inline buttons, removed extra emojis, added Get Number button)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -33,8 +33,8 @@ ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/+76nQ1vvAzy04ZWE0"
-BOT_URL = "https://t.me/SrNumberHubBOT"
+CHANNEL_URL = "https://t.me/your_channel"
+BOT_URL = "https://t.me/your_bot"
 
 # Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
@@ -385,7 +385,6 @@ def admin_cancel_keyboard() -> InlineKeyboardMarkup:
 
 # ==================== STOCK MANAGEMENT KEYBOARD ====================
 def stock_management_menu_keyboard() -> InlineKeyboardMarkup:
-    """Inline keyboard for Stock Management sub‑menu (1×1 buttons) with premium emojis."""
     rows = [
         [InlineKeyboardButton("Upload Stock", callback_data="stock_upload", style=KBS.SUCCESS,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("UPLOAD", "")))],
@@ -580,9 +579,10 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
                                          icon_custom_emoji_id=safe_icon("4956337889593000947"))
     rows.append([cc_button])
 
+    # Changed "New Number" to "Get Number" with primary style and GET_NUMBER emoji
     rows.append([
-        InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.SUCCESS,
-                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
+        InlineKeyboardButton("Get Number", callback_data="next_number", style=KBS.PRIMARY,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("GET_NUMBER", ""))),
         InlineKeyboardButton("Change Service", callback_data="back_to_services", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
     ])
@@ -592,7 +592,7 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
     ])
     return header, InlineKeyboardMarkup(rows)
 
-# Updated stock added message with bold country/service names
+# Updated stock added message with bold country/service names and blockquote
 def stock_added_message(country, service, count):
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
     svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
@@ -609,9 +609,9 @@ def stock_added_message(country, service, count):
     EMOJI_COIN = "6118207206941790766"
 
     return (
-        f'{emoji_tag(EMOJI_STATS, "📊")} <b>STOCK</b> '
+        f'<blockquote>{emoji_tag(EMOJI_STATS, "📊")} <b>STOCK</b> '
         f'{emoji_tag(EMOJI_PACKAGE, "📦")} <b>ADDED SUCCESSFULLY</b> '
-        f'{emoji_tag(EMOJI_CHECK, "✅")}\n\n'
+        f'{emoji_tag(EMOJI_CHECK, "✅")}</blockquote>\n\n'
         f'<b>NUMBER</b> {emoji_tag(EMOJI_NUMBER, "📱")} : <code>{count}</code>\n'
         f'<b>COUNTRY</b> {emoji_tag(EMOJI_COUNTRY, "🌍")} : {emoji_tag(flag_eid, "🏁")} <b>{country}</b>\n'
         f'<b>SERVICE</b> {emoji_tag(EMOJI_SERVICE, "🔧")} : {emoji_tag(svc_eid, "⚙️")} <b>{service}</b>\n'
@@ -1813,10 +1813,16 @@ async def stock_remove_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     kb_buttons = []
     for country, service, stock in rows:
-        label = f"{service_emoji_tag(service)} {country_flag_emoji(country)} {country} | {stock}"
+        # Use country emoji as icon, label plain text
+        country_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+        label = f"{country} — {service} (Stock: {stock})"
         cb_data = f"stock_remove_confirm|{country}|{service}"
-        kb_buttons.append([InlineKeyboardButton(label, callback_data=cb_data, style=KBS.DANGER,
-                                                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("REMOVE_STOCK", "")))])
+        kb_buttons.append([InlineKeyboardButton(
+            label,
+            callback_data=cb_data,
+            style=KBS.DANGER,
+            icon_custom_emoji_id=safe_icon(country_eid)
+        )])
     kb_buttons.append([InlineKeyboardButton("Back", callback_data="admin_stock_management", style=KBS.PRIMARY,
                                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await edit_or_send(query, "Select stock to remove:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False)
@@ -1874,7 +1880,6 @@ async def stock_status_callback(update: Update, context: ContextTypes.DEFAULT_TY
         lines = []
         for country, service, stock in rows:
             payout = get_country_info(country).get("payout", "0.001$")
-            # Format: <blockquote>{ServiceEmoji}|{country_emoji}*{country_name}*|`{payout}`|{stock}</blockquote>
             line = (
                 f'<blockquote>'
                 f'{service_emoji_tag(service)}|'
@@ -1904,12 +1909,16 @@ async def stock_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     kb_buttons = []
     for country, service, active in rows:
-        status_icon = "🟢" if active else "🔴"
-        label = f"{country_flag_emoji(country)} <b>{country}</b> | <b>{service}</b> {status_icon}"
+        country_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
+        label = f"{country} — {service}"
         cb_data = f"stock_toggle_do|{country}|{service}"
         style = KBS.SUCCESS if active else KBS.DANGER
-        kb_buttons.append([InlineKeyboardButton(label, callback_data=cb_data, style=style,
-                                                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("TOGGLE_STOCK", "")))])
+        kb_buttons.append([InlineKeyboardButton(
+            label,
+            callback_data=cb_data,
+            style=style,
+            icon_custom_emoji_id=safe_icon(country_eid)
+        )])
     kb_buttons.append([InlineKeyboardButton("Back", callback_data="admin_stock_management", style=KBS.PRIMARY,
                                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await edit_or_send(query, "Select stock to toggle active status:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False)
