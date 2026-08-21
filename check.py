@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Stock Upload Broadcast with Get Number inline button)
+# bot.py — SR NUMBER HUB (Final: broadcast stays, numbers show "New Number", premium eye emoji)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -70,6 +70,7 @@ CUSTOM_EMOJIS["TOGGLE_STOCK"] = "4956583802240500602"
 CUSTOM_EMOJIS["YES"] = "4956721670690702265"
 CUSTOM_EMOJIS["NO"] = "4958534696645428119"
 CUSTOM_EMOJIS["GET_NUMBER"] = "6204108584381322968"
+CUSTOM_EMOJIS["NEW_NUMBER"] = "5877410604225924969"    # 🆕
 
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
@@ -580,9 +581,10 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
                                          icon_custom_emoji_id=safe_icon("4956337889593000947"))
     rows.append([cc_button])
 
+    # Revert to "New Number" as originally
     rows.append([
-        InlineKeyboardButton("Get Number", callback_data="next_number", style=KBS.PRIMARY,
-                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("GET_NUMBER", ""))),
+        InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.PRIMARY,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
         InlineKeyboardButton("Change Service", callback_data="back_to_services", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
     ])
@@ -592,13 +594,14 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
     ])
     return header, InlineKeyboardMarkup(rows)
 
+# Updated stock added message with premium eye emoji and blockquote
 def stock_added_message(country, service, count):
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
     svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     payout = get_country_info(country).get("payout", "0.001$")
 
-    EMOJI_STATS = "4958506272551863292"
+    EMOJI_EYE = "4958617898751886363"   # 👁️ premium
     EMOJI_PACKAGE = "5463412319948148591"
     EMOJI_CHECK = "4956721670690702265"
     EMOJI_NUMBER = "6204108584381322968"
@@ -608,9 +611,9 @@ def stock_added_message(country, service, count):
     EMOJI_COIN = "6118207206941790766"
 
     return (
-        f'{emoji_tag(EMOJI_STATS, "📊")} <b>STOCK</b> '
+        f'<blockquote>{emoji_tag(EMOJI_EYE, "👁️")} <b>STOCK</b> '
         f'{emoji_tag(EMOJI_PACKAGE, "📦")} <b>ADDED SUCCESSFULLY</b> '
-        f'{emoji_tag(EMOJI_CHECK, "✅")}\n\n'
+        f'{emoji_tag(EMOJI_CHECK, "✅")}</blockquote>\n\n'
         f'<b>NUMBER</b> {emoji_tag(EMOJI_NUMBER, "📱")} : <code>{count}</code>\n'
         f'<b>COUNTRY</b> {emoji_tag(EMOJI_COUNTRY, "🌍")} : {emoji_tag(flag_eid, "🏁")} <b>{country}</b>\n'
         f'<b>SERVICE</b> {emoji_tag(EMOJI_SERVICE, "🔧")} : {emoji_tag(svc_eid, "⚙️")} <b>{service}</b>\n'
@@ -618,11 +621,8 @@ def stock_added_message(country, service, count):
     )
 
 def stock_added_broadcast_with_button(country, service, count):
-    """Broadcast message with Get Number inline button"""
+    """Broadcast message with Get Number inline button (broadcast stays)"""
     msg = stock_added_message(country, service, count)
-    
-    # Create inline keyboard with Get Number button
-    flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             "Get Number",
@@ -1291,7 +1291,7 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
             msg = stock_added_message(country, service, count)
             await update.message.reply_text(msg, parse_mode='HTML')
             
-            # Broadcast to all users with Get Number button
+            # Broadcast to all users with Get Number button (broadcast stays)
             broadcast_msg, broadcast_kb = stock_added_broadcast_with_button(country, service, count)
             users = db_fetch_all("SELECT user_id FROM users")
             for u in users:
@@ -1586,7 +1586,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== STOCK GET NUMBER CALLBACK ====================
 async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle Get Number button from stock broadcast"""
+    """Handle Get Number button from broadcast – broadcast stays, numbers appear as new message"""
     query = update.callback_query
     user_id = query.from_user.id
     if await ban_check(update, context):
@@ -1608,7 +1608,7 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
         await query.answer("No numbers available right now!", show_alert=True)
         return
     
-    # Delete previous numbers message if exists
+    # Delete previous numbers message if exists (but NOT the broadcast)
     old_data = last_activation_data.get(user_id)
     if old_data:
         old_msg_id = old_data[3]
@@ -1626,16 +1626,12 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
                WHERE user_id = ?''', (numbers[0], country, service, expiry, user_id))
     
+    # Send numbers as a new message (do NOT delete broadcast)
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
-    
-    # Send as a new message (not edit)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
     
-    try:
-        await query.delete_message()
-    except:
-        pass
+    # Do NOT delete the broadcast message – it stays
 
 # ==================== CALLBACK HANDLERS ====================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
