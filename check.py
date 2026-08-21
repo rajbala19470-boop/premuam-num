@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Complete with Stock Management)
+# bot.py — SR NUMBER HUB (Complete with Stock Management + Premium Emojis)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -33,8 +33,8 @@ ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/your_channel"
-BOT_URL = "https://t.me/your_bot"
+CHANNEL_URL = "https://t.me/+76nQ1vvAzy04ZWE0"
+BOT_URL = "https://t.me/SrNumberHubBOT"
 
 # Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
@@ -43,9 +43,8 @@ EMOJI_OTP_BUTTON = "6206420230269310869"
 EMOJI_CHANNEL_BUTTON = "6204010762206189094"
 EMOJI_BOT_BUTTON = "5339267587337370029"
 
-# Emoji for expandable SMS
-LEFT_ARROW_EMOJI = "6068830682359010545"   # 👈
-SEND_EMOJI = "5433614747381538714"         # 📤
+LEFT_ARROW_EMOJI = "6068830682359010545"
+SEND_EMOJI = "5433614747381538714"
 
 # ==================== CUSTOM EMOJIS ADDITIONS ====================
 CUSTOM_EMOJIS["USER_MANAGER"] = "6307777408300753473"
@@ -62,10 +61,11 @@ CUSTOM_EMOJIS["SELECT_SERVICE_PREFIX"] = "6206236607532504295"
 CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"] = "5197474438970363734"
 CUSTOM_EMOJIS["SELECT_COUNTRY_PREFIX"] = "5309748255637118475"
 CUSTOM_EMOJIS["PROFILE_ICON"] = "5818715087237549366"
-# New for Stock Management
-CUSTOM_EMOJIS["STOCK_MANAGER"] = "6206236607532504295"   # using an existing one
+
+# Stock Management
+CUSTOM_EMOJIS["STOCK_MANAGER"] = "6206236607532504295"
 CUSTOM_EMOJIS["REMOVE_STOCK"] = "4958534924278694938"
-CUSTOM_EMOJIS["STOCK_STATUS"] = "4956285860359177035"
+CUSTOM_EMOJIS["STOCK_STATUS"] = "4958506272551863292"   # 📊
 CUSTOM_EMOJIS["TOGGLE_STOCK"] = "4956583802240500602"
 CUSTOM_EMOJIS["YES"] = "4956721670690702265"
 CUSTOM_EMOJIS["NO"] = "4958534696645428119"
@@ -301,7 +301,6 @@ def services_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 def countries_for_service_keyboard(service: str) -> InlineKeyboardMarkup:
-    # Only active stocks (active=1) and stock>0 are shown
     countries = db_fetch_all(
         "SELECT name, stock FROM countries WHERE service = ? AND active = 1 AND stock > 0 ORDER BY name",
         (service,)
@@ -343,7 +342,6 @@ def support_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([buttons])
 
 def admin_panel_keyboard() -> InlineKeyboardMarkup:
-    # Replaced "Upload Stock" with "Stock Management"
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("User Manager", callback_data="admin_user_manager", style=KBS.PRIMARY,
@@ -385,19 +383,19 @@ def admin_cancel_keyboard() -> InlineKeyboardMarkup:
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", ""))),
     ]])
 
-# ==================== STOCK MANAGEMENT HELPER ====================
+# ==================== STOCK MANAGEMENT KEYBOARD ====================
 def stock_management_menu_keyboard() -> InlineKeyboardMarkup:
-    """Inline keyboard for Stock Management sub-menu (1x1 buttons)"""
+    """Inline keyboard for Stock Management sub‑menu (1×1 buttons) with premium emojis."""
     rows = [
-        [InlineKeyboardButton("📤 Upload Stock", callback_data="stock_upload", style=KBS.SUCCESS,
+        [InlineKeyboardButton("Upload Stock", callback_data="stock_upload", style=KBS.SUCCESS,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("UPLOAD", "")))],
-        [InlineKeyboardButton("🗑️ Remove Stock", callback_data="stock_remove", style=KBS.DANGER,
+        [InlineKeyboardButton("Remove Stock", callback_data="stock_remove", style=KBS.DANGER,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("REMOVE_STOCK", "")))],
-        [InlineKeyboardButton("📊 Stock Status", callback_data="stock_status", style=KBS.PRIMARY,
+        [InlineKeyboardButton("Stock Status", callback_data="stock_status", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("STOCK_STATUS", "")))],
-        [InlineKeyboardButton("🔄 Toggle Stock", callback_data="stock_toggle", style=KBS.PRIMARY,
+        [InlineKeyboardButton("Toggle Stock", callback_data="stock_toggle", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("TOGGLE_STOCK", "")))],
-        [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
+        [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ]
     return InlineKeyboardMarkup(rows)
@@ -594,14 +592,14 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
     ])
     return header, InlineKeyboardMarkup(rows)
 
-# Updated stock messages with blockquote, bold, mono, premium emojis, and payout line
+# Updated stock added message with bold country/service names
 def stock_added_message(country, service, count):
     flag_eid = get_country_info(country).get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
     svc_eid_row = db_fetch_one("SELECT emoji_id FROM services WHERE name = ?", (service,))
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     payout = get_country_info(country).get("payout", "0.001$")
 
-    EMOJI_STATS = "4958617898751886363"
+    EMOJI_STATS = "4958506272551863292"   # 📊
     EMOJI_PACKAGE = "5463412319948148591"
     EMOJI_CHECK = "4956721670690702265"
     EMOJI_NUMBER = "6204108584381322968"
@@ -611,17 +609,16 @@ def stock_added_message(country, service, count):
     EMOJI_COIN = "6118207206941790766"
 
     return (
-        f'<blockquote>{emoji_tag(EMOJI_STATS, "📊")} <b>STOCK</b> '
+        f'{emoji_tag(EMOJI_STATS, "📊")} <b>STOCK</b> '
         f'{emoji_tag(EMOJI_PACKAGE, "📦")} <b>ADDED SUCCESSFULLY</b> '
-        f'{emoji_tag(EMOJI_CHECK, "✅")}</blockquote>\n\n'
+        f'{emoji_tag(EMOJI_CHECK, "✅")}\n\n'
         f'<b>NUMBER</b> {emoji_tag(EMOJI_NUMBER, "📱")} : <code>{count}</code>\n'
-        f'<b>COUNTRY</b> {emoji_tag(EMOJI_COUNTRY, "🌍")} : {emoji_tag(flag_eid, "🏁")}\n'
-        f'<b>SERVICE</b> {emoji_tag(EMOJI_SERVICE, "🔧")} : {emoji_tag(svc_eid, "⚙️")}\n'
+        f'<b>COUNTRY</b> {emoji_tag(EMOJI_COUNTRY, "🌍")} : {emoji_tag(flag_eid, "🏁")} <b>{country}</b>\n'
+        f'<b>SERVICE</b> {emoji_tag(EMOJI_SERVICE, "🔧")} : {emoji_tag(svc_eid, "⚙️")} <b>{service}</b>\n'
         f'<b>PAYOUT</b> {emoji_tag(EMOJI_PAYOUT, "💰")} : <code>{payout}</code> {emoji_tag(EMOJI_COIN, "🪙")}'
     )
 
 def stock_added_broadcast(country, service, count):
-    # Same format for broadcast
     return stock_added_message(country, service, count)
 
 # ==================== WELCOME HTML ====================
@@ -1277,10 +1274,8 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
                     "Send the custom emoji ID (or /skip).",
                     reply_markup=admin_cancel_keyboard())
                 return
-            # Show stock added message
             msg = stock_added_message(country, service, count)
             await update.message.reply_text(msg, parse_mode='HTML')
-            # Broadcast to all users
             broadcast_msg = stock_added_broadcast(country, service, count)
             users = db_fetch_all("SELECT user_id FROM users")
             for u in users:
@@ -1783,7 +1778,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== STOCK MANAGEMENT FUNCTIONS ====================
 async def send_stock_management_menu(target, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Send the Stock Management menu (inline keyboard)"""
+    """Send the Stock Management menu (inline keyboard) with premium emojis."""
     text = (
         f'{emoji_tag(CUSTOM_EMOJIS["STOCK_MANAGER"], "📦")} <b>STOCK MANAGEMENT</b>\n\n'
         f'Select an action below:'
@@ -1792,15 +1787,12 @@ async def send_stock_management_menu(target, context: ContextTypes.DEFAULT_TYPE,
     if isinstance(target, CallbackQuery):
         await edit_or_send(target, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
     else:
-        # target is a Message or Update
         await send_clean_message(target, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def stock_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Entry point for Stock Management from callback"""
     await send_stock_management_menu(update, context, user_id)
 
 async def stock_upload_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle Upload Stock from Stock Management menu"""
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
@@ -1809,14 +1801,12 @@ async def stock_upload_callback(update: Update, context: ContextTypes.DEFAULT_TY
                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def stock_remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show list of all stocks for removal"""
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
         await query.answer("Admin only.")
         return
     await query.answer()
-    # Get all country-service pairs with stock > 0
     rows = db_fetch_all("SELECT name, service, stock FROM countries WHERE stock > 0 ORDER BY name, service")
     if not rows:
         await edit_or_send(query, "No stock available to remove.", reply_markup=stock_management_menu_keyboard(), context=context, auto_delete=False)
@@ -1832,7 +1822,6 @@ async def stock_remove_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await edit_or_send(query, "Select stock to remove:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_remove_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask confirmation before removing a specific stock"""
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -1853,7 +1842,6 @@ async def stock_remove_confirm_callback(update: Update, context: ContextTypes.DE
     await edit_or_send(query, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_remove_yes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Delete the stock and return to remove list"""
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -1864,18 +1852,15 @@ async def stock_remove_yes_callback(update: Update, context: ContextTypes.DEFAUL
         await query.answer(f"✅ Stock for {country} — {service} removed.", show_alert=True)
     else:
         await query.answer(f"❌ Failed to remove stock.", show_alert=True)
-    # Refresh the remove list
     await stock_remove_callback(update, context)
 
 async def stock_remove_no_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cancel removal, go back to Stock Management menu"""
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer("Cancelled.")
     await send_stock_management_menu(query, context, user_id)
 
 async def stock_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show current stock status in a formatted list"""
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -1889,12 +1874,14 @@ async def stock_status_callback(update: Update, context: ContextTypes.DEFAULT_TY
         lines = []
         for country, service, stock in rows:
             payout = get_country_info(country).get("payout", "0.001$")
-            # Format: {ServiceEmoji}|{country_emoji}*{country_name}*|`{current_payout}`|{ava_stock}
+            # Format: <blockquote>{ServiceEmoji}|{country_emoji}*{country_name}*|`{payout}`|{stock}</blockquote>
             line = (
+                f'<blockquote>'
                 f'{service_emoji_tag(service)}|'
                 f'{country_flag_emoji(country)}<b>{country}</b>|'
                 f'<code>{payout}</code>|'
                 f'{stock}'
+                f'</blockquote>'
             )
             lines.append(line)
         text = "\n".join(lines)
@@ -1905,7 +1892,6 @@ async def stock_status_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await edit_or_send(query, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show all country-service pairs for toggling active status"""
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -1929,14 +1915,12 @@ async def stock_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await edit_or_send(query, "Select stock to toggle active status:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_toggle_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Toggle active status of a country-service pair and refresh the list"""
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
         await query.answer("Admin only.")
         return
     _, country, service = query.data.split('|')
-    # Get current active
     row = db_fetch_one("SELECT active FROM countries WHERE name = ? AND service = ?", (country, service))
     if not row:
         await query.answer("Entry not found.", show_alert=True)
@@ -1944,7 +1928,6 @@ async def stock_toggle_do_callback(update: Update, context: ContextTypes.DEFAULT
     new_active = 0 if row[0] else 1
     db_exec("UPDATE countries SET active = ? WHERE name = ? AND service = ?", (new_active, country, service))
     await query.answer(f"Toggled {country} — {service} to {'Active' if new_active else 'Inactive'}.")
-    # Refresh the toggle list
     await stock_toggle_callback(update, context)
 
 # ==================== ADMIN STATS ====================
