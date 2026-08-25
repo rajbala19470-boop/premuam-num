@@ -1,5 +1,4 @@
-# bot.py — 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓 (Full final version)
-# Includes: Stock Management, OTP extraction (30+ formats), updated emojis, no style on OTP Group button
+# bot.py — SR NUMBER HUB (Final with all updates: new emojis, new main menu, /testgroup)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -24,8 +23,9 @@ BOT_TOKEN = "8789807943:AAHae96lsddEva4nvB3LdEyJAS_q_0L06Yc"
 SUPER_ADMIN_IDS = [8744359777]
 
 AUTO_DELETE_DELAY = 2   # seconds (only for plain messages)
+MAIN_MENU_DELETE = 300  # 5 minutes
 
-OTP_GROUP_URL = "https://t.me/SRotpHub"
+OTP_GROUP_URL = "https://t.me/NumberFlexOTP"
 MIN_WITHDRAW = 0.1
 
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
@@ -33,13 +33,13 @@ ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
-GROUP_ID = -1004380384761
-CHANNEL_URL = "https://t.me/your_channel"
-BOT_URL = "https://t.me/your_bot"
+GROUP_ID = -1003716770621
+CHANNEL_URL = "https://t.me/WaCreationHub"
+BOT_URL = "https://t.me/WA_CREATION_BOT"
 
-# Emoji constants for group OTP (updated IDs)
+# Emoji constants for group OTP
 EMOJI_PREFIX = "4958725487682650920"
-EMOJI_SEPARATOR = "5339546996434812675"           # new separator
+EMOJI_SEPARATOR = "5339546996434812675"
 EMOJI_OTP_BUTTON = "6206420230269310869"
 EMOJI_CHANNEL_BUTTON = "6204010762206189094"
 EMOJI_BOT_BUTTON = "5339267587337370029"
@@ -57,7 +57,7 @@ CUSTOM_EMOJIS["MANAGE_API"] = "6206188632747808299"
 CUSTOM_EMOJIS["ADD_API_KEY"] = "6206375377925839184"
 CUSTOM_EMOJIS["REMOVE_API_KEY"] = "6206108815075579644"
 CUSTOM_EMOJIS["LIST_API_KEY"] = "6307686831735444755"
-CUSTOM_EMOJIS["SUPPORT"] = "5208573502046610594"
+CUSTOM_EMOJIS["SUPPORT"] = "6266950729085227860"   # NEW Support emoji
 CUSTOM_EMOJIS["SELECT_SERVICE_PREFIX"] = "6206236607532504295"
 CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"] = "5197474438970363734"
 CUSTOM_EMOJIS["SELECT_COUNTRY_PREFIX"] = "5309748255637118475"
@@ -66,12 +66,16 @@ CUSTOM_EMOJIS["PROFILE_ICON"] = "5818715087237549366"
 # Stock Management
 CUSTOM_EMOJIS["STOCK_MANAGER"] = "6206236607532504295"
 CUSTOM_EMOJIS["REMOVE_STOCK"] = "4958534924278694938"
-CUSTOM_EMOJIS["STOCK_STATUS"] = "4958506272551863292"   # 📊
+CUSTOM_EMOJIS["STOCK_STATUS"] = "4958506272551863292"
 CUSTOM_EMOJIS["TOGGLE_STOCK"] = "4956583802240500602"
 CUSTOM_EMOJIS["YES"] = "4956721670690702265"
-CUSTOM_EMOJIS["NO"] = "6206110936789423908"             # new NO emoji
-CUSTOM_EMOJIS["GET_NUMBER"] = "5303449763406954093"     # new GET_NUMBER
-CUSTOM_EMOJIS["NEW_NUMBER"] = "5877410604225924969"    # 🆕
+CUSTOM_EMOJIS["NO"] = "6206110936789423908"
+CUSTOM_EMOJIS["GET_NUMBER"] = "5303449763406954093"
+CUSTOM_EMOJIS["NEW_NUMBER"] = "5877410604225924969"
+
+# New specific emojis for headers and main menu
+HEADER_EMOJI = "6269135402855044481"
+MAIN_MENU_EMOJI = "5438499684270238914"
 
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
@@ -255,9 +259,9 @@ def service_emoji_tag(service_name: str) -> str:
     return emoji_tag(eid, "⚙️")
 
 # ==================== KEYBOARD BUILDERS ====================
-BTN_GET_NUMBER = "Get Number"
-BTN_BALANCE = "Balance"
-BTN_SUPPORT = "Support"
+BTN_GET_NUMBER = "GET NUMBER"
+BTN_BALANCE = "BALANCE"
+BTN_SUPPORT = "SUPPORT"
 BTN_ADMIN = "Admin Panel"
 
 def bottom_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
@@ -538,52 +542,27 @@ def get_numbers_from_stock(country, service, count=3):
 
 # -------------------- OTP EXTRACTION (30+ formats) --------------------
 def extract_otp_from_message(message: str) -> str | None:
-    """
-    Extract OTP from any message format.
-    Supports 30+ patterns including:
-    - 4-8 digits, with or without separators (-, space, .)
-    - Keywords: OTP, CODE, VERIFICATION, PIN, AUTH, SECURITY, etc. (multilingual)
-    - Common formats: "OTP: 123456", "123456 is your code", "Your verification code is 123456"
-    - With hyphens: "135-262", "123-456"
-    - With spaces: "1 2 3 4 5 6"
-    """
     if not message:
         return None
 
-    # Common OTP patterns (sorted by specificity)
     patterns = [
-        # 1. Explicit OTP/Code keywords with separators
         r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s*[:=]\s*(\d{4,6})',
         r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+is\s+(\d{4,6})',
         r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+(\d{4,6})',
-        
-        # 2. Multilingual keywords (Bengali, Hindi, Spanish, Arabic, French, German)
         r'(?:ওটিপি|ভেরিফিকেশন|পিন|কোড)\s*[:=]\s*(\d{4,6})',
         r'(?:ओटीपी|कोड|पिन|सत्यापन)\s*[:=]\s*(\d{4,6})',
         r'(?:código|verificación|pin|clave)\s*[:=]\s*(\d{4,6})',
         r'(?:رمز|التحقق|كلمة المرور|OTP)\s*[:=]\s*(\d{4,6})',
         r'(?:code|vérification|pin|mot de passe)\s*[:=]\s*(\d{4,6})',
         r'(?:Code|Bestätigung|PIN|Sicherheit)\s*[:=]\s*(\d{4,6})',
-        
-        # 3. "Your OTP is" style (without colon)
         r'(?:your|আপনার|आपका|tu|votre|ihr)\s+(?:otp|code|verification|pin)\s+(?:is|হল|है|es|est|ist)\s+(\d{4,6})',
         r'(?:the|এই|यह|este|ceci|dies)\s+(?:otp|code|verification|pin)\s+(?:is|হল|है|es|est|ist)\s+(\d{4,6})',
-        
-        # 4. Number in brackets or parentheses
         r'\[(\d{4,6})\]',
         r'\((\d{4,6})\)',
-        
-        # 5. Hyphenated OTP (e.g., 123-456, 1-2-3-4)
         r'\b(\d{2,3}[-\s.]?\d{2,3})\b',
-        
-        # 6. OTP with spaces between digits (e.g., 1 2 3 4 5 6)
         r'\b(\d\s\d\s\d\s\d\s\d\s\d)\b',
         r'\b(\d\s\d\s\d\s\d)\b',
-        
-        # 7. Plain 4-6 digit number (most common) - but avoid years and long numbers
         r'\b(\d{4,6})\b',
-        
-        # 8. Alphanumeric OTP (for some services)
         r'\b([A-Z0-9]{4,8})\b',
     ]
     
@@ -591,16 +570,12 @@ def extract_otp_from_message(message: str) -> str | None:
         match = re.search(pattern, message, re.IGNORECASE)
         if match:
             otp = match.group(1)
-            # Clean separators
             otp = re.sub(r'[-\s.]', '', otp)
-            # Only if length between 4 and 8
             if 4 <= len(otp) <= 8:
-                # Skip if it looks like a year (19xx or 20xx) when length=4
                 if len(otp) == 4 and otp.startswith(('19', '20')):
                     continue
                 return otp
     
-    # Fallback: find any 4-6 digit number that is likely OTP
     numbers = re.findall(r'\b(\d{4,6})\b', message)
     for num in numbers:
         if num.startswith(('19', '20')) and len(num) == 4:
@@ -610,7 +585,6 @@ def extract_otp_from_message(message: str) -> str | None:
     return None
 
 def extract_all_otps_from_message(message: str) -> list[str]:
-    """Extract all possible OTPs from a message."""
     if not message:
         return []
     otps = []
@@ -620,7 +594,6 @@ def extract_all_otps_from_message(message: str) -> list[str]:
             continue
         if num not in otps:
             otps.append(num)
-    # Check hyphenated
     hyphen = re.findall(r'\b(\d{2,3}-\d{2,3})\b', message)
     for h in hyphen:
         clean = h.replace('-', '')
@@ -645,9 +618,9 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
 
     phone_icon_id = "5197474438970363734"
 
-    # Header now includes service emoji before the country
+    # NEW HEADER: using HEADER_EMOJI instead of service_emoji_tag(service)
     header = (
-        f'{service_emoji_tag(service)} <b>THIS IS YOUR</b> <b>{country}</b> '
+        f'{emoji_tag(HEADER_EMOJI, "⚙️")} <b>THIS IS YOUR</b> <b>{country}</b> '
         f'{country_flag_emoji(country)} <b>NUMBERS</b> {emoji_tag(phone_icon_id, "📱")}\n\n'
     )
     rows = []
@@ -676,14 +649,12 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
                                          icon_custom_emoji_id=safe_icon("6206110936789423908"))
     rows.append([cc_button])
 
-    # New Number and Change Service
     rows.append([
         InlineKeyboardButton("New Number", callback_data="next_number", style=KBS.PRIMARY,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NEW_NUMBER", ""))),
         InlineKeyboardButton("Change Service", callback_data="back_to_services", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CHANGE_COUNTRY", ""))),
     ])
-    # OTP Group button with NO style (style=None)
     rows.append([
         InlineKeyboardButton("OTP Group", url=OTP_GROUP_URL, style=None,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("JOIN_OTP_GROUP", ""))),
@@ -697,7 +668,7 @@ def stock_added_message(country, service, count):
     svc_eid = svc_eid_row[0] if svc_eid_row and svc_eid_row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     payout = get_country_info(country).get("payout", "0.001$")
 
-    EMOJI_EYE = "4958617898751886363"   # premium eye
+    EMOJI_EYE = "4958617898751886363"
     EMOJI_PACKAGE = "5463412319948148591"
     EMOJI_CHECK = "4956721670690702265"
     EMOJI_NUMBER = "6204108584381322968"
@@ -728,19 +699,16 @@ def stock_added_broadcast_with_button(country, service, count):
     ]])
     return msg, kb
 
-# ==================== WELCOME HTML ====================
+# ==================== WELCOME / MAIN MENU HTML ====================
 def welcome_html(user_id, first_name):
-    spark = CUSTOM_EMOJIS.get("WELCOME_SPARKLE", "")
-    rocket = CUSTOM_EMOJIS.get("ROCKET", "")
-    id_icon = CUSTOM_EMOJIS.get("ID_ICON", "")
-    check = CUSTOM_EMOJIS.get("CHECK_MARK", "")
-    gamepad = CUSTOM_EMOJIS.get("GAMEPAD", "")
+    # Updated main menu with new emoji and developer name
     return (
-        f'{emoji_tag(spark, "✨")} Welcome to 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓, {first_name}! {emoji_tag(spark, "✨")}\n\n'
-        f'{emoji_tag(rocket, "🚀")} Your Premium Platform for Virtual Numbers.\n\n'
-        f'{emoji_tag(id_icon, "🆔")} Your ID: <code>{user_id}</code>\n'
-        f'{emoji_tag(check, "✅")} You are a Verified Member!\n\n'
-        f'{emoji_tag(gamepad, "🎮")} Tap a button below to navigate.\n\n'
+        f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>\n\n'
+        f'✨ Welcome to 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓, {first_name}! ✨\n\n'
+        f'🚀 Your Premium Platform for Virtual Numbers.\n\n'
+        f'🆔 Your ID: <code>{user_id}</code>\n'
+        f'✅ You are a Verified Member!\n\n'
+        f'🎮 Tap a button below to navigate.\n\n'
         '━━━━━━━━━━━━━━━━━━━━\n'
         '👨‍💻 Developer: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓'
     )
@@ -771,7 +739,7 @@ async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
             when=delay
         )
 
-async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True, persistent_menu: bool = True):
+async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True, persistent_menu: bool = True, delete_after: int = None):
     user_id = update.effective_user.id
     await delete_previous_messages(update, context)
     
@@ -793,14 +761,19 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     if auto_delete and reply_markup is None:
         await schedule_delete(context, user_id, sent.message_id)
+    elif delete_after:
+        await schedule_delete(context, user_id, sent.message_id, delete_after)
+    
     return sent
 
 # ==================== SAFE EDIT / SEND FALLBACK ====================
-async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False):
+async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False, delete_after: int = None):
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         if auto_delete and context and reply_markup is None:
             await schedule_delete(context, query.message.chat_id, query.message.message_id)
+        elif delete_after:
+            await schedule_delete(context, query.message.chat_id, query.message.message_id, delete_after)
         return None
     except BadRequest as e:
         if "Message is not modified" in str(e):
@@ -836,6 +809,8 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
             
             if auto_delete and reply_markup is None:
                 await schedule_delete(context, query.message.chat_id, sent.message_id)
+            elif delete_after:
+                await schedule_delete(context, query.message.chat_id, sent.message_id, delete_after)
             return sent
         return None
 
@@ -847,14 +822,14 @@ async def safe_edit_message(query, text, **kwargs):
             raise
 
 # ==================== REPLY OR EDIT ====================
-async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False):
+async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False, delete_after: int = None):
     if isinstance(target, CallbackQuery):
-        await edit_or_send(target, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, persistent_menu=persistent_menu)
+        await edit_or_send(target, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, persistent_menu=persistent_menu, delete_after=delete_after)
     elif hasattr(target, 'callback_query') and target.callback_query:
-        await edit_or_send(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, persistent_menu=persistent_menu)
+        await edit_or_send(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, persistent_menu=persistent_menu, delete_after=delete_after)
     else:
         if context:
-            await send_clean_message(target, context, text, reply_markup=reply_markup, parse_mode=parse_mode, auto_delete=auto_delete, persistent_menu=persistent_menu)
+            await send_clean_message(target, context, text, reply_markup=reply_markup, parse_mode=parse_mode, auto_delete=auto_delete, persistent_menu=persistent_menu, delete_after=delete_after)
         else:
             if hasattr(target, 'message') and target.message:
                 await target.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -872,6 +847,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent = await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
     db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
+    # Auto-delete main menu after 5 minutes
+    await schedule_delete(context, user_id, sent.message_id, MAIN_MENU_DELETE)
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -904,10 +881,10 @@ async def show_main_menu(update: Update, user_id, first_name, context: ContextTy
         username = update.effective_user.username
     ensure_user(user_id, username, first_name)
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', context=context, persistent_menu=True)
+        await edit_or_send(update, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', context=context, persistent_menu=True, delete_after=MAIN_MENU_DELETE)
     else:
         if context:
-            await send_clean_message(update, context, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', persistent_menu=True)
+            await send_clean_message(update, context, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', persistent_menu=True, delete_after=MAIN_MENU_DELETE)
 
 async def show_get_number(update: Update, context, user_id, first_name):
     ensure_user(user_id, update.effective_user.username, first_name)
@@ -1382,11 +1359,9 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
                     reply_markup=admin_cancel_keyboard())
                 return
             
-            # Send stock added message to admin
             msg = stock_added_message(country, service, count)
             await update.message.reply_text(msg, parse_mode='HTML')
             
-            # Broadcast to all users with Get Number button (broadcast stays)
             broadcast_msg, broadcast_kb = stock_added_broadcast_with_button(country, service, count)
             users = db_fetch_all("SELECT user_id FROM users")
             for u in users:
@@ -1401,7 +1376,6 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
                 except Exception:
                     continue
             
-            # After upload, return to Stock Management menu
             await send_stock_management_menu(update, context, user_id)
             admin_panel_state[user_id] = "main"
         else:
@@ -1505,7 +1479,6 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         msg = stock_added_message(country, service, count)
         await edit_or_send(query, msg, parse_mode='HTML', context=context, auto_delete=False)
         
-        # Broadcast with Get Number button
         broadcast_msg, broadcast_kb = stock_added_broadcast_with_button(country, service, count)
         users = db_fetch_all("SELECT user_id FROM users")
         for u in users:
@@ -1515,7 +1488,6 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 pass
         
-        # Return to Stock Management
         await send_stock_management_menu(query, context, user_id)
     else:
         await edit_or_send(query, "No valid numbers found in the file.",
@@ -1681,7 +1653,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== STOCK GET NUMBER CALLBACK ====================
 async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle Get Number button from broadcast – broadcast stays, numbers appear as new message"""
     query = update.callback_query
     user_id = query.from_user.id
     if await ban_check(update, context):
@@ -1689,7 +1660,6 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     
     await query.answer("Getting numbers...")
     
-    # Parse country and service from callback data
     parts = query.data.split('|')
     if len(parts) < 3:
         await query.answer("Invalid request.", show_alert=True)
@@ -1697,13 +1667,11 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     country = parts[1]
     service = parts[2]
     
-    # Get numbers from stock
     numbers = get_numbers_from_stock(country, service, 3)
     if not numbers:
         await query.answer("No numbers available right now!", show_alert=True)
         return
     
-    # Delete previous numbers message if exists (but NOT the broadcast)
     old_data = last_activation_data.get(user_id)
     if old_data:
         old_msg_id = old_data[3]
@@ -1721,10 +1689,64 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     db_exec('''UPDATE users SET current_number = ?, current_country = ?, current_service = ?, number_expiry = ?
                WHERE user_id = ?''', (numbers[0], country, service, expiry, user_id))
     
-    # Send numbers as a new message (do NOT delete broadcast)
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
+
+# ==================== /testgroup COMMAND ====================
+async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to send a test OTP to the group in the same format as real OTPs."""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("⛔ Unauthorized. Admin only.")
+        return
+    
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Usage: /testgroup <service> <country>\n"
+            "Example: /testgroup WhatsApp Bangladesh"
+        )
+        return
+    
+    service = args[0]
+    country = " ".join(args[1:])
+    
+    # Generate fake test data
+    test_number = "+8801234567890"
+    test_otp = "123456"
+    test_message = "This is a test OTP message for demonstration."
+    country_code = get_country_code(country) or "BD"
+    
+    entry = {
+        "number": test_number,
+        "otp": test_otp,
+        "service": service,
+        "country_code": country_code,
+        "country": country,
+        "message": test_message,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    try:
+        grp_html, grp_kb = format_group_otp_rich(entry)
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
+        payload = {
+            "chat_id": GROUP_ID,
+            "rich_message": {"html": grp_html},
+            "reply_markup": grp_kb
+        }
+        resp = requests.post(url, json=payload, timeout=10)
+        if resp.status_code == 200:
+            await update.message.reply_text(
+                f"✅ Test OTP sent to group for {service} - {country}.\n"
+                f"📱 Number: {test_number}\n"
+                f"🔑 OTP: {test_otp}"
+            )
+        else:
+            await update.message.reply_text(f"❌ Failed to send. Status: {resp.status_code}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
 
 # ==================== CALLBACK HANDLERS ====================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2985,15 +3007,13 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         service_name = otp_entry.get("service", "Unknown")
         otp_timestamp_str = otp_entry.get("timestamp", now_str)
         
-        # Extract OTP from message using the 30+ format function
         otp_code = extract_otp_from_message(message)
         if not otp_code:
-            otp_code = otp_entry.get("otp", "")  # fallback to direct field
+            otp_code = otp_entry.get("otp", "")
         
         if not number or not otp_code:
             continue
         
-        # If GROUP_ID set, forward to group (with rich formatting)
         if GROUP_ID:
             already_sent = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=0", (number, otp_code))
             if not already_sent:
@@ -3018,7 +3038,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 except Exception as e:
                     print(f"Group Rich message failed: {e}")
         
-        # Send OTP to individual user if number is mapped
         if number in num_map:
             try:
                 otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -3120,6 +3139,9 @@ def main():
     application.add_handler(CommandHandler("service", group_service_command))
     application.add_handler(CommandHandler("setcountry", set_country_command))
     application.add_handler(CommandHandler("setservice", set_service_command))
+    
+    # New /testgroup command
+    application.add_handler(CommandHandler("testgroup", testgroup_command))
 
     application.add_handler(CallbackQueryHandler(service_selection_callback, pattern="^svc_sel\|"))
     application.add_handler(CallbackQueryHandler(country_selection_callback, pattern="^cnt_sel\|"))
