@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final with new emojis, main menu, testgroup)
+# bot.py — SR NUMBER HUB (Final with all requested updates)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -26,7 +26,7 @@ SUPER_ADMIN_IDS = [8744359777]
 AUTO_DELETE_DELAY = 2          # seconds (for normal messages)
 MAIN_MENU_DELETE = 120         # 2 minutes
 
-OTP_GROUP_URL = "https://t.me/NumberFlexOTP"
+OTP_GROUP_URL = "https://t.me/SRotpHub"
 MIN_WITHDRAW = 0.1
 
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
@@ -36,21 +36,24 @@ ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1003716770621
 CHANNEL_URL = "https://t.me/WaCreationHub"
-BOT_URL = "https://t.me/WA_CREATION_BOT"
+BOT_URL = "https://t.me/NumberFlexOTP"
 
-# ==================== EMOJI CONSTANTS (NEW) ====================
+# ==================== EMOJI CONSTANTS ====================
 WELCOME_WAVE = "5199885118214255386"      # 👋
 WELCOME_THINK = "5314563983422798645"     # 🤔
 INBOX_EMOJI = "5472239203590888751"       # 📩
 MONEY_EMOJI = "5805602131176069048"       # 🤑
-HEADER_EMOJI_1 = "6269011248235421795"    # first header emoji
-HEADER_EMOJI_2 = "6204087066595171188"    # second header emoji
-EMOJI_SEPARATOR = "5213333270703387541"   # new separator
 
-# Old separator kept for reference (not used)
-# EMOJI_SEPARATOR_OLD = "5339546996434812675"
+MAIN_MENU_EMOJI = "5438499684270238914"   # for main menu
 
-# Group OTP constants (unchanged)
+HEADER_EMOJI_1 = "6282641460093260838"
+HEADER_EMOJI_2 = "6267315814190290529"
+
+SUPPORT_EMOJI = "6264853036993090338"     # new support emoji
+
+EMOJI_SEPARATOR = "5213333270703387541"
+
+# Group OTP constants
 EMOJI_PREFIX = "4958725487682650920"
 EMOJI_OTP_BUTTON = "6206420230269310869"
 EMOJI_CHANNEL_BUTTON = "6204010762206189094"
@@ -68,7 +71,7 @@ CUSTOM_EMOJIS["MANAGE_API"] = "6206188632747808299"
 CUSTOM_EMOJIS["ADD_API_KEY"] = "6206375377925839184"
 CUSTOM_EMOJIS["REMOVE_API_KEY"] = "6206108815075579644"
 CUSTOM_EMOJIS["LIST_API_KEY"] = "6307686831735444755"
-CUSTOM_EMOJIS["SUPPORT"] = "6266950729085227860"          # new Support emoji
+CUSTOM_EMOJIS["SUPPORT"] = SUPPORT_EMOJI   # updated
 CUSTOM_EMOJIS["SELECT_SERVICE_PREFIX"] = "6206236607532504295"
 CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"] = "5197474438970363734"
 CUSTOM_EMOJIS["SELECT_COUNTRY_PREFIX"] = "5309748255637118475"
@@ -234,6 +237,18 @@ COUNTRIES_DATA = load_countries_db()
 
 def get_country_info(country_name):
     return COUNTRIES_DATA.get(country_name, {"emoji_id": "", "payout": "0.001$", "iso": country_name[:2].upper()})
+
+def get_country_name_by_iso(iso2: str) -> str | None:
+    """Find country name from ISO2 code."""
+    iso2 = iso2.upper()
+    for name, info in COUNTRIES_DATA.items():
+        if info.get("iso", "").upper() == iso2:
+            return name
+    # fallback: try COUNTRY_CODE_MAP
+    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
+        if iso.upper() == iso2:
+            return name
+    return None
 
 # ==================== DEFAULT EMOJIS ====================
 DEFAULT_EMOJIS = {
@@ -654,7 +669,7 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
     else:
         cc_button = InlineKeyboardButton("REMOVE CC", callback_data="toggle_cc",
                                          style=KBS.DANGER,
-                                         icon_custom_emoji_id=safe_icon("4956337889593000947"))
+                                         icon_custom_emoji_id=safe_icon("6267000941547885720"))
     rows.append([cc_button])
 
     rows.append([
@@ -707,8 +722,9 @@ def stock_added_broadcast_with_button(country, service, count):
     ]])
     return msg, kb
 
-# ==================== MAIN MENU / WELCOME ====================
-def welcome_html(user_id, first_name):
+# ==================== MESSAGE BUILDERS ====================
+def start_welcome_html():
+    """Welcome message shown only on /start."""
     wave = emoji_tag(WELCOME_WAVE, "👋")
     think = emoji_tag(WELCOME_THINK, "🤔")
     inbox = emoji_tag(INBOX_EMOJI, "📩")
@@ -718,16 +734,21 @@ def welcome_html(user_id, first_name):
         f'<blockquote>{wave} <b>WELCOME TO OUR 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓</b> {think}</blockquote>'
     )
     sub = f'<b>{inbox} RECEIVE OTP\'S AND START EARNING MONEY {money}</b>'
+    return f'{blockquote}\n{sub}'
 
-    rest = (
-        f'\n\n🚀 Your Premium Platform for Virtual Numbers.\n\n'
+def main_menu_text(user_id: int, first_name: str) -> str:
+    """Main menu message shown when navigating back to main menu."""
+    emoji = emoji_tag(MAIN_MENU_EMOJI, "✨")
+    return (
+        f'{emoji} <b>Main Menu</b>\n\n'
+        f'✨ Welcome to 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓, {first_name}! ✨\n\n'
+        f'🚀 Your Premium Platform for Virtual Numbers.\n\n'
         f'🆔 Your ID: <code>{user_id}</code>\n'
         f'✅ You are a Verified Member!\n\n'
         f'🎮 Tap a button below to navigate.\n\n'
         '━━━━━━━━━━━━━━━━━━━━\n'
         '👨‍💻 Developer: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓'
     )
-    return f'{blockquote}\n{sub}{rest}'
 
 # ==================== AUTO-CLEAN HELPERS ====================
 async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -860,11 +881,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ensure_user(user_id, username, first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await delete_previous_messages(update, context)
-    sent = await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
+    # Show the START welcome message (only the two lines)
+    sent = await update.message.reply_text(start_welcome_html(), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
     db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-    # Main menu auto-deletes after 2 minutes
-    await schedule_delete(context, user_id, sent.message_id, MAIN_MENU_DELETE)
+    # No auto-delete for start welcome (or you can set a longer time if desired)
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -896,11 +917,12 @@ async def show_main_menu(update: Update, user_id, first_name, context: ContextTy
     if hasattr(update, 'effective_user') and update.effective_user:
         username = update.effective_user.username
     ensure_user(user_id, username, first_name)
+    # Main menu message with delete after 120 seconds
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', context=context, persistent_menu=True, delete_after=MAIN_MENU_DELETE)
+        await edit_or_send(update, main_menu_text(user_id, first_name), reply_markup=None, parse_mode='HTML', context=context, persistent_menu=True, delete_after=MAIN_MENU_DELETE)
     else:
         if context:
-            await send_clean_message(update, context, welcome_html(user_id, first_name), reply_markup=None, parse_mode='HTML', persistent_menu=True, delete_after=MAIN_MENU_DELETE)
+            await send_clean_message(update, context, main_menu_text(user_id, first_name), reply_markup=None, parse_mode='HTML', persistent_menu=True, delete_after=MAIN_MENU_DELETE)
 
 async def show_get_number(update: Update, context, user_id, first_name):
     ensure_user(user_id, update.effective_user.username, first_name)
@@ -1709,9 +1731,9 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
 
-# ==================== /testgroup COMMAND (Enhanced) ====================
+# ==================== /testgroup COMMAND (Enhanced with ISO2) ====================
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin command to send a test OTP to the group with realistic number from the given country."""
+    """Admin command to send a test OTP to the group using ISO2 country code."""
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ Unauthorized. Admin only.")
@@ -1720,41 +1742,43 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if len(args) < 2:
         await update.message.reply_text(
-            "Usage: /testgroup <service> <country>\n"
-            "Example: /testgroup WhatsApp Bangladesh"
+            "Usage: /testgroup <service> <iso2>\n"
+            "Example: /testgroup WhatsApp BD"
         )
         return
     
     service = args[0]
-    country = " ".join(args[1:])
+    iso2 = args[1].upper()
     
-    # Get country code from COUNTRIES_DATA or fallback to COUNTRY_CODE_MAP
-    country_info = get_country_info(country)
+    # Find country name from ISO2
+    country_name = get_country_name_by_iso(iso2)
+    if not country_name:
+        await update.message.reply_text(f"❌ Country with ISO2 '{iso2}' not found.")
+        return
+    
+    country_info = get_country_info(country_name)
     country_code = country_info.get("code", "")
     if not country_code:
-        # try to find from COUNTRY_CODE_MAP by country name or iso
-        iso = country_info.get("iso", "")
-        for code, (iso2, flag, name) in COUNTRY_CODE_MAP.items():
-            if iso2.lower() == iso.lower() or country.lower() == name.lower():
+        # fallback to map
+        for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
+            if iso.upper() == iso2:
                 country_code = "+" + code
                 break
     if not country_code:
-        country_code = "+880"  # default fallback
+        country_code = "+880"  # default
     
-    # Generate a random 10-digit number (without country code)
+    # Generate random number
     local_part = ''.join(random.choices('0123456789', k=10))
     test_number = country_code + local_part
-    
     test_otp = ''.join(random.choices('0123456789', k=6))
     test_message = "Your verification code is: " + test_otp
-    country_iso = country_info.get("iso", get_country_code(country) or "??")
     
     entry = {
         "number": test_number,
         "otp": test_otp,
         "service": service,
-        "country_code": country_iso,
-        "country": country,
+        "country_code": iso2,
+        "country": country_name,
         "message": test_message,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
@@ -1770,7 +1794,7 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resp = requests.post(url, json=payload, timeout=10)
         if resp.status_code == 200:
             await update.message.reply_text(
-                f"✅ Test OTP sent to group for {service} - {country}.\n"
+                f"✅ Test OTP sent to group for {service} - {country_name} ({iso2}).\n"
                 f"📱 Number: {test_number}\n"
                 f"🔑 OTP: {test_otp}"
             )
@@ -2224,7 +2248,7 @@ async def exit_admin_callback_query(query, user_id, bot):
     admin_mode.pop(user_id, None)
     admin_panel_state.pop(user_id, None)
     try:
-        await edit_or_send(query, welcome_html(user_id, query.from_user.first_name or "User"),
+        await edit_or_send(query, main_menu_text(user_id, query.from_user.first_name or "User"),
                            reply_markup=None, parse_mode='HTML', context=None, auto_delete=False)
     except Exception:
         await bot.send_message(user_id, "Returned to main menu.", reply_markup=bottom_menu_keyboard(user_id))
