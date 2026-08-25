@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final with short main menu auto‑delete after 120s)
+# bot.py — SR NUMBER HUB (Fixed main menu auto‑delete to 120s)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -26,7 +26,7 @@ SUPER_ADMIN_IDS = [8744359777]
 AUTO_DELETE_DELAY = 2          # seconds (for normal messages)
 MAIN_MENU_DELETE = 120         # 2 minutes
 
-OTP_GROUP_URL = "https://t.me/SRotpHub"
+OTP_GROUP_URL = "https://t.me/NumberFlexOTP"
 MIN_WITHDRAW = 0.1
 
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
@@ -577,8 +577,8 @@ def extract_otp_from_message(message: str) -> str | None:
         r'(?:رمز|التحقق|كلمة المرور|OTP)\s*[:=]\s*(\d{4,6})',
         r'(?:code|vérification|pin|mot de passe)\s*[:=]\s*(\d{4,6})',
         r'(?:Code|Bestätigung|PIN|Sicherheit)\s*[:=]\s*(\d{4,6})',
-        r'(?:your|আপনার|आपका|tu|votre|ihr)\s+(?:otp|code|verification|pin)\s+(?:is|হল|है|es|est|ist)\s+(\d{4,6})',
-        r'(?:the|এই|यह|este|ceci|dies)\s+(?:otp|code|verification|pin)\s+(?:is|হল|है|es|est|ist)\s+(\d{4,6})',
+        r'(?:your|আপনার|आपका|tu|votre|ihr)\s+(?:otp|code|verification|pin)\s+(?:is|হল|হै|es|est|ist)\s+(\d{4,6})',
+        r'(?:the|এই|यह|este|ceci|dies)\s+(?:otp|code|verification|pin)\s+(?:is|হল|হै|es|est|ist)\s+(\d{4,6})',
         r'\[(\d{4,6})\]',
         r'\((\d{4,6})\)',
         r'\b(\d{2,3}[-\s.]?\d{2,3})\b',
@@ -735,9 +735,6 @@ def start_welcome_html():
     )
     sub = f'<b>{inbox} RECEIVE OTP\'S AND START EARNING MONEY {money}</b>'
     return f'{blockquote}\n{sub}'
-
-# OLD main_menu_text is no longer used – we now show only "✨ Main Menu"
-# def main_menu_text(user_id, first_name): ... (removed)
 
 # ==================== AUTO-CLEAN HELPERS ====================
 async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -911,12 +908,15 @@ async def show_main_menu(update: Update, user_id, first_name, context: ContextTy
     short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
     
     if isinstance(update, CallbackQuery):
+        # IMPORTANT: set auto_delete=False so only delete_after (120s) takes effect
         await edit_or_send(update, short_msg, reply_markup=None, parse_mode='HTML',
-                           context=context, persistent_menu=True, delete_after=MAIN_MENU_DELETE)
+                           context=context, persistent_menu=True,
+                           auto_delete=False, delete_after=MAIN_MENU_DELETE)
     else:
         if context:
             await send_clean_message(update, context, short_msg, reply_markup=None, parse_mode='HTML',
-                                     persistent_menu=True, delete_after=MAIN_MENU_DELETE)
+                                     persistent_menu=True,
+                                     auto_delete=False, delete_after=MAIN_MENU_DELETE)
 
 async def show_get_number(update: Update, context, user_id, first_name):
     ensure_user(user_id, update.effective_user.username, first_name)
@@ -2242,10 +2242,11 @@ async def exit_admin_callback_query(query, user_id, bot):
     admin_mode.pop(user_id, None)
     admin_panel_state.pop(user_id, None)
     try:
-        # Send short main menu instead of full text
+        # Send short main menu with auto_delete=False so only 120s deletion works
         short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
         await edit_or_send(query, short_msg, reply_markup=None, parse_mode='HTML',
-                           context=None, persistent_menu=True, delete_after=MAIN_MENU_DELETE)
+                           context=None, persistent_menu=True,
+                           auto_delete=False, delete_after=MAIN_MENU_DELETE)
     except Exception:
         await bot.send_message(user_id, "Main Menu", reply_markup=bottom_menu_keyboard(user_id))
 
