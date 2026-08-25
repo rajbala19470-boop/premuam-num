@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final with all requested updates)
+# bot.py — SR NUMBER HUB (Final with short main menu auto‑delete after 120s)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -36,7 +36,7 @@ ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1003716770621
 CHANNEL_URL = "https://t.me/WaCreationHub"
-BOT_URL = "https://t.me/NumberFlexOTP"
+BOT_URL = "https://t.me/WA_CREATION_BOT"
 
 # ==================== EMOJI CONSTANTS ====================
 WELCOME_WAVE = "5199885118214255386"      # 👋
@@ -736,19 +736,8 @@ def start_welcome_html():
     sub = f'<b>{inbox} RECEIVE OTP\'S AND START EARNING MONEY {money}</b>'
     return f'{blockquote}\n{sub}'
 
-def main_menu_text(user_id: int, first_name: str) -> str:
-    """Main menu message shown when navigating back to main menu."""
-    emoji = emoji_tag(MAIN_MENU_EMOJI, "✨")
-    return (
-        f'{emoji} <b>Main Menu</b>\n\n'
-        f'✨ Welcome to 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓, {first_name}! ✨\n\n'
-        f'🚀 Your Premium Platform for Virtual Numbers.\n\n'
-        f'🆔 Your ID: <code>{user_id}</code>\n'
-        f'✅ You are a Verified Member!\n\n'
-        f'🎮 Tap a button below to navigate.\n\n'
-        '━━━━━━━━━━━━━━━━━━━━\n'
-        '👨‍💻 Developer: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓'
-    )
+# OLD main_menu_text is no longer used – we now show only "✨ Main Menu"
+# def main_menu_text(user_id, first_name): ... (removed)
 
 # ==================== AUTO-CLEAN HELPERS ====================
 async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -885,7 +874,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent = await update.message.reply_text(start_welcome_html(), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
     db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-    # No auto-delete for start welcome (or you can set a longer time if desired)
+    # No auto-delete for start welcome
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -913,16 +902,21 @@ def is_super_admin(user_id):
 
 # ==================== MAIN MENU CALLBACKS ====================
 async def show_main_menu(update: Update, user_id, first_name, context: ContextTypes.DEFAULT_TYPE = None):
+    """Show short '✨ Main Menu' message (auto-delete after 120s)"""
     username = None
     if hasattr(update, 'effective_user') and update.effective_user:
         username = update.effective_user.username
     ensure_user(user_id, username, first_name)
-    # Main menu message with delete after 120 seconds
+    
+    short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
+    
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, main_menu_text(user_id, first_name), reply_markup=None, parse_mode='HTML', context=context, persistent_menu=True, delete_after=MAIN_MENU_DELETE)
+        await edit_or_send(update, short_msg, reply_markup=None, parse_mode='HTML',
+                           context=context, persistent_menu=True, delete_after=MAIN_MENU_DELETE)
     else:
         if context:
-            await send_clean_message(update, context, main_menu_text(user_id, first_name), reply_markup=None, parse_mode='HTML', persistent_menu=True, delete_after=MAIN_MENU_DELETE)
+            await send_clean_message(update, context, short_msg, reply_markup=None, parse_mode='HTML',
+                                     persistent_menu=True, delete_after=MAIN_MENU_DELETE)
 
 async def show_get_number(update: Update, context, user_id, first_name):
     ensure_user(user_id, update.effective_user.username, first_name)
@@ -2248,10 +2242,12 @@ async def exit_admin_callback_query(query, user_id, bot):
     admin_mode.pop(user_id, None)
     admin_panel_state.pop(user_id, None)
     try:
-        await edit_or_send(query, main_menu_text(user_id, query.from_user.first_name or "User"),
-                           reply_markup=None, parse_mode='HTML', context=None, auto_delete=False)
+        # Send short main menu instead of full text
+        short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
+        await edit_or_send(query, short_msg, reply_markup=None, parse_mode='HTML',
+                           context=None, persistent_menu=True, delete_after=MAIN_MENU_DELETE)
     except Exception:
-        await bot.send_message(user_id, "Returned to main menu.", reply_markup=bottom_menu_keyboard(user_id))
+        await bot.send_message(user_id, "Main Menu", reply_markup=bottom_menu_keyboard(user_id))
 
 # ==================== COUNTRY & SERVICE CALLBACKS ====================
 async def country_manager_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
