@@ -1,7 +1,8 @@
-# bot.py — SR NUMBER HUB (Final with all updates: new emojis, new main menu, /testgroup)
+# bot.py — SR NUMBER HUB (Final with new emojis, main menu, testgroup)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
+import random
 
 import requests
 from telegram import (
@@ -22,8 +23,8 @@ from emoji import CUSTOM_EMOJIS
 BOT_TOKEN = "8789807943:AAHae96lsddEva4nvB3LdEyJAS_q_0L06Yc"
 SUPER_ADMIN_IDS = [8744359777]
 
-AUTO_DELETE_DELAY = 2   # seconds (only for plain messages)
-MAIN_MENU_DELETE = 300  # 5 minutes
+AUTO_DELETE_DELAY = 2          # seconds (for normal messages)
+MAIN_MENU_DELETE = 120         # 2 minutes
 
 OTP_GROUP_URL = "https://t.me/NumberFlexOTP"
 MIN_WITHDRAW = 0.1
@@ -37,13 +38,23 @@ GROUP_ID = -1003716770621
 CHANNEL_URL = "https://t.me/WaCreationHub"
 BOT_URL = "https://t.me/WA_CREATION_BOT"
 
-# Emoji constants for group OTP
+# ==================== EMOJI CONSTANTS (NEW) ====================
+WELCOME_WAVE = "5199885118214255386"      # 👋
+WELCOME_THINK = "5314563983422798645"     # 🤔
+INBOX_EMOJI = "5472239203590888751"       # 📩
+MONEY_EMOJI = "5805602131176069048"       # 🤑
+HEADER_EMOJI_1 = "6269011248235421795"    # first header emoji
+HEADER_EMOJI_2 = "6204087066595171188"    # second header emoji
+EMOJI_SEPARATOR = "5213333270703387541"   # new separator
+
+# Old separator kept for reference (not used)
+# EMOJI_SEPARATOR_OLD = "5339546996434812675"
+
+# Group OTP constants (unchanged)
 EMOJI_PREFIX = "4958725487682650920"
-EMOJI_SEPARATOR = "5339546996434812675"
 EMOJI_OTP_BUTTON = "6206420230269310869"
 EMOJI_CHANNEL_BUTTON = "6204010762206189094"
 EMOJI_BOT_BUTTON = "5339267587337370029"
-
 LEFT_ARROW_EMOJI = "6068830682359010545"
 SEND_EMOJI = "5433614747381538714"
 
@@ -57,7 +68,7 @@ CUSTOM_EMOJIS["MANAGE_API"] = "6206188632747808299"
 CUSTOM_EMOJIS["ADD_API_KEY"] = "6206375377925839184"
 CUSTOM_EMOJIS["REMOVE_API_KEY"] = "6206108815075579644"
 CUSTOM_EMOJIS["LIST_API_KEY"] = "6307686831735444755"
-CUSTOM_EMOJIS["SUPPORT"] = "5208573502046610594"   # NEW Support emoji
+CUSTOM_EMOJIS["SUPPORT"] = "6266950729085227860"          # new Support emoji
 CUSTOM_EMOJIS["SELECT_SERVICE_PREFIX"] = "6206236607532504295"
 CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"] = "5197474438970363734"
 CUSTOM_EMOJIS["SELECT_COUNTRY_PREFIX"] = "5309748255637118475"
@@ -72,10 +83,6 @@ CUSTOM_EMOJIS["YES"] = "4956721670690702265"
 CUSTOM_EMOJIS["NO"] = "6206110936789423908"
 CUSTOM_EMOJIS["GET_NUMBER"] = "5303449763406954093"
 CUSTOM_EMOJIS["NEW_NUMBER"] = "5877410604225924969"
-
-# New specific emojis for headers and main menu
-HEADER_EMOJI = "6269135402855044481"
-MAIN_MENU_EMOJI = "5438499684270238914"
 
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
@@ -618,9 +625,10 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
 
     phone_icon_id = "5197474438970363734"
 
-    # NEW HEADER: using HEADER_EMOJI instead of service_emoji_tag(service)
+    # NEW HEADER using HEADER_EMOJI_1 and HEADER_EMOJI_2, country name uppercase
     header = (
-        f'{emoji_tag(HEADER_EMOJI, "⚙️")} <b>THIS IS YOUR</b> <b>{country}</b> '
+        f'{emoji_tag(HEADER_EMOJI_1, "⚙️")} <b>THIS IS YOUR</b> '
+        f'{emoji_tag(HEADER_EMOJI_2, "📱")} <b>{country.upper()}</b> '
         f'{country_flag_emoji(country)} <b>NUMBERS</b> {emoji_tag(phone_icon_id, "📱")}\n\n'
     )
     rows = []
@@ -646,7 +654,7 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
     else:
         cc_button = InlineKeyboardButton("REMOVE CC", callback_data="toggle_cc",
                                          style=KBS.DANGER,
-                                         icon_custom_emoji_id=safe_icon("6206110936789423908"))
+                                         icon_custom_emoji_id=safe_icon("4956337889593000947"))
     rows.append([cc_button])
 
     rows.append([
@@ -699,19 +707,27 @@ def stock_added_broadcast_with_button(country, service, count):
     ]])
     return msg, kb
 
-# ==================== WELCOME / MAIN MENU HTML ====================
+# ==================== MAIN MENU / WELCOME ====================
 def welcome_html(user_id, first_name):
-    # Updated main menu with new emoji and developer name
-    return (
-        f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>\n\n'
-        f'✨ Welcome to 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓, {first_name}! ✨\n\n'
-        f'🚀 Your Premium Platform for Virtual Numbers.\n\n'
+    wave = emoji_tag(WELCOME_WAVE, "👋")
+    think = emoji_tag(WELCOME_THINK, "🤔")
+    inbox = emoji_tag(INBOX_EMOJI, "📩")
+    money = emoji_tag(MONEY_EMOJI, "🤑")
+
+    blockquote = (
+        f'<blockquote>{wave} <b>WELCOME TO OUR 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓</b> {think}</blockquote>'
+    )
+    sub = f'<b>{inbox} RECEIVE OTP\'S AND START EARNING MONEY {money}</b>'
+
+    rest = (
+        f'\n\n🚀 Your Premium Platform for Virtual Numbers.\n\n'
         f'🆔 Your ID: <code>{user_id}</code>\n'
         f'✅ You are a Verified Member!\n\n'
         f'🎮 Tap a button below to navigate.\n\n'
         '━━━━━━━━━━━━━━━━━━━━\n'
         '👨‍💻 Developer: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓'
     )
+    return f'{blockquote}\n{sub}{rest}'
 
 # ==================== AUTO-CLEAN HELPERS ====================
 async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -847,7 +863,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent = await update.message.reply_text(welcome_html(user_id, first_name), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
     db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-    # Auto-delete main menu after 5 minutes
+    # Main menu auto-deletes after 2 minutes
     await schedule_delete(context, user_id, sent.message_id, MAIN_MENU_DELETE)
 
 # ==================== BAN CHECK ====================
@@ -1693,9 +1709,9 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
 
-# ==================== /testgroup COMMAND ====================
+# ==================== /testgroup COMMAND (Enhanced) ====================
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin command to send a test OTP to the group in the same format as real OTPs."""
+    """Admin command to send a test OTP to the group with realistic number from the given country."""
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ Unauthorized. Admin only.")
@@ -1712,17 +1728,32 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     service = args[0]
     country = " ".join(args[1:])
     
-    # Generate fake test data
-    test_number = "+8801234567890"
-    test_otp = "123456"
-    test_message = "This is a test OTP message for demonstration."
-    country_code = get_country_code(country) or "BD"
+    # Get country code from COUNTRIES_DATA or fallback to COUNTRY_CODE_MAP
+    country_info = get_country_info(country)
+    country_code = country_info.get("code", "")
+    if not country_code:
+        # try to find from COUNTRY_CODE_MAP by country name or iso
+        iso = country_info.get("iso", "")
+        for code, (iso2, flag, name) in COUNTRY_CODE_MAP.items():
+            if iso2.lower() == iso.lower() or country.lower() == name.lower():
+                country_code = "+" + code
+                break
+    if not country_code:
+        country_code = "+880"  # default fallback
+    
+    # Generate a random 10-digit number (without country code)
+    local_part = ''.join(random.choices('0123456789', k=10))
+    test_number = country_code + local_part
+    
+    test_otp = ''.join(random.choices('0123456789', k=6))
+    test_message = "Your verification code is: " + test_otp
+    country_iso = country_info.get("iso", get_country_code(country) or "??")
     
     entry = {
         "number": test_number,
         "otp": test_otp,
         "service": service,
-        "country_code": country_code,
+        "country_code": country_iso,
         "country": country,
         "message": test_message,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
