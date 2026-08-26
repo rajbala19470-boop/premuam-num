@@ -3094,6 +3094,12 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
 
 
+# ==================== STOCK MANAGEMENT MENU (WRAPPER) ====================
+async def stock_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    """Wrapper for stock management menu"""
+    await send_stock_management_menu(update, context, user_id)
+
+
 # ==================== DOCUMENT HANDLER (FILE UPLOADS) ====================
 async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.document:
