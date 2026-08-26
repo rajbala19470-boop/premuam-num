@@ -759,11 +759,7 @@ def start_welcome_html():
 # ==================== AUTO-CLEAN HELPERS ====================
 async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    try:
-        if update.message:
-            await update.message.delete()
-    except:
-        pass
+    # Do NOT delete the user's own message (like /start)
     row = db_fetch_one("SELECT last_bot_message_id FROM users WHERE user_id=?", (user_id,))
     if row and row[0]:
         kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
@@ -784,7 +780,7 @@ async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
 
 async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True, persistent_menu: bool = False, delete_after: int = None):
     user_id = update.effective_user.id
-    await delete_previous_messages(update, context)
+    await delete_previous_messages(update, context)  # only bot messages are deleted
 
     # If persistent_menu is True and reply_markup is not an inline keyboard, attach the bottom menu keyboard
     if persistent_menu and not isinstance(reply_markup, InlineKeyboardMarkup):
@@ -888,8 +884,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = update.effective_user.first_name or "User"
     ensure_user(user_id, username, first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
+    # Delete previous bot messages but keep the /start message
     await delete_previous_messages(update, context)
-    # Show the START welcome message with keyboard (persistent_menu=True)
+    # Send welcome with persistent keyboard
     sent = await update.message.reply_text(start_welcome_html(), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
     db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
@@ -1037,7 +1034,6 @@ async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE = None
         user_id = update.effective_user.id
         # No keyboard here – just inline support buttons
         await edit_or_send(update, text, reply_markup=support_keyboard(), context=context, auto_delete=False, persistent_menu=False)
-        # We keep the anchor message (keyboard_message_id) as is – we won't update it
     else:
         if context:
             await send_clean_message(update, context, text, reply_markup=support_keyboard(), persistent_menu=False)
@@ -1045,10 +1041,8 @@ async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE = None
 async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓"
-    # We need to send the support keyboard inline, not the bottom menu
     sent_inline = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=support_keyboard())
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent_inline.message_id, user_id))
-    # Do not update keyboard_message_id – keep the anchor.
 
 # ==================== ADMIN COMMANDS ====================
 async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
