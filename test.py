@@ -39,7 +39,7 @@ GROUP_ID = -1003716770621
 CHANNEL_URL = "https://t.me/WaCreationHub"
 BOT_URL = "https://t.me/WA_CREATION_BOT"
 
-# ==================== EMOJI CONSTANTS ====================
+# ==================== EMOJI CONSTANTS (Your specified IDs) ====================
 WELCOME_WAVE = "5199885118214255386"      # 👋
 WELCOME_THINK = "5314563983422798645"     # 🤔
 INBOX_EMOJI = "5472239203590888751"       # 📩
@@ -62,7 +62,7 @@ EMOJI_BOT_BUTTON = "5339267587337370029"
 LEFT_ARROW_EMOJI = "6068830682359010545"
 SEND_EMOJI = "5433614747381538714"
 
-# ==================== CUSTOM EMOJIS ADDITIONS ====================
+# ==================== CUSTOM EMOJIS ADDITIONS (Your specified IDs) ====================
 CUSTOM_EMOJIS["USER_MANAGER"] = "6307777408300753473"
 CUSTOM_EMOJIS["SEARCH_USER"] = "6206446249181189526"
 CUSTOM_EMOJIS["DOWNLOAD_LIST"] = "6203886371363364022"
@@ -803,7 +803,7 @@ def start_welcome_html():
 # ==================== PERSISTENT KEYBOARD ANCHOR ====================
 async def ensure_keyboard_anchor(context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str = None):
     if text is None:
-        text = "Main Menu"
+        text = f"{emoji_tag(MAIN_MENU_EMOJI, '✨')} <b>Main Menu</b>"
     kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
     if kb_id_row and kb_id_row[0]:
         try:
@@ -947,10 +947,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = update.effective_user.first_name or "User"
     ensure_user(user_id, username, first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
+    # Reset user state
+    admin_mode.pop(user_id, None)
+    admin_panel_state.pop(user_id, None)
+    admin_temp_data.pop(user_id, None)
+    last_activation_data.pop(user_id, None)
+    # Clear any current number assignment
+    db_exec("UPDATE users SET current_number = NULL, current_country = NULL, current_service = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
     await delete_previous_messages(update, context)
     sent = await update.message.reply_text(start_welcome_html(), parse_mode='HTML')
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-    await ensure_keyboard_anchor(context, user_id, "Main Menu")
+    await ensure_keyboard_anchor(context, user_id)
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1113,7 +1120,7 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if user_id in admin_mode:
         admin_mode.pop(user_id, None)
         admin_panel_state.pop(user_id, None)
-        await ensure_keyboard_anchor(context, user_id, "Main Menu")
+        await ensure_keyboard_anchor(context, user_id)
         await update.message.reply_text("Admin mode deactivated!")
     else:
         await update.message.reply_text("You're not in admin mode!")
@@ -2988,15 +2995,15 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     rows = []
     row = []
     for api_id, panel_name, active in apis:
-        status_emoji = emoji_tag(CUSTOM_EMOJIS["API_STATUS_ACTIVE"] if active else CUSTOM_EMOJIS["API_STATUS_INACTIVE"],
-                                 "🟢" if active else "🔴")
+        # Use emoji_tag only for status text, but for button we use plain label + icon
+        status_emoji = "🟢" if active else "🔴"
         label = f"{status_emoji} {panel_name}"
         style = KBS.SUCCESS if active else KBS.DANGER
         btn = InlineKeyboardButton(
             label,
             callback_data=f"api_detail|{api_id}",
             style=style,
-            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_SYSTEM", ""))
+            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_STATUS_ACTIVE" if active else "API_STATUS_INACTIVE", ""))
         )
         row.append(btn)
         if len(row) == 2:
@@ -3040,57 +3047,57 @@ async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, ap
     btns = []
     if config['active']:
         btns.append(InlineKeyboardButton(
-            f"{emoji_tag(CUSTOM_EMOJIS['API_STOP_POLL'], '⏸️')} STOP POLLING",
+            "⏸️ STOP POLLING",
             callback_data=f"api_toggle|{api_id}",
             style=KBS.DANGER,
             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_STOP_POLL", ""))
         ))
     else:
         btns.append(InlineKeyboardButton(
-            f"{emoji_tag(CUSTOM_EMOJIS['API_START_POLL'], '▶️')} START POLLING",
+            "▶️ START POLLING",
             callback_data=f"api_toggle|{api_id}",
             style=KBS.SUCCESS,
             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_START_POLL", ""))
         ))
 
     btns.append(InlineKeyboardButton(
-        f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} EDIT",
+        "✏️ EDIT",
         callback_data=f"api_edit|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", ""))
     ))
     btns.append(InlineKeyboardButton(
-        f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} TEST",
+        "🧪 TEST",
         callback_data=f"api_test|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_TEST", ""))
     ))
     btns.append(InlineKeyboardButton(
-        f"{emoji_tag(CUSTOM_EMOJIS['API_STATS'], '📊')} STATS",
+        "📊 STATS",
         callback_data=f"api_stats|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_STATS", ""))
     ))
     btns.append(InlineKeyboardButton(
-        f"{emoji_tag(CUSTOM_EMOJIS['API_LOGS'], '📜')} LOGS",
+        "📜 LOGS",
         callback_data=f"api_logs|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_LOGS", ""))
     ))
     btns.append(InlineKeyboardButton(
-        f"{emoji_tag(CUSTOM_EMOJIS['DELETE'], '🗑️')} DELETE",
+        "🗑️ DELETE",
         callback_data=f"api_delete|{api_id}",
         style=KBS.DANGER,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", ""))
     ))
     btns.append(InlineKeyboardButton(
-        f"{emoji_tag(CUSTOM_EMOJIS['API_FORCE_POLL'], '🔄')} FORCE POLL",
+        "🔄 FORCE POLL",
         callback_data=f"api_force|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_FORCE_POLL", ""))
     ))
     btns.append(InlineKeyboardButton(
-        f"{emoji_tag(CUSTOM_EMOJIS['BACK'], '🔙')} BACK TO LIST",
+        "🔙 BACK TO LIST",
         callback_data="api_system",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))
@@ -3159,16 +3166,17 @@ async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_
     for label, emoji_key, field, fallback in fields:
         value = config.get(field, "")
         display_value = str(value)[:20] + "..." if len(str(value)) > 20 else value
-        btn_text = f"{emoji_tag(CUSTOM_EMOJIS.get(emoji_key, ''), fallback)} {label}: <code>{display_value}</code>"
+        btn_text = f"{fallback} {label}: <code>{display_value}</code>"
         rows.append([InlineKeyboardButton(
             btn_text,
             callback_data=f"api_edit_field|{api_id}|{field}",
             style=KBS.PRIMARY,
-            parse_mode='HTML'
+            parse_mode='HTML',
+            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get(emoji_key, ""))
         )])
 
     rows.append([InlineKeyboardButton(
-        f"{emoji_tag(CUSTOM_EMOJIS['BACK'], '🔙')} BACK TO DETAIL",
+        "🔙 BACK TO DETAIL",
         callback_data=f"api_detail|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))
@@ -3484,6 +3492,25 @@ async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     await ensure_keyboard_anchor(context, user_id)
 
 # ---- Enhanced ADD API continuation (via text_handler) ----
+# Now with example for each step
+STEP_EXAMPLES = {
+    "panel_name": "e.g., MyProvider",
+    "base_url": "e.g., https://api.myprovider.com",
+    "endpoint": "e.g., /get_otps",
+    "token": "e.g., your_api_token_here",
+    "method": "e.g., GET or POST",
+    "interval_sec": "e.g., 30 (minimum 10 seconds)",
+    "response_type": "e.g., json or text",
+    "otp_list_path": "e.g., data.otps or root",
+    "number_path": "e.g., number or phone",
+    "message_path": "e.g., message or sms",
+    "country_path": "e.g., country or country_code",
+    "service_path": "e.g., service or app",
+    "timestamp_path": "e.g., timestamp or created_at",
+    "success_path": "e.g., status or success",
+    "success_value": "e.g., success or true",
+}
+
 async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
@@ -3570,16 +3597,19 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             await ensure_keyboard_anchor(context, user_id)
             return True
 
-        # Next step
-        admin_panel_state[user_id] = next_state
+        # Next step – show example
         step_num = int(next_state.split('_')[-1]) if next_state.split('_')[-1].isdigit() else 13
         total_steps = 13
+        example = STEP_EXAMPLES.get(field, "")
+        example_block = f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b> : {example}</blockquote>" if example else ""
         await update.message.reply_text(
             f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step {step_num}/{total_steps}</b>\n\n"
             f"Send the <b>{label}</b>:\n"
-            f"Current value: <code>{data.get(field, '')}</code>",
+            f"Current value: <code>{data.get(field, '')}</code>\n"
+            f"{example_block}",
             parse_mode='HTML'
         )
+        admin_panel_state[user_id] = next_state
         admin_temp_data[user_id] = data
         return True
 
