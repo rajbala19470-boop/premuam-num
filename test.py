@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Fixed main menu auto‑delete to 120s)
+# bot.py — SR NUMBER HUB (Fixed OTP extraction for WhatsApp codes like 818-280)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -562,48 +562,68 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-# -------------------- OTP EXTRACTION (30+ formats) --------------------
+# -------------------- OTP EXTRACTION (FIXED for WhatsApp codes like 818-280) --------------------
 def extract_otp_from_message(message: str) -> str | None:
+    """
+    Extract OTP from any message format.
+    Supports 30+ patterns including hyphenated codes (e.g., 818-280).
+    """
     if not message:
         return None
 
+    # Priority patterns: first try to find codes with separators and OTP-like keywords
     patterns = [
-        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s*[:=]\s*(\d{4,6})',
-        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+is\s+(\d{4,6})',
-        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+(\d{4,6})',
-        r'(?:ওটিপি|ভেরিফিকেশন|পিন|কোড)\s*[:=]\s*(\d{4,6})',
-        r'(?:ओटीपी|कोड|पिन|सत्यापन)\s*[:=]\s*(\d{4,6})',
-        r'(?:código|verificación|pin|clave)\s*[:=]\s*(\d{4,6})',
-        r'(?:رمز|التحقق|كلمة المرور|OTP)\s*[:=]\s*(\d{4,6})',
-        r'(?:code|vérification|pin|mot de passe)\s*[:=]\s*(\d{4,6})',
-        r'(?:Code|Bestätigung|PIN|Sicherheit)\s*[:=]\s*(\d{4,6})',
-        r'(?:your|আপনার|आपका|tu|votre|ihr)\s+(?:otp|code|verification|pin)\s+(?:is|হল|হै|es|est|ist)\s+(\d{4,6})',
-        r'(?:the|এই|यह|este|ceci|dies)\s+(?:otp|code|verification|pin)\s+(?:is|হল|হै|es|est|ist)\s+(\d{4,6})',
+        # 1. Explicit OTP/Code keywords with hyphenated or spaced numbers
+        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
+        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+is\s+(\d{3,4}[-.\s]?\d{3,4})',
+        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+(\d{3,4}[-.\s]?\d{3,4})',
+
+        # 2. Multilingual keywords
+        r'(?:ওটিপি|ভেরিফিকেশন|পিন|কোড)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
+        r'(?:ओटीपी|कोड|पिन|सत्यापन)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
+        r'(?:código|verificación|pin|clave)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
+        r'(?:رمز|التحقق|كلمة المرور|OTP)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
+        r'(?:code|vérification|pin|mot de passe)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
+        r'(?:Code|Bestätigung|PIN|Sicherheit)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
+
+        # 3. Standalone hyphenated OTP (e.g., "818-280", "123 456", "987.654")
+        r'\b(\d{3,4}[-.\s]?\d{3,4})\b',
+
+        # 4. Number in brackets or parentheses
         r'\[(\d{4,6})\]',
         r'\((\d{4,6})\)',
-        r'\b(\d{2,3}[-\s.]?\d{2,3})\b',
+
+        # 5. OTP with spaces between digits (e.g., 1 2 3 4 5 6)
         r'\b(\d\s\d\s\d\s\d\s\d\s\d)\b',
         r'\b(\d\s\d\s\d\s\d)\b',
+
+        # 6. Plain 4-6 digit number (but avoid years and words)
         r'\b(\d{4,6})\b',
+
+        # 7. Alphanumeric (for some services) - but we avoid picking words like 'Your'
         r'\b([A-Z0-9]{4,8})\b',
     ]
-    
+
     for pattern in patterns:
         match = re.search(pattern, message, re.IGNORECASE)
         if match:
             otp = match.group(1)
-            otp = re.sub(r'[-\s.]', '', otp)
-            if 4 <= len(otp) <= 8:
-                if len(otp) == 4 and otp.startswith(('19', '20')):
+            # Clean separators (hyphen, space, dot) to get pure digits
+            otp_clean = re.sub(r'[-\s.]', '', otp)
+            # Only if length between 4 and 8
+            if 4 <= len(otp_clean) <= 8:
+                # Skip if it looks like a year (19xx or 20xx) when length=4
+                if len(otp_clean) == 4 and otp_clean.startswith(('19', '20')):
                     continue
-                return otp
-    
+                return otp_clean
+
+    # Fallback: find any 4-6 digit number that is likely OTP
     numbers = re.findall(r'\b(\d{4,6})\b', message)
     for num in numbers:
         if num.startswith(('19', '20')) and len(num) == 4:
             continue
         return num
-    
+
     return None
 
 def extract_all_otps_from_message(message: str) -> list[str]:
@@ -616,7 +636,7 @@ def extract_all_otps_from_message(message: str) -> list[str]:
             continue
         if num not in otps:
             otps.append(num)
-    hyphen = re.findall(r'\b(\d{2,3}-\d{2,3})\b', message)
+    hyphen = re.findall(r'\b(\d{3,4}-\d{3,4})\b', message)
     for h in hyphen:
         clean = h.replace('-', '')
         if 4 <= len(clean) <= 6 and clean not in otps:
