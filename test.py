@@ -143,6 +143,10 @@ CUSTOM_EMOJIS["DEFAULT_FLAG"] = "5188540541922480562"
 CUSTOM_EMOJIS["DEFAULT_SERVICE"] = "5465590345108589516"
 CUSTOM_EMOJIS["JOIN_OTP_GROUP"] = "6204010762206189094"
 
+# Custom emoji IDs for LIST API format (user provided)
+CUSTOM_EMOJIS["API_LIST_ICON"] = "5411225014148014586"
+CUSTOM_EMOJIS["API_LIST_INTERVAL_ICON"] = "6235253239080555488"
+
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
 os.makedirs(DB_DIR, exist_ok=True)
@@ -417,13 +421,12 @@ def countries_for_service_keyboard(service: str) -> InlineKeyboardMarkup:
         info = get_country_info(name)
         flag_eid = info.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
         payout = info.get("payout", "0.001$")
-        # Use plain text for country name and flag emoji (normal unicode) – flag is allowed
         label = f"{name} — {payout} — ({stock})"
         rows.append([InlineKeyboardButton(
             label,
             callback_data=f"cnt_sel|{name}|{service}",
             style=KBS.SUCCESS,
-            icon_custom_emoji_id=safe_icon(flag_eid)  # premium emoji for flag icon (if available)
+            icon_custom_emoji_id=safe_icon(flag_eid)
         )])
     rows.append([InlineKeyboardButton("Back to Services", callback_data="menu_get_number", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
@@ -2821,6 +2824,7 @@ async def poll_single_api(api_id: int):
                                 country = get_country_from_number(otp.get('number', ''))
                                 if country:
                                     otp['country'] = country
+                        # Send OTPs asynchronously without blocking
                         await process_otps(otps, bot=application.bot)
                         db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
                                 (len(otps), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
@@ -2860,7 +2864,7 @@ async def start_all_polling():
     for (api_id,) in apis:
         await start_polling_for_api(api_id)
 
-# ---- API SYSTEM Grid ----
+# ---- API SYSTEM Grid (no normal emoji, only premium icons) ----
 async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
@@ -2871,8 +2875,6 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     if not apis:
         text = f"{emoji_tag(CUSTOM_EMOJIS['API_SYSTEM'], '🖥️')} No APIs configured yet."
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Add API", callback_data="api_add", style=KBS.SUCCESS,
-                                  icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))],
             [InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
                                   icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
         ])
@@ -2882,14 +2884,14 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     rows = []
     row = []
     for api_id, panel_name, active in apis:
-        status_emoji = "🟢" if active else "🔴"
-        label = f"{status_emoji} {panel_name}"
+        # No status emoji in text, just panel name, icon will show status via icon_custom_emoji_id
         style = KBS.SUCCESS if active else KBS.DANGER
+        icon_id = CUSTOM_EMOJIS.get("API_STATUS_ACTIVE" if active else "API_STATUS_INACTIVE", "")
         btn = InlineKeyboardButton(
-            label,
+            panel_name,
             callback_data=f"api_detail|{api_id}",
             style=style,
-            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_STATUS_ACTIVE" if active else "API_STATUS_INACTIVE", ""))
+            icon_custom_emoji_id=safe_icon(icon_id)
         )
         row.append(btn)
         if len(row) == 2:
@@ -2898,10 +2900,6 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     if row:
         rows.append(row)
 
-    rows.append([
-        InlineKeyboardButton("Add API", callback_data="api_add", style=KBS.SUCCESS,
-                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))
-    ])
     rows.append([
         InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))
@@ -3017,7 +3015,7 @@ async def api_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await api_detail_page(update, context, api_id, user_id)
 
-# ---- Edit Menu ----
+# ---- Edit Menu (fixed: no Unicode emojis, no <code> tags, grouped) ----
 async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
@@ -3029,43 +3027,48 @@ async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_
 
     admin_panel_state[user_id] = f"api_edit_{api_id}"
 
+    # Group fields: important ones with SUCCESS, others PRIMARY
     fields = [
-        ("NAME", "API_FIELD_NAME", "panel_name", "📛"),
-        ("BASE URL", "API_FIELD_URL", "base_url", "🌐"),
-        ("ENDPOINT", "API_FIELD_ENDPOINT", "endpoint", "📍"),
-        ("TOKEN", "API_FIELD_TOKEN", "token", "🔑"),
-        ("METHOD", "API_FIELD_METHOD", "method", "📩"),
-        ("INTERVAL", "API_FIELD_INTERVAL", "interval_sec", "⏱️"),
-        ("MAX RECORDS", "API_FIELD_RECORDS", "max_records", "📊"),
-        ("RETRY COUNT", "API_FIELD_RETRY", "retry_count", "🔄"),
-        ("OTP LIST PATH", "API_FIELD_OTP_PATH", "otp_list_path", "📦"),
-        ("NUMBER PATH", "API_FIELD_NUMBER", "number_path", "📱"),
-        ("MESSAGE PATH", "API_FIELD_MESSAGE", "message_path", "💬"),
-        ("COUNTRY PATH", "API_FIELD_COUNTRY", "country_path", "🌍"),
-        ("SERVICE PATH", "API_FIELD_SERVICE", "service_path", "🔧"),
-        ("TIMESTAMP PATH", "API_FIELD_TIMESTAMP", "timestamp_path", "🕐"),
-        ("SUCCESS PATH", "API_FIELD_SUCCESS_PATH", "success_path", "✅"),
-        ("SUCCESS VALUE", "API_FIELD_SUCCESS_VALUE", "success_value", "🎯"),
+        ("NAME", "API_FIELD_NAME", "panel_name", KBS.SUCCESS),
+        ("BASE URL", "API_FIELD_URL", "base_url", KBS.SUCCESS),
+        ("ENDPOINT", "API_FIELD_ENDPOINT", "endpoint", KBS.SUCCESS),
+        ("TOKEN", "API_FIELD_TOKEN", "token", KBS.SUCCESS),
+        ("METHOD", "API_FIELD_METHOD", "method", KBS.SUCCESS),
+        ("INTERVAL", "API_FIELD_INTERVAL", "interval_sec", KBS.SUCCESS),
+        ("MAX RECORDS", "API_FIELD_RECORDS", "max_records", KBS.PRIMARY),
+        ("RETRY COUNT", "API_FIELD_RETRY", "retry_count", KBS.PRIMARY),
+        ("OTP LIST PATH", "API_FIELD_OTP_PATH", "otp_list_path", KBS.PRIMARY),
+        ("NUMBER PATH", "API_FIELD_NUMBER", "number_path", KBS.PRIMARY),
+        ("MESSAGE PATH", "API_FIELD_MESSAGE", "message_path", KBS.PRIMARY),
+        ("COUNTRY PATH", "API_FIELD_COUNTRY", "country_path", KBS.PRIMARY),
+        ("SERVICE PATH", "API_FIELD_SERVICE", "service_path", KBS.PRIMARY),
+        ("TIMESTAMP PATH", "API_FIELD_TIMESTAMP", "timestamp_path", KBS.PRIMARY),
+        ("SUCCESS PATH", "API_FIELD_SUCCESS_PATH", "success_path", KBS.PRIMARY),
+        ("SUCCESS VALUE", "API_FIELD_SUCCESS_VALUE", "success_value", KBS.PRIMARY),
     ]
 
     rows = []
-    for label, emoji_key, field, fallback in fields:
+    for label, emoji_key, field, style in fields:
         value = config.get(field, "")
-        display_value = str(value)[:20] + "..." if len(str(value)) > 20 else value
-        # No parse_mode in button
+        # Show just the value (no <code> tags)
+        display_value = str(value)[:30] + "..." if len(str(value)) > 30 else value
+        # No emoji in text, only icon
         rows.append([InlineKeyboardButton(
-            f"{fallback} {label}: <code>{display_value}</code>",
+            f"{label}: {display_value}",
             callback_data=f"api_edit_field|{api_id}|{field}",
-            style=KBS.PRIMARY,
+            style=style,
             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get(emoji_key, ""))
         )])
 
-    rows.append([InlineKeyboardButton(
-        "BACK TO DETAIL",
-        callback_data=f"api_detail|{api_id}",
-        style=KBS.PRIMARY,
-        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))
-    )])
+    # BACK TO DETAIL - DANGER
+    rows.append([
+        InlineKeyboardButton(
+            "BACK TO DETAIL",
+            callback_data=f"api_detail|{api_id}",
+            style=KBS.DANGER,
+            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))
+        )
+    ])
 
     text = f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} <b>Edit Configuration: {config['panel_name']}</b>\n\nSelect a field to edit:"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
@@ -3346,7 +3349,7 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML'
     )
 
-# ---- Enhanced Manage API Menu ----
+# ---- Enhanced Manage API Menu (removed ADD and REMOVE buttons) ----
 async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
@@ -3354,12 +3357,8 @@ async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         return
     admin_panel_state[user_id] = "manage_api"
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("ADD API", callback_data="api_add", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))],
         [InlineKeyboardButton("LIST API", callback_data="api_list", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("LIST_API_KEY", "")))],
-        [InlineKeyboardButton("REMOVE API", callback_data="api_remove", style=KBS.DANGER,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("REMOVE_API_KEY", "")))],
         [InlineKeyboardButton("API SYSTEM", callback_data="api_system", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_SYSTEM", "")))],
         [InlineKeyboardButton("Back", callback_data="admin_back", style=KBS.DANGER,
@@ -3367,155 +3366,33 @@ async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     ])
     await reply_or_edit(update, "🔧 MANAGE API\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
 
-# ---- Enhanced ADD API Wizard (10 steps) ----
-STEP_ORDER = [
-    "api_add_name",
-    "api_add_base_url",
-    "api_add_endpoint",
-    "api_add_token",
-    "api_add_interval",
-    "api_add_number_path",
-    "api_add_message_path",
-    "api_add_timestamp_path",
-    "api_add_service_path",
-    "api_add_confirm"
-]
-
-STEP_EMOJIS = {
-    "panel_name": "📛",
-    "base_url": "🌐",
-    "endpoint": "📍",
-    "token": "🔑",
-    "interval_sec": "⏱️",
-    "number_path": "📱",
-    "message_path": "💬",
-    "timestamp_path": "🕐",
-    "service_path": "🔧",
-}
-
-STEP_EXAMPLES = {
-    "panel_name": "e.g., MyProvider",
-    "base_url": "e.g., http://147.135.212.197",
-    "endpoint": "e.g., /crapi/had/viewstats?token={TOKEN}&records=200",
-    "token": "e.g., QlFSRkpBUzRkbFJJRUFikHRTb3F3f2aDRENkU31dY5QdA==",
-    "interval_sec": "e.g., 30 (minimum 1 second)",
-    "number_path": "e.g., phone or num",
-    "message_path": "e.g., sms or message",
-    "timestamp_path": "e.g., clock or time_stamp",
-    "service_path": "e.g., cli or service",
-}
-
-async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+# ---- Enhanced LIST API (with custom format) ----
+async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
-    admin_temp_data[user_id] = {}
-    admin_panel_state[user_id] = "api_add_name"
-    await reply_or_edit(update,
-        f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step 1/{len(STEP_ORDER)}</b>\n\n"
-        f"Send the <b>Panel Name</b> for this API (e.g., <code>MyProvider</code>):\n"
-        f"<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b> : e.g., MyProvider</blockquote>",
-        reply_markup=admin_cancel_keyboard(),
-        parse_mode='HTML',
-        context=context,
-        auto_delete=False)
+    apis = db_fetch_all("SELECT id, panel_name, token, interval_sec FROM api_keys ORDER BY id")
+    if not apis:
+        text = "📭 No APIs configured."
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
+                                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
+        await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False)
+        return
 
-async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = admin_panel_state.get(user_id)
-    if not state or not state.startswith("api_add_"):
-        return False
-    text = update.message.text.strip()
-    if text == "/cancel":
-        admin_temp_data.pop(user_id, None)
-        admin_panel_state[user_id] = "main"
-        await update.message.reply_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
-        return True
+    lines = []
+    for api_id, panel_name, token, interval in apis:
+        token_first7 = token[:7] if token else "N/A"
+        # Use premium emoji icons from CUSTOM_EMOJIS
+        panel_icon = CUSTOM_EMOJIS.get("API_LIST_ICON", "5411225014148014586")
+        interval_icon = CUSTOM_EMOJIS.get("API_LIST_INTERVAL_ICON", "6235253239080555488")
+        # Format: {icon1} {panel_name} | {token_first7} | {interval}s {icon2}
+        line = f"{emoji_tag(panel_icon, '📌')} <b>{panel_name}</b> | <code>{token_first7}</code> | <code>{interval}s</code> {emoji_tag(interval_icon, '⏱️')}"
+        lines.append(line)
 
-    data = admin_temp_data.get(user_id, {})
-    step_messages = {
-        "api_add_name": ("Panel Name", "panel_name", "api_add_base_url"),
-        "api_add_base_url": ("Base URL", "base_url", "api_add_endpoint"),
-        "api_add_endpoint": ("Endpoint", "endpoint", "api_add_token"),
-        "api_add_token": ("Token", "token", "api_add_interval"),
-        "api_add_interval": ("Interval (seconds, >=1)", "interval_sec", "api_add_number_path"),
-        "api_add_number_path": ("Number Field Path (where to find number in JSON)", "number_path", "api_add_message_path"),
-        "api_add_message_path": ("Message Field Path (where to find full_sms in JSON)", "message_path", "api_add_timestamp_path"),
-        "api_add_timestamp_path": ("Timestamp Field Path (where to find time in JSON)", "timestamp_path", "api_add_service_path"),
-        "api_add_service_path": ("Service Field Path (where to find service/cli in JSON)", "service_path", "api_add_confirm"),
-        "api_add_confirm": ("", "", "api_add_finish"),
-    }
-
-    if state in step_messages:
-        label, field, next_state = step_messages[state]
-        if field:  # if it's a data field, store and validate
-            emoji = STEP_EMOJIS.get(field, "📌")
-            example = STEP_EXAMPLES.get(field, "")
-            # Validate and store
-            if field == "interval_sec":
-                try:
-                    val = int(text)
-                    if val < 1:
-                        await update.message.reply_text("⏱️ Interval must be at least 1 second. Try again.")
-                        return True
-                    data[field] = val
-                except ValueError:
-                    await update.message.reply_text("❌ Please enter a valid number.")
-                    return True
-            else:
-                if not text and field not in ["number_path", "message_path", "timestamp_path", "service_path"]:
-                    await update.message.reply_text("❌ This field cannot be empty.")
-                    return True
-                data[field] = text
-
-            if next_state == "api_add_confirm":
-                # Show inline confirmation instead of text reply
-                confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
-                confirm_text += f"Panel Name: <code>{data.get('panel_name','')}</code>\n"
-                confirm_text += f"Base URL: <code>{data.get('base_url','')}</code>\n"
-                confirm_text += f"Endpoint: <code>{data.get('endpoint','')}</code>\n"
-                confirm_text += f"Token: <code>{data.get('token','')}</code>\n"
-                confirm_text += f"Interval: <code>{data.get('interval_sec','')} seconds</code>\n"
-                confirm_text += f"Number Path: <code>{data.get('number_path','number')}</code>\n"
-                confirm_text += f"Message Path: <code>{data.get('message_path','message')}</code>\n"
-                confirm_text += f"Timestamp Path: <code>{data.get('timestamp_path','timestamp')}</code>\n"
-                confirm_text += f"Service Path: <code>{data.get('service_path','service')}</code>\n\n"
-                confirm_text += "Is all correct?"
-                kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ YES ADD", callback_data=f"api_add_confirm_yes|{user_id}", style=KBS.SUCCESS,
-                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "")))],
-                    [InlineKeyboardButton("❌ NO CANCEL", callback_data=f"api_add_confirm_no|{user_id}", style=KBS.DANGER,
-                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "")))]
-                ])
-                # Store data in admin_temp_data for later use
-                admin_temp_data[user_id] = data
-                admin_temp_data[user_id]["confirm_step"] = True
-                # Send the confirmation message with inline keyboard
-                await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
-                return True
-
-            # next step
-            admin_panel_state[user_id] = next_state
-            admin_temp_data[user_id] = data
-            # show next step
-            step_num = STEP_ORDER.index(next_state) + 1 if next_state in STEP_ORDER else len(STEP_ORDER)
-            total_steps = len(STEP_ORDER)
-            next_label, next_field, _ = step_messages.get(next_state, ("", "", ""))
-            if next_field:
-                ex = STEP_EXAMPLES.get(next_field, "")
-                example_block = f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b> : {ex}</blockquote>" if ex else ""
-                await update.message.reply_text(
-                    f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step {step_num}/{total_steps}</b>\n\n"
-                    f"Send the <b>{next_label}</b>:\n"
-                    f"Current value: <code>{data.get(next_field, '')}</code>\n"
-                    f"{example_block}",
-                    parse_mode='HTML'
-                )
-            else:
-                await update.message.reply_text("Moving to next step...")
-            return True
-
-    return False
+    text = f"{emoji_tag(CUSTOM_EMOJIS['LIST_API_KEY'], '📋')} <b>API LIST</b>\n\n" + "\n".join(lines)
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
+                                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
+    await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 # ---- API ADD Confirm Callbacks ----
 async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3561,7 +3438,7 @@ async def api_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=admin_panel_keyboard()
     )
 
-# ---- Enhanced Remove API ----
+# ---- Enhanced Remove API (still needed for internal use, but removed from menu) ----
 async def api_remove_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
@@ -3592,24 +3469,6 @@ async def api_remove_execute(update: Update, context: ContextTypes.DEFAULT_TYPE)
     db_exec("DELETE FROM api_logs WHERE api_id = ?", (api_id,))
     await query.answer("✅ API removed.")
     await api_remove_list(update, context, user_id)
-
-# ---- Enhanced List API ----
-async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    if not is_admin(user_id):
-        await update.answer("Admin only!", show_alert=True)
-        return
-    apis = db_fetch_all("SELECT id, panel_name, active, interval_sec, total_otps FROM api_keys ORDER BY id")
-    if not apis:
-        text = "📭 No APIs configured."
-    else:
-        lines = []
-        for api_id, name, active, interval, total in apis:
-            status = "🟢 Active" if active else "🔴 Inactive"
-            lines.append(f"• {name} (ID: {api_id}) – {status} | Interval: {interval}s | Total OTPs: {total}")
-        text = "\n".join(lines)
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
-                                                      icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
-    await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False)
 
 # ---- Wrappers for new API callbacks ----
 async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3936,7 +3795,7 @@ def format_group_otp_rich(entry):
     }
     return html, keyboard
 
-# ==================== OTP PROCESSING (with extraction) ====================
+# ==================== OTP PROCESSING (with extraction, async sends) ====================
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
@@ -3962,6 +3821,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         else:
             print("❌ process_otps: No bot instance!")
             return
+    
     now = datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     active_rows = db_fetch_all(
@@ -3972,13 +3832,23 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         clean = num.replace('+', '')
         num_map.setdefault(clean, []).append((uid, country, assigned))
     
+    # Prepare send tasks
+    send_tasks = []
+    semaphore = asyncio.Semaphore(20)  # limit concurrent sends
+
+    async def safe_send_message(chat_id, text, reply_markup=None, parse_mode='HTML'):
+        async with semaphore:
+            try:
+                await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+            except Exception as e:
+                print(f"Failed to send to {chat_id}: {e}")
+
     for otp_entry in otps_list:
         number = otp_entry.get("number", "")
         message = otp_entry.get("message", "")
         service_name = otp_entry.get("service", "Unknown")
         otp_timestamp_str = otp_entry.get("timestamp", now_str)
         
-        # if country not present, try to get from number
         if not otp_entry.get('country'):
             country = get_country_from_number(number)
             if country:
@@ -3991,6 +3861,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         if not number or not otp_code:
             continue
         
+        # Send to group (non-blocking)
         if GROUP_ID:
             already_sent = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=0", (number, otp_code))
             if not already_sent:
@@ -4011,10 +3882,13 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                         "rich_message": {"html": grp_html},
                         "reply_markup": grp_kb
                     }
-                    requests.post(url, json=payload, timeout=10)
+                    # Use aiohttp for non-blocking
+                    async with aiohttp.ClientSession() as session:
+                        await session.post(url, json=payload, timeout=10)
                 except Exception as e:
                     print(f"Group Rich message failed: {e}")
         
+        # Send to users
         if number in num_map:
             try:
                 otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -4057,10 +3931,12 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     InlineKeyboardButton(text=otp_code, copy_text=CopyTextButton(text=otp_code),
                                          style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon("5330115548900501467"))
                 ]])
-                try:
-                    await bot.send_message(uid, header, reply_markup=button, parse_mode='HTML')
-                except Exception as e:
-                    print(f"DM OTP failed for {uid}: {e}")
+                send_tasks.append(safe_send_message(uid, header, button))
+    
+    # Send all messages concurrently
+    if send_tasks:
+        await asyncio.gather(*send_tasks)
+    
     save_user_data_json()
 
 # ==================== GENERIC TEXT HANDLER ====================
@@ -4196,7 +4072,7 @@ def main():
     application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))
     application.add_handler(CallbackQueryHandler(api_add_confirm_yes, pattern=r"^api_add_confirm_yes\|"))
     application.add_handler(CallbackQueryHandler(api_add_confirm_no, pattern=r"^api_add_confirm_no\|"))
-    application.add_handler(CallbackQueryHandler(api_remove_list_wrapper, pattern="^api_remove$"))
+    application.add_handler(CallbackQueryHandler(api_remove_list_wrapper, pattern="^api_remove$"))  # kept for internal use
     application.add_handler(CallbackQueryHandler(api_remove_execute, pattern=r"^api_remove_do\|"))
     application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
     application.add_handler(CallbackQueryHandler(api_system_grid_wrapper, pattern="^api_system$"))
