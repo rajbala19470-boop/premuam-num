@@ -1,4 +1,4 @@
-# bot.py — SR NUMBER HUB (Final – everything included, no external emoji.py needed)
+# bot.py — SR NUMBER HUB (Persistent Reply Keyboard – Menu Button always works)
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -19,26 +19,19 @@ from telegram.error import BadRequest
 
 # ==================== EMBEDDED CUSTOM EMOJIS ====================
 CUSTOM_EMOJIS = {
-    # Main menu / Bottom buttons
     "GET_NUMBER":        "5303449763406954093",
     "LIVE_STOCK":        "4956250031741993892",
-    "SUPPORT":           "6264853036993090338",   # updated
+    "SUPPORT":           "6264853036993090338",
     "ADMIN":             "4958725487682650920",
-
-    # Number actions
     "NEW_NUMBER":        "5877410604225924969",
     "CHANGE_COUNTRY":    "5188381825701021648",
     "JOIN_OTP_GROUP":    "5330100898767054648",
     "HOME":              "5350404270032166927",
     "COPY_NUMBER":       "6204104220694550861",
-
-    # Support / Join
     "CONTACT_SUPPORT":   "5260553279321944543",
     "VERIFY":            "6206185428702206246",
     "JOIN_CHANNEL":      "5415722549281561774",
     "CANCEL":            "6206396878532121864",
-
-    # Admin Panel
     "STATS":             "6206343625232619150",
     "UPLOAD":            "5445355530111437729",
     "DELETE":            "4958534924278694938",
@@ -49,14 +42,10 @@ CUSTOM_EMOJIS = {
     "EXIT":              "6206110936789423908",
     "BACK":              "5888484185261216745",
     "REFRESH":           "6005843436479975944",
-
-    # Stock Management
     "STOCK_MANAGER":     "6206236607532504295",
     "REMOVE_STOCK":      "4958534924278694938",
     "STOCK_STATUS":      "4958506272551863292",
     "TOGGLE_STOCK":      "4956583802240500602",
-
-    # Message text emojis
     "WELCOME_SPARKLE":   "5363992034728229166",
     "ROCKET":            "5337127177500510090",
     "ID_ICON":           "4956561910792192697",
@@ -70,31 +59,21 @@ CUSTOM_EMOJIS = {
     "RED_CIRCLE":        "6206141323683042874",
     "PACKAGE":           "4956285860359177035",
     "GEAR":              "5370935802844946281",
-
-    # User Manager
     "USER_MANAGER":      "6307777408300753473",
     "SEARCH_USER":       "6206446249181189526",
     "DOWNLOAD_LIST":     "6203886371363364022",
     "EDIT_BALANCE":      "6204162490515855272",
     "BAN_USER":          "6203761490894264678",
-
-    # API Manager
     "MANAGE_API":        "6206188632747808299",
     "ADD_API_KEY":       "6206375377925839184",
     "REMOVE_API_KEY":    "6206108815075579644",
     "LIST_API_KEY":      "6307686831735444755",
-
-    # Selectors
     "SELECT_SERVICE_PREFIX": "6206236607532504295",
     "SELECT_SERVICE_SUFFIX": "5197474438970363734",
     "SELECT_COUNTRY_PREFIX": "5309748255637118475",
     "PROFILE_ICON":      "5818715087237549366",
-
-    # Confirmation
     "YES":               "4956721670690702265",
     "NO":                "6206110936789423908",
-
-    # Fallbacks
     "DEFAULT_FLAG":      "5244653211607932794",
     "DEFAULT_SERVICE":   "6291975480589423118",
 }
@@ -103,10 +82,10 @@ CUSTOM_EMOJIS = {
 BOT_TOKEN = "8789807943:AAHae96lsddEva4nvB3LdEyJAS_q_0L06Yc"
 SUPER_ADMIN_IDS = [8744359777]
 
-AUTO_DELETE_DELAY = 2          # seconds (for normal messages)
-MAIN_MENU_DELETE = 120         # 2 minutes
+AUTO_DELETE_DELAY = 2
+MAIN_MENU_DELETE = 120
 
-OTP_GROUP_URL = "https://t.me/NumberFlexOTP"
+OTP_GROUP_URL = "https://t.me/SRotpHub"
 MIN_WITHDRAW = 0.1
 
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
@@ -116,22 +95,17 @@ ADMIN2_TELEGRAM = ""
 
 GROUP_ID = -1003716770621
 CHANNEL_URL = "https://t.me/WaCreationHub"
-BOT_URL = "https://t.me/WA_CREATION_BOT"
+BOT_URL = "https://t.me/NumberFlexOTP"
 
 # ==================== EMOJI CONSTANTS ====================
-WELCOME_WAVE = "5199885118214255386"      # 👋
-WELCOME_THINK = "5314563983422798645"     # 🤔
-INBOX_EMOJI = "5472239203590888751"       # 📩
-MONEY_EMOJI = "5805602131176069048"       # 🤑
-
-MAIN_MENU_EMOJI = "5438499684270238914"   # for main menu
-
+WELCOME_WAVE = "5199885118214255386"
+WELCOME_THINK = "5314563983422798645"
+INBOX_EMOJI = "5472239203590888751"
+MONEY_EMOJI = "5805602131176069048"
+MAIN_MENU_EMOJI = "5438499684270238914"
 HEADER_EMOJI_1 = "6282641460093260838"
 HEADER_EMOJI_2 = "6267315814190290529"
-
 EMOJI_SEPARATOR = "5213333270703387541"
-
-# Group OTP constants
 EMOJI_PREFIX = "4958725487682650920"
 EMOJI_OTP_BUTTON = "6206420230269310869"
 EMOJI_CHANNEL_BUTTON = "6204010762206189094"
@@ -139,13 +113,12 @@ EMOJI_BOT_BUTTON = "5339267587337370029"
 LEFT_ARROW_EMOJI = "6068830682359010545"
 SEND_EMOJI = "5433614747381538714"
 
-# ==================== DATABASE FOLDER ====================
+# ==================== DATABASE SETUP ====================
 DB_DIR = "NUMBER-PANEL-DATA"
 os.makedirs(DB_DIR, exist_ok=True)
 DB_PATH = os.path.join(DB_DIR, "mrisbrand_master.db")
 USER_DATA_FILE = os.path.join(DB_DIR, "user_data.json")
 
-# ==================== DATABASE SETUP ====================
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 db_lock = threading.Lock()
 c = conn.cursor()
@@ -203,7 +176,6 @@ c.execute('''CREATE TABLE IF NOT EXISTS api_keys
               interval_sec INTEGER,
               active INTEGER DEFAULT 1)''')
 
-# Add missing columns
 try:
     c.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0")
 except sqlite3.OperationalError: pass
@@ -291,12 +263,10 @@ def get_country_info(country_name):
     return COUNTRIES_DATA.get(country_name, {"emoji_id": "", "payout": "0.001$", "iso": country_name[:2].upper()})
 
 def get_country_name_by_iso(iso2: str) -> str | None:
-    """Find country name from ISO2 code."""
     iso2 = iso2.upper()
     for name, info in COUNTRIES_DATA.items():
         if info.get("iso", "").upper() == iso2:
             return name
-    # fallback: try COUNTRY_CODE_MAP
     for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
         if iso.upper() == iso2:
             return name
@@ -464,7 +434,6 @@ def admin_cancel_keyboard() -> InlineKeyboardMarkup:
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", ""))),
     ]])
 
-# ==================== STOCK MANAGEMENT KEYBOARD ====================
 def stock_management_menu_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton("Upload Stock", callback_data="stock_upload", style=KBS.SUCCESS,
@@ -614,45 +583,27 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-# -------------------- OTP EXTRACTION (FIXED for WhatsApp codes like 818-280) --------------------
+# -------------------- OTP EXTRACTION --------------------
 def extract_otp_from_message(message: str) -> str | None:
-    """
-    Extract OTP from any message format.
-    Supports 30+ patterns including hyphenated codes (e.g., 818-280).
-    """
     if not message:
         return None
 
-    # Priority patterns: first try to find codes with separators and OTP-like keywords
     patterns = [
-        # 1. Explicit OTP/Code keywords with hyphenated or spaced numbers
         r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
         r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+is\s+(\d{3,4}[-.\s]?\d{3,4})',
         r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+(\d{3,4}[-.\s]?\d{3,4})',
-
-        # 2. Multilingual keywords
         r'(?:ওটিপি|ভেরিফিকেশন|পিন|কোড)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
         r'(?:ओटीपी|कोड|पिन|सत्यापन)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
         r'(?:código|verificación|pin|clave)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
         r'(?:رمز|التحقق|كلمة المرور|OTP)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
         r'(?:code|vérification|pin|mot de passe)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
         r'(?:Code|Bestätigung|PIN|Sicherheit)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-
-        # 3. Standalone hyphenated OTP (e.g., "818-280", "123 456", "987.654")
         r'\b(\d{3,4}[-.\s]?\d{3,4})\b',
-
-        # 4. Number in brackets or parentheses
         r'\[(\d{4,6})\]',
         r'\((\d{4,6})\)',
-
-        # 5. OTP with spaces between digits (e.g., 1 2 3 4 5 6)
         r'\b(\d\s\d\s\d\s\d\s\d\s\d)\b',
         r'\b(\d\s\d\s\d\s\d)\b',
-
-        # 6. Plain 4-6 digit number (but avoid years and words)
         r'\b(\d{4,6})\b',
-
-        # 7. Alphanumeric (for some services) - but we avoid picking words like 'Your'
         r'\b([A-Z0-9]{4,8})\b',
     ]
 
@@ -660,16 +611,12 @@ def extract_otp_from_message(message: str) -> str | None:
         match = re.search(pattern, message, re.IGNORECASE)
         if match:
             otp = match.group(1)
-            # Clean separators (hyphen, space, dot) to get pure digits
             otp_clean = re.sub(r'[-\s.]', '', otp)
-            # Only if length between 4 and 8
             if 4 <= len(otp_clean) <= 8:
-                # Skip if it looks like a year (19xx or 20xx) when length=4
                 if len(otp_clean) == 4 and otp_clean.startswith(('19', '20')):
                     continue
                 return otp_clean
 
-    # Fallback: find any 4-6 digit number that is likely OTP
     numbers = re.findall(r'\b(\d{4,6})\b', message)
     for num in numbers:
         if num.startswith(('19', '20')) and len(num) == 4:
@@ -712,7 +659,6 @@ def format_numbers_message(country, service, numbers, user_id=None, first_name=N
 
     phone_icon_id = "5197474438970363734"
 
-    # NEW HEADER using HEADER_EMOJI_1 and HEADER_EMOJI_2, country name uppercase
     header = (
         f'{emoji_tag(HEADER_EMOJI_1, "⚙️")} <b>THIS IS YOUR</b> '
         f'{emoji_tag(HEADER_EMOJI_2, "📱")} <b>{country.upper()}</b> '
@@ -794,9 +740,7 @@ def stock_added_broadcast_with_button(country, service, count):
     ]])
     return msg, kb
 
-# ==================== MESSAGE BUILDERS ====================
 def start_welcome_html():
-    """Welcome message shown only on /start."""
     wave = emoji_tag(WELCOME_WAVE, "👋")
     think = emoji_tag(WELCOME_THINK, "🤔")
     inbox = emoji_tag(INBOX_EMOJI, "📩")
@@ -808,11 +752,10 @@ def start_welcome_html():
     sub = f'<b>{inbox} RECEIVE OTP\'S AND START EARNING MONEY {money}</b>'
     return f'{blockquote}\n{sub}'
 
-# ==================== KEYBOARD PERSISTENCE FUNCTIONS ====================
+# ==================== KEYBOARD PERSISTENCE ====================
 async def send_or_refresh_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Send or refresh the persistent reply keyboard (to keep the menu button visible)"""
+    """Send or refresh the persistent reply keyboard"""
     try:
-        # Delete old keyboard message if exists
         old_kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
         if old_kb_id_row and old_kb_id_row[0]:
             try:
@@ -820,7 +763,6 @@ async def send_or_refresh_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: 
             except:
                 pass
 
-        # Send new keyboard message
         sent = await context.bot.send_message(
             chat_id=user_id,
             text="Choose an option...",
@@ -862,7 +804,6 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
     user_id = update.effective_user.id
     await delete_previous_messages(update, context)
 
-    # If we have an inline keyboard, send inline message + separate reply keyboard
     if isinstance(reply_markup, InlineKeyboardMarkup):
         sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
         db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
@@ -874,7 +815,6 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await schedule_delete(context, user_id, sent.message_id, delete_after)
         return sent
 
-    # Normal message with reply keyboard (or no keyboard)
     if persistent_menu and not isinstance(reply_markup, InlineKeyboardMarkup):
         reply_markup = bottom_menu_keyboard(user_id)
 
@@ -898,7 +838,6 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     return sent
 
-# ==================== SAFE EDIT / SEND FALLBACK ====================
 async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False, delete_after: int = None, show_keyboard: bool = True):
     user_id = query.from_user.id
 
@@ -907,14 +846,12 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
         if delete_after:
             await schedule_delete(context, query.message.chat_id, query.message.message_id, delete_after)
 
-        # If inline keyboard was set, refresh reply keyboard
         if isinstance(reply_markup, InlineKeyboardMarkup) and show_keyboard:
             await send_or_refresh_keyboard(context, user_id)
 
         return None
     except BadRequest as e:
         if "Message is not modified" in str(e):
-            # Even if not modified, ensure keyboard exists
             if show_keyboard:
                 kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
                 if not kb_id_row or not kb_id_row[0]:
@@ -959,14 +896,6 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
             return sent
         return None
 
-async def safe_edit_message(query, text, **kwargs):
-    try:
-        await query.edit_message_text(text, **kwargs)
-    except BadRequest as e:
-        if "Message is not modified" not in str(e):
-            raise
-
-# ==================== REPLY OR EDIT ====================
 async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False, delete_after: int = None, show_keyboard: bool = True):
     if isinstance(target, CallbackQuery):
         await edit_or_send(target, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, persistent_menu=persistent_menu, delete_after=delete_after, show_keyboard=show_keyboard)
@@ -989,11 +918,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ensure_user(user_id, username, first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     await delete_previous_messages(update, context)
-    # Show the START welcome message (only the two lines)
     sent = await update.message.reply_text(start_welcome_html(), reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML')
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
     db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-    # No auto-delete for start welcome
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1012,16 +939,14 @@ async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return True
     return False
 
-# ==================== ADMIN CHECKS ====================
 def is_admin(user_id):
     return db_fetch_one("SELECT user_id FROM admins WHERE user_id=?", (user_id,)) is not None
 
 def is_super_admin(user_id):
     return user_id in SUPER_ADMIN_IDS
 
-# ==================== MAIN MENU CALLBACKS ====================
+# ==================== MAIN MENU ====================
 async def show_main_menu(update: Update, user_id, first_name, context: ContextTypes.DEFAULT_TYPE = None):
-    """Show short '✨ Main Menu' message (auto-delete after 120s) and refresh keyboard"""
     username = None
     if hasattr(update, 'effective_user') and update.effective_user:
         username = update.effective_user.username
@@ -1039,7 +964,6 @@ async def show_main_menu(update: Update, user_id, first_name, context: ContextTy
                                      persistent_menu=True,
                                      auto_delete=False, delete_after=MAIN_MENU_DELETE, show_keyboard=True)
 
-    # Ensure keyboard is present after main menu
     await send_or_refresh_keyboard(context, user_id)
 
 async def show_get_number(update: Update, context, user_id, first_name):
@@ -1054,7 +978,6 @@ async def show_get_number(update: Update, context, user_id, first_name):
     else:
         await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML', show_keyboard=False)
 
-    # Refresh keyboard after showing inline service list
     await send_or_refresh_keyboard(context, user_id)
 
 async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
@@ -1094,7 +1017,6 @@ async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TY
         if context:
             await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', show_keyboard=False)
 
-    # Refresh keyboard after inline message
     await send_or_refresh_keyboard(context, user_id)
 
 async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
@@ -1137,7 +1059,6 @@ async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_T
     else:
         if context:
             await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML')
-    # Refresh keyboard after inline message if any
     await send_or_refresh_keyboard(context, user_id)
 
 async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
@@ -1146,9 +1067,6 @@ async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE = None
         user_id = update.effective_user.id
         await edit_or_send(update, text, reply_markup=support_keyboard(), context=context, auto_delete=False, show_keyboard=False)
         await send_or_refresh_keyboard(context, user_id)
-        kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
-        if not kb_id_row or not kb_id_row[0]:
-            await send_or_refresh_keyboard(context, user_id)
     else:
         if context:
             await send_clean_message(update, context, text, reply_markup=None, persistent_menu=True, show_keyboard=True)
@@ -1165,7 +1083,6 @@ async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (anchor_id, user_id))
     sent_inline = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=support_keyboard())
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent_inline.message_id, user_id))
-    # Ensure keyboard is still there
     await send_or_refresh_keyboard(context, user_id)
 
 # ==================== ADMIN COMMANDS ====================
@@ -1185,7 +1102,6 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         admin_mode.pop(user_id, None)
         admin_panel_state.pop(user_id, None)
         await send_clean_message(update, context, "Admin mode deactivated!", reply_markup=bottom_menu_keyboard(user_id))
-        # keyboard already sent via send_clean_message with reply_markup
     else:
         await update.message.reply_text("You're not in admin mode!")
 
@@ -1260,7 +1176,6 @@ async def admin_panel_menu(update: Update, user_id, context: ContextTypes.DEFAUL
     else:
         if context:
             await send_clean_message(update, context, text, reply_markup=admin_panel_keyboard(), auto_delete=False, show_keyboard=False)
-    # Ensure keyboard is present
     await send_or_refresh_keyboard(context, user_id)
 
 # ==================== USER DATA JSON SAVE/LOAD ====================
@@ -1311,7 +1226,6 @@ async def send_user_list_file(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.callback_query.message.reply_document(document=open(f.name, 'rb'), filename="USER_DATA.txt")
     os.unlink(f.name)
 
-# Async wrappers
 async def _user_manager_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await user_manager_menu(update, context, update.callback_query.from_user.id)
 
@@ -1853,7 +1767,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return False
 
-# ==================== STOCK GET NUMBER CALLBACK ====================
+# ==================== STOCK GET NUMBER ====================
 async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -1897,7 +1811,7 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
     await send_or_refresh_keyboard(context, user_id)
 
-# ==================== /testgroup COMMAND (Enhanced with ISO2) ====================
+# ==================== /testgroup ====================
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command to send a test OTP to the group using ISO2 country code."""
     user_id = update.effective_user.id
@@ -1918,7 +1832,6 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     service = args[0]
     iso2 = args[1].upper()
     
-    # Find country name from ISO2
     country_name = get_country_name_by_iso(iso2)
     if not country_name:
         await update.message.reply_text(f"❌ Country with ISO2 '{iso2}' not found.")
@@ -1928,15 +1841,13 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     country_info = get_country_info(country_name)
     country_code = country_info.get("code", "")
     if not country_code:
-        # fallback to map
         for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
             if iso.upper() == iso2:
                 country_code = "+" + code
                 break
     if not country_code:
-        country_code = "+880"  # default
+        country_code = "+880"
     
-    # Generate random number
     local_part = ''.join(random.choices('0123456789', k=10))
     test_number = country_code + local_part
     test_otp = ''.join(random.choices('0123456789', k=6))
@@ -2016,7 +1927,6 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await show_main_menu(query, user_id, first_name, context)
     await send_or_refresh_keyboard(context, user_id)
 
-# ==================== TOGGLE CC CALLBACK ====================
 async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await ban_check(update, context): return
@@ -2449,17 +2359,14 @@ async def exit_admin_callback_query(query, user_id, bot):
     admin_mode.pop(user_id, None)
     admin_panel_state.pop(user_id, None)
     try:
-        # Send short main menu with auto_delete=False so only 120s deletion works
         short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
         await edit_or_send(query, short_msg, reply_markup=None, parse_mode='HTML',
                            context=None, persistent_menu=True,
                            auto_delete=False, delete_after=MAIN_MENU_DELETE, show_keyboard=True)
     except Exception:
         await bot.send_message(user_id, "Main Menu", reply_markup=bottom_menu_keyboard(user_id))
-    # Keyboard will be refreshed by show_main_menu or we can do it here:
-    # but edit_or_send with show_keyboard=True will trigger refresh.
 
-# ==================== COUNTRY & SERVICE CALLBACKS ====================
+# ==================== COUNTRY & SERVICE MANAGER ====================
 async def country_manager_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id): await update.callback_query.answer("Admin mode required!", show_alert=True); return
     admin_panel_state[user_id] = "country_manager"
@@ -2713,17 +2620,14 @@ async def handle_service_emoji_set(update: Update, context: ContextTypes.DEFAULT
     await send_or_refresh_keyboard(context, user_id)
     return True
 
-# ==================== /setcountry & /setservice COMMANDS ====================
+# ==================== SET COUNTRY/SERVICE COMMANDS ====================
 async def set_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔ Admin only.")
         await send_or_refresh_keyboard(context, update.effective_user.id)
         return
     if not context.args:
-        await update.message.reply_text(
-            "Usage: /setcountry ISO|EMOJI_ID\n"
-            "Example: /setcountry BD|5911365056594973179"
-        )
+        await update.message.reply_text("Usage: /setcountry ISO|EMOJI_ID\nExample: /setcountry BD|5911365056594973179")
         await send_or_refresh_keyboard(context, update.effective_user.id)
         return
     parts = " ".join(context.args).split("|")
@@ -2744,10 +2648,7 @@ async def set_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await send_or_refresh_keyboard(context, update.effective_user.id)
         return
     if not context.args:
-        await update.message.reply_text(
-            "Usage: /setservice NAME|EMOJI_ID\n"
-            "Example: /setservice PayPal|123456789"
-        )
+        await update.message.reply_text("Usage: /setservice NAME|EMOJI_ID\nExample: /setservice PayPal|123456789")
         await send_or_refresh_keyboard(context, update.effective_user.id)
         return
     parts = " ".join(context.args).split("|")
@@ -2762,7 +2663,6 @@ async def set_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(f"✅ Service emoji for {name} set to <code>{eid}</code>", parse_mode="HTML")
     await send_or_refresh_keyboard(context, update.effective_user.id)
 
-# ==================== /country & /service COMMANDS (legacy) ====================
 async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Admin only.")
@@ -2881,7 +2781,7 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     await send_or_refresh_keyboard(context, user_id)
 
-# ==================== MANAGE API FUNCTIONS ====================
+# ==================== MANAGE API ====================
 async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id): return
     admin_panel_state[user_id] = "manage_api"
@@ -3268,7 +3168,7 @@ def format_group_otp_rich(entry):
     }
     return html, keyboard
 
-# ==================== OTP PROCESSING (with extraction) ====================
+# ==================== OTP PROCESSING ====================
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
@@ -3442,8 +3342,6 @@ def main():
     application.add_handler(CommandHandler("service", group_service_command))
     application.add_handler(CommandHandler("setcountry", set_country_command))
     application.add_handler(CommandHandler("setservice", set_service_command))
-    
-    # New /testgroup command
     application.add_handler(CommandHandler("testgroup", testgroup_command))
 
     application.add_handler(CallbackQueryHandler(service_selection_callback, pattern="^svc_sel\|"))
@@ -3481,7 +3379,6 @@ def main():
     application.add_handler(CallbackQueryHandler(_api_list_wrapper, pattern="^api_list$"))
     application.add_handler(CallbackQueryHandler(api_remove_execute, pattern=r"^api_rem_\d+$"))
 
-    # Stock Management callbacks
     application.add_handler(CallbackQueryHandler(stock_management_menu, pattern="^admin_stock_management$"))
     application.add_handler(CallbackQueryHandler(stock_upload_callback, pattern="^stock_upload$"))
     application.add_handler(CallbackQueryHandler(stock_remove_callback, pattern="^stock_remove$"))
@@ -3491,8 +3388,6 @@ def main():
     application.add_handler(CallbackQueryHandler(stock_status_callback, pattern="^stock_status$"))
     application.add_handler(CallbackQueryHandler(stock_toggle_callback, pattern="^stock_toggle$"))
     application.add_handler(CallbackQueryHandler(stock_toggle_do_callback, pattern=r"^stock_toggle_do\|"))
-    
-    # Stock Get Number callback
     application.add_handler(CallbackQueryHandler(stock_get_number_callback, pattern=r"^stock_get_number\|"))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
