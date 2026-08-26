@@ -39,7 +39,7 @@ GROUP_ID = -1003716770621
 CHANNEL_URL = "https://t.me/WaCreationHub"
 BOT_URL = "https://t.me/WA_CREATION_BOT"
 
-# ==================== EMOJI CONSTANTS (Your specified IDs) ====================
+# ==================== EMOJI CONSTANTS ====================
 WELCOME_WAVE = "5199885118214255386"      # 👋
 WELCOME_THINK = "5314563983422798645"     # 🤔
 INBOX_EMOJI = "5472239203590888751"       # 📩
@@ -62,7 +62,7 @@ EMOJI_BOT_BUTTON = "5339267587337370029"
 LEFT_ARROW_EMOJI = "6068830682359010545"
 SEND_EMOJI = "5433614747381538714"
 
-# ==================== CUSTOM EMOJIS ADDITIONS (Your specified IDs) ====================
+# ==================== CUSTOM EMOJIS ADDITIONS ====================
 CUSTOM_EMOJIS["USER_MANAGER"] = "6307777408300753473"
 CUSTOM_EMOJIS["SEARCH_USER"] = "6206446249181189526"
 CUSTOM_EMOJIS["DOWNLOAD_LIST"] = "6203886371363364022"
@@ -72,7 +72,7 @@ CUSTOM_EMOJIS["MANAGE_API"] = "6206188632747808299"
 CUSTOM_EMOJIS["ADD_API_KEY"] = "6206375377925839184"
 CUSTOM_EMOJIS["REMOVE_API_KEY"] = "6206108815075579644"
 CUSTOM_EMOJIS["LIST_API_KEY"] = "6307686831735444755"
-CUSTOM_EMOJIS["SUPPORT"] = SUPPORT_EMOJI   # updated
+CUSTOM_EMOJIS["SUPPORT"] = SUPPORT_EMOJI
 CUSTOM_EMOJIS["SELECT_SERVICE_PREFIX"] = "6206236607532504295"
 CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"] = "5197474438970363734"
 CUSTOM_EMOJIS["SELECT_COUNTRY_PREFIX"] = "5309748255637118475"
@@ -803,7 +803,7 @@ def start_welcome_html():
 # ==================== PERSISTENT KEYBOARD ANCHOR ====================
 async def ensure_keyboard_anchor(context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str = None):
     if text is None:
-        text = f"{emoji_tag(MAIN_MENU_EMOJI, '✨')} <b>Main Menu</b>"
+        text = start_welcome_html()   # persistent keyboard always shows welcome
     kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
     if kb_id_row and kb_id_row[0]:
         try:
@@ -859,6 +859,7 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await schedule_delete(context, user_id, sent.message_id, delete_after)
         return sent
     if persistent_menu:
+        # update the persistent keyboard with the given text, but keep it as welcome
         await ensure_keyboard_anchor(context, user_id, text if persistent_menu else None)
         sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=None, parse_mode=parse_mode)
         db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
@@ -955,9 +956,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clear any current number assignment
     db_exec("UPDATE users SET current_number = NULL, current_country = NULL, current_service = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
     await delete_previous_messages(update, context)
-    sent = await update.message.reply_text(start_welcome_html(), parse_mode='HTML')
-    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-    await ensure_keyboard_anchor(context, user_id)
+    # Send welcome with persistent keyboard attached, no separate "Main Menu" text
+    welcome_text = start_welcome_html()
+    await ensure_keyboard_anchor(context, user_id, welcome_text)
+    # No separate "Main Menu" message is sent.
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -989,21 +991,21 @@ async def show_main_menu(update: Update, user_id, first_name, context: ContextTy
     if hasattr(update, 'effective_user') and update.effective_user:
         username = update.effective_user.username
     ensure_user(user_id, username, first_name)
-    short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
-    await ensure_keyboard_anchor(context, user_id, short_msg)
+    # This function is used to show the main menu as a separate message (with delete after)
+    # Usually called from back_to_menu
+    await show_main_menu_with_temp(update, user_id, first_name, context)
 
 async def show_main_menu_with_temp(update: Update, user_id, first_name, context: ContextTypes.DEFAULT_TYPE = None):
-    await show_main_menu(update, user_id, first_name, context)
+    await ensure_user(user_id, None, first_name)
     short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, short_msg, reply_markup=None, parse_mode='HTML',
-                           context=context, persistent_menu=False,
-                           auto_delete=False, delete_after=MAIN_MENU_DELETE)
+        # Send a new message with the main menu text, not deleting the welcome
+        await send_clean_message(update, context, short_msg, reply_markup=None, parse_mode='HTML',
+                                 persistent_menu=False, auto_delete=True, delete_after=MAIN_MENU_DELETE)
     else:
         if context:
             await send_clean_message(update, context, short_msg, reply_markup=None, parse_mode='HTML',
-                                     persistent_menu=False,
-                                     auto_delete=False, delete_after=MAIN_MENU_DELETE)
+                                     persistent_menu=False, auto_delete=True, delete_after=MAIN_MENU_DELETE)
 
 async def show_get_number(update: Update, context, user_id, first_name):
     ensure_user(user_id, update.effective_user.username, first_name)
@@ -1927,6 +1929,7 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer()
+    # Show the main menu as a new temporary message (auto‑deleted)
     await show_main_menu_with_temp(query, user_id, first_name, context)
     await ensure_keyboard_anchor(context, user_id)
 
@@ -2800,6 +2803,18 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ==================== NEW ENHANCED API SYSTEM ====================
 
+# ---- helper to get country from number prefix ----
+def get_country_from_number(number: str) -> str | None:
+    """Extract country name from phone number prefix using COUNTRY_CODE_MAP."""
+    if not number:
+        return None
+    clean = number.replace('+', '').replace(' ', '').strip()
+    # try longest prefix match
+    for code in sorted(COUNTRY_CODE_MAP.keys(), key=len, reverse=True):
+        if clean.startswith(code):
+            return COUNTRY_CODE_MAP[code][2]  # name
+    return None
+
 # ---- API Config Helper ----
 def get_api_config(api_id: int) -> dict | None:
     row = db_fetch_one("""
@@ -2887,7 +2902,6 @@ class ResponseParser:
             try:
                 content = json.loads(content)
             except:
-                # Fallback to text extraction
                 otps = extract_all_otps_from_message(content)
                 return [{"otp": otp, "message": content[:200]} for otp in otps]
         if isinstance(content, dict):
@@ -2905,12 +2919,12 @@ async def poll_single_api(api_id: int):
             base_url = config['base_url'].rstrip('/')
             endpoint = config['endpoint'].lstrip('/')
             url = f"{base_url}/{endpoint}"
-            url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{records}', str(config.get('max_records', 200)))
+            url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token']).replace('{records}', str(config.get('max_records', 200)))
 
             headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
             for k, v in headers.items():
                 if isinstance(v, str):
-                    headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token'])
+                    headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token'])
 
             method = config.get('method', 'GET').upper()
             resp = None
@@ -2924,7 +2938,7 @@ async def poll_single_api(api_id: int):
                     elif isinstance(obj, list):
                         return [replace_placeholders(v) for v in obj]
                     elif isinstance(obj, str):
-                        return obj.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{records}', str(config.get('max_records', 200)))
+                        return obj.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token']).replace('{records}', str(config.get('max_records', 200)))
                     return obj
                 body = replace_placeholders(body)
                 resp = requests.post(url, headers=headers, json=body, timeout=30)
@@ -2934,6 +2948,13 @@ async def poll_single_api(api_id: int):
             if resp and resp.status_code == 200:
                 otps = ResponseParser.parse_response(resp.text, config)
                 if otps:
+                    # add country from number if not present
+                    for otp in otps:
+                        if not otp.get('country'):
+                            country = get_country_from_number(otp.get('number', ''))
+                            if country:
+                                otp['country'] = country
+                        # also try to extract service if missing? not needed
                     await process_otps(otps, bot=application.bot)
                     db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
                             (len(otps), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
@@ -2989,13 +3010,12 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             [InlineKeyboardButton("🔙 Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
                                   icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
         ])
-        await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False, persistent_menu=True)
+        await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False, persistent_menu=True)
         return
 
     rows = []
     row = []
     for api_id, panel_name, active in apis:
-        # Use emoji_tag only for status text, but for button we use plain label + icon
         status_emoji = "🟢" if active else "🔴"
         label = f"{status_emoji} {panel_name}"
         style = KBS.SUCCESS if active else KBS.DANGER
@@ -3213,9 +3233,6 @@ async def api_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TY
         parse_mode='HTML'
     )
 
-# ---- Edit Value Handler (Integrated in text_handler) ----
-# We'll handle edit value in the main text_handler
-
 # ---- Test API ----
 async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3235,12 +3252,12 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         base_url = config['base_url'].rstrip('/')
         endpoint = config['endpoint'].lstrip('/')
         url = f"{base_url}/{endpoint}"
-        url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{records}', str(config.get('max_records', 5)))
+        url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token']).replace('{records}', str(config.get('max_records', 5)))
 
         headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
         for k, v in headers.items():
             if isinstance(v, str):
-                headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token'])
+                headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token'])
 
         method = config.get('method', 'GET').upper()
         resp = None
@@ -3411,12 +3428,12 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         base_url = config['base_url'].rstrip('/')
         endpoint = config['endpoint'].lstrip('/')
         url = f"{base_url}/{endpoint}"
-        url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{records}', str(config.get('max_records', 200)))
+        url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token']).replace('{records}', str(config.get('max_records', 200)))
 
         headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
         for k, v in headers.items():
             if isinstance(v, str):
-                headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token'])
+                headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token'])
 
         method = config.get('method', 'GET').upper()
         resp = None
@@ -3474,7 +3491,41 @@ async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     await reply_or_edit(update, "🔧 MANAGE API\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False, persistent_menu=True)
     await ensure_keyboard_anchor(context, user_id)
 
-# ---- Enhanced ADD API Wizard ----
+# ---- Enhanced ADD API Wizard (9 steps) ----
+STEP_ORDER = [
+    "api_add_name",
+    "api_add_base_url",
+    "api_add_endpoint",
+    "api_add_token",
+    "api_add_interval",
+    "api_add_number_path",
+    "api_add_message_path",
+    "api_add_timestamp_path",
+    "api_add_confirm"
+]
+
+STEP_EMOJIS = {
+    "panel_name": "📛",
+    "base_url": "🌐",
+    "endpoint": "📍",
+    "token": "🔑",
+    "interval_sec": "⏱️",
+    "number_path": "📱",
+    "message_path": "💬",
+    "timestamp_path": "🕐",
+}
+
+STEP_EXAMPLES = {
+    "panel_name": "e.g., MyProvider",
+    "base_url": "e.g., http://147.135.212.197",
+    "endpoint": "e.g., /crapi/had/viewstats?token={TOKEN}&records=200",
+    "token": "e.g., QlFSRkpBUzRkbFJJRUFikHRTb3F3f2aDRENkU31dY5QdA==",
+    "interval_sec": "e.g., 30 (minimum 10 seconds)",
+    "number_path": "e.g., phone or num",
+    "message_path": "e.g., sms or message",
+    "timestamp_path": "e.g., clock or time_stamp",
+}
+
 async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
@@ -3482,34 +3533,15 @@ async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     admin_temp_data[user_id] = {}
     admin_panel_state[user_id] = "api_add_name"
     await reply_or_edit(update,
-        f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step 1/13</b>\n\n"
-        f"Send the <b>Panel Name</b> for this API (e.g., <code>MyProvider</code>):",
+        f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step 1/{len(STEP_ORDER)}</b>\n\n"
+        f"Send the <b>Panel Name</b> for this API (e.g., <code>MyProvider</code>):\n"
+        f"<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b> : e.g., MyProvider</blockquote>",
         reply_markup=admin_cancel_keyboard(),
         parse_mode='HTML',
         context=context,
         auto_delete=False,
         persistent_menu=True)
     await ensure_keyboard_anchor(context, user_id)
-
-# ---- Enhanced ADD API continuation (via text_handler) ----
-# Now with example for each step
-STEP_EXAMPLES = {
-    "panel_name": "e.g., MyProvider",
-    "base_url": "e.g., https://api.myprovider.com",
-    "endpoint": "e.g., /get_otps",
-    "token": "e.g., your_api_token_here",
-    "method": "e.g., GET or POST",
-    "interval_sec": "e.g., 30 (minimum 10 seconds)",
-    "response_type": "e.g., json or text",
-    "otp_list_path": "e.g., data.otps or root",
-    "number_path": "e.g., number or phone",
-    "message_path": "e.g., message or sms",
-    "country_path": "e.g., country or country_code",
-    "service_path": "e.g., service or app",
-    "timestamp_path": "e.g., timestamp or created_at",
-    "success_path": "e.g., status or success",
-    "success_value": "e.g., success or true",
-}
 
 async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -3526,92 +3558,107 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     data = admin_temp_data.get(user_id, {})
     step_messages = {
-        "api_add_name": ("Panel Name", "panel_name", "📛", "api_add_base_url"),
-        "api_add_base_url": ("Base URL", "base_url", "🌐", "api_add_endpoint"),
-        "api_add_endpoint": ("Endpoint", "endpoint", "📍", "api_add_token"),
-        "api_add_token": ("Token", "token", "🔑", "api_add_method"),
-        "api_add_method": ("Method (GET/POST)", "method", "📩", "api_add_interval"),
-        "api_add_interval": ("Interval (seconds, >=10)", "interval_sec", "⏱️", "api_add_response_type"),
-        "api_add_response_type": ("Response Type (json/text)", "response_type", "📊", "api_add_otp_list_path"),
-        "api_add_otp_list_path": ("OTP List Path", "otp_list_path", "📦", "api_add_number_path"),
-        "api_add_number_path": ("Number Field Path", "number_path", "📱", "api_add_message_path"),
-        "api_add_message_path": ("Message Field Path", "message_path", "💬", "api_add_country_path"),
-        "api_add_country_path": ("Country Field Path", "country_path", "🌍", "api_add_service_path"),
-        "api_add_service_path": ("Service Field Path (optional)", "service_path", "🔧", "api_add_timestamp_path"),
-        "api_add_timestamp_path": ("Timestamp Field Path (optional)", "timestamp_path", "🕐", "api_add_success_path"),
-        "api_add_success_path": ("Success Status Path", "success_path", "✅", "api_add_success_value"),
-        "api_add_success_value": ("Success Value", "success_value", "🎯", "api_add_finish"),
+        "api_add_name": ("Panel Name", "panel_name", "api_add_base_url"),
+        "api_add_base_url": ("Base URL", "base_url", "api_add_endpoint"),
+        "api_add_endpoint": ("Endpoint", "endpoint", "api_add_token"),
+        "api_add_token": ("Token", "token", "api_add_interval"),
+        "api_add_interval": ("Interval (seconds, >=10)", "interval_sec", "api_add_number_path"),
+        "api_add_number_path": ("Number Field Path (where to find number in JSON)", "number_path", "api_add_message_path"),
+        "api_add_message_path": ("Message Field Path (where to find full_sms in JSON)", "message_path", "api_add_timestamp_path"),
+        "api_add_timestamp_path": ("Timestamp Field Path (where to find time in JSON)", "timestamp_path", "api_add_confirm"),
+        "api_add_confirm": ("", "", "api_add_finish"),
     }
 
     if state in step_messages:
-        label, field, emoji, next_state = step_messages[state]
-        # For interval, validate int
-        if field == "interval_sec":
-            try:
-                val = int(text)
-                if val < 10:
-                    await update.message.reply_text("⏱️ Interval must be at least 10 seconds. Try again.")
+        label, field, next_state = step_messages[state]
+        if field:  # if it's a data field, store and validate
+            emoji = STEP_EMOJIS.get(field, "📌")
+            example = STEP_EXAMPLES.get(field, "")
+            # Validate and store
+            if field == "interval_sec":
+                try:
+                    val = int(text)
+                    if val < 10:
+                        await update.message.reply_text("⏱️ Interval must be at least 10 seconds. Try again.")
+                        return True
+                    data[field] = val
+                except ValueError:
+                    await update.message.reply_text("❌ Please enter a valid number.")
                     return True
-                data[field] = val
-            except ValueError:
-                await update.message.reply_text("❌ Please enter a valid number.")
-                return True
-        elif field in ["method", "response_type"]:
-            if field == "method" and text.upper() not in ["GET", "POST", "PUT", "DELETE"]:
-                await update.message.reply_text("❌ Method must be GET, POST, PUT, or DELETE.")
-                return True
-            data[field] = text.upper() if field == "method" else text.lower()
-        else:
-            data[field] = text if text != "/skip" else ""
+            else:
+                if not text and field not in ["number_path", "message_path", "timestamp_path"]:
+                    await update.message.reply_text("❌ This field cannot be empty.")
+                    return True
+                data[field] = text
 
-        if next_state == "api_add_finish":
-            # Save all
-            db_exec("""
-                INSERT INTO api_keys (
-                    panel_name, base_url, endpoint, token, method, interval_sec,
-                    response_type, otp_list_path, number_path, message_path, country_path,
-                    service_path, timestamp_path, success_path, success_value,
-                    active, created_by, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-            """, (
-                data.get("panel_name"), data.get("base_url"), data.get("endpoint"), data.get("token"),
-                data.get("method", "GET"), data.get("interval_sec", 30),
-                data.get("response_type", "json"), data.get("otp_list_path", "data.otps"),
-                data.get("number_path", "number"), data.get("message_path", "message"),
-                data.get("country_path", "country"), data.get("service_path", "service"),
-                data.get("timestamp_path", "timestamp"), data.get("success_path", "status"),
-                data.get("success_value", "success"),
-                user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ))
-            api_id = db_fetch_one("SELECT last_insert_rowid()")[0]
-            await start_polling_for_api(api_id)
-            admin_temp_data.pop(user_id, None)
-            admin_panel_state[user_id] = "main"
-            await update.message.reply_text(
-                f"✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{data.get('panel_name')}' added successfully!</b>\n"
-                f"🆔 ID: <code>{api_id}</code>\n"
-                f"⏱️ Polling started.",
-                reply_markup=admin_panel_keyboard(),
-                parse_mode='HTML'
-            )
-            await ensure_keyboard_anchor(context, user_id)
+            if next_state == "api_add_confirm":
+                # Show confirmation
+                confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
+                confirm_text += f"Panel Name: <code>{data.get('panel_name','')}</code>\n"
+                confirm_text += f"Base URL: <code>{data.get('base_url','')}</code>\n"
+                confirm_text += f"Endpoint: <code>{data.get('endpoint','')}</code>\n"
+                confirm_text += f"Token: <code>{data.get('token','')}</code>\n"
+                confirm_text += f"Interval: <code>{data.get('interval_sec','')} seconds</code>\n"
+                confirm_text += f"Number Path: <code>{data.get('number_path','number')}</code>\n"
+                confirm_text += f"Message Path: <code>{data.get('message_path','message')}</code>\n"
+                confirm_text += f"Timestamp Path: <code>{data.get('timestamp_path','timestamp')}</code>\n\n"
+                confirm_text += "Is all correct? Reply with <b>YES</b> to save, or /cancel to abort."
+                admin_panel_state[user_id] = "api_add_confirm"
+                admin_temp_data[user_id] = data
+                await update.message.reply_text(confirm_text, parse_mode='HTML')
+                return True
+
+            # next step
+            admin_panel_state[user_id] = next_state
+            admin_temp_data[user_id] = data
+            # show next step
+            step_num = STEP_ORDER.index(next_state) + 1 if next_state in STEP_ORDER else len(STEP_ORDER)
+            total_steps = len(STEP_ORDER)
+            next_label, next_field, _ = step_messages.get(next_state, ("", "", ""))
+            if next_field:
+                ex = STEP_EXAMPLES.get(next_field, "")
+                example_block = f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b> : {ex}</blockquote>" if ex else ""
+                await update.message.reply_text(
+                    f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step {step_num}/{total_steps}</b>\n\n"
+                    f"Send the <b>{next_label}</b>:\n"
+                    f"Current value: <code>{data.get(next_field, '')}</code>\n"
+                    f"{example_block}",
+                    parse_mode='HTML'
+                )
+            else:
+                await update.message.reply_text("Moving to next step...")
             return True
 
-        # Next step – show example
-        step_num = int(next_state.split('_')[-1]) if next_state.split('_')[-1].isdigit() else 13
-        total_steps = 13
-        example = STEP_EXAMPLES.get(field, "")
-        example_block = f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b> : {example}</blockquote>" if example else ""
-        await update.message.reply_text(
-            f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step {step_num}/{total_steps}</b>\n\n"
-            f"Send the <b>{label}</b>:\n"
-            f"Current value: <code>{data.get(field, '')}</code>\n"
-            f"{example_block}",
-            parse_mode='HTML'
-        )
-        admin_panel_state[user_id] = next_state
-        admin_temp_data[user_id] = data
-        return True
+        elif state == "api_add_confirm":
+            if text.lower() == "yes":
+                # save everything
+                db_exec("""
+                    INSERT INTO api_keys (
+                        panel_name, base_url, endpoint, token, interval_sec,
+                        number_path, message_path, timestamp_path,
+                        active, created_by, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                """, (
+                    data.get("panel_name"), data.get("base_url"), data.get("endpoint"), data.get("token"),
+                    data.get("interval_sec", 30),
+                    data.get("number_path", "number"), data.get("message_path", "message"), data.get("timestamp_path", "timestamp"),
+                    user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                ))
+                api_id = db_fetch_one("SELECT last_insert_rowid()")[0]
+                await start_polling_for_api(api_id)
+                admin_temp_data.pop(user_id, None)
+                admin_panel_state[user_id] = "main"
+                await update.message.reply_text(
+                    f"✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{data.get('panel_name')}' added successfully!</b>\n"
+                    f"🆔 ID: <code>{api_id}</code>\n"
+                    f"⏱️ Polling started.",
+                    reply_markup=admin_panel_keyboard(),
+                    parse_mode='HTML'
+                )
+                await ensure_keyboard_anchor(context, user_id)
+            else:
+                await update.message.reply_text("❌ Confirmation failed. Please start again with /startadmin or use /cancel.")
+            return True
 
     return False
 
@@ -4031,6 +4078,12 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         message = otp_entry.get("message", "")
         service_name = otp_entry.get("service", "Unknown")
         otp_timestamp_str = otp_entry.get("timestamp", now_str)
+        
+        # if country not present, try to get from number
+        if not otp_entry.get('country'):
+            country = get_country_from_number(number)
+            if country:
+                otp_entry['country'] = country
         
         otp_code = extract_otp_from_message(message)
         if not otp_code:
