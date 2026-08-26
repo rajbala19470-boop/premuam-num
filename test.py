@@ -85,7 +85,7 @@ CUSTOM_EMOJIS = {
     "NO": "6206110936789423908",
     "GET_NUMBER": "5303449763406954093",
     "NEW_NUMBER": "5877410604225924969",
-    "BACK": "6068830682359010545",
+    "BACK": "6206505206197261313",
     "DELETE": "6203761490894264678",
     "BROADCAST": "6203886371363364022",
     "COUNTRY_MANAGER": "5188540541922480562",
@@ -2015,8 +2015,8 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
 
 # ==================== END OF PART 1 ====================
 # The remainder — NEW API SYSTEM FUNCTIONS — will be in Part 2.
-# ==================== PART 2 — NEW API SYSTEM & REMAINING FUNCTIONS ====================
-# Continue from Part 1. This is the second half of bot.py
+# ==================== PART 2 — COMPLETE FIXED VERSION ====================
+# Continue from Part 1. This is the second half of bot.py with all admin panel fixes.
 
 # ==================== NEW API SYSTEM FUNCTIONS ====================
 
@@ -3094,10 +3094,30 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
 
 
-# ==================== STOCK MANAGEMENT MENU (WRAPPER) ====================
-async def stock_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Wrapper for stock management menu"""
-    await send_stock_management_menu(update, context, user_id)
+# ==================== WRAPPER FUNCTIONS FOR ADMIN PANEL (FIX FOR user_id ERROR) ====================
+
+async def user_manager_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Wrapper to extract user_id and call the original user_manager_menu"""
+    user_id = update.effective_user.id
+    await user_manager_menu(update, context, user_id)
+
+
+async def stock_management_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Wrapper to extract user_id and call the original stock_management_menu"""
+    user_id = update.effective_user.id
+    await stock_management_menu(update, context, user_id)
+
+
+async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Wrapper to extract user_id and call the original manage_api_menu"""
+    user_id = update.effective_user.id
+    await manage_api_menu(update, context, user_id)
+
+
+async def database_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Wrapper to extract user_id and call the original database_menu"""
+    user_id = update.effective_user.id
+    await database_menu(update, context, user_id)
 
 
 # ==================== DOCUMENT HANDLER (FILE UPLOADS) ====================
@@ -3700,22 +3720,22 @@ def main():
     application.add_handler(CallbackQueryHandler(service_callback, pattern="^service_set_emoji$"))
     application.add_handler(CallbackQueryHandler(service_callback, pattern=r"^service_emoji_set\|"))
 
-    # User Manager
-    application.add_handler(CallbackQueryHandler(user_manager_menu, pattern="^admin_user_manager$"))
+    # ---- User Manager (USING WRAPPER) ----
+    application.add_handler(CallbackQueryHandler(user_manager_menu_wrapper, pattern="^admin_user_manager$"))
     application.add_handler(CallbackQueryHandler(um_search_prompt, pattern="^um_search$"))
     application.add_handler(CallbackQueryHandler(send_user_list_file, pattern="^um_download$"))
     application.add_handler(CallbackQueryHandler(um_stats, pattern="^um_stats$"))
     application.add_handler(CallbackQueryHandler(um_edit_balance_prompt, pattern=r"^um_editbal\|"))
     application.add_handler(CallbackQueryHandler(um_ban_toggle, pattern=r"^um_ban\|"))
-    application.add_handler(CallbackQueryHandler(user_manager_menu, pattern="^um_back$"))
+    application.add_handler(CallbackQueryHandler(user_manager_menu_wrapper, pattern="^um_back$"))
 
-    # Database
-    application.add_handler(CallbackQueryHandler(database_menu, pattern="^admin_database$"))
+    # ---- Database (USING WRAPPER) ----
+    application.add_handler(CallbackQueryHandler(database_menu_wrapper, pattern="^admin_database$"))
     application.add_handler(CallbackQueryHandler(db_download, pattern="^db_download$"))
     application.add_handler(CallbackQueryHandler(db_upload_prompt, pattern="^db_upload$"))
 
-    # Stock Management
-    application.add_handler(CallbackQueryHandler(stock_management_menu, pattern="^admin_stock_management$"))
+    # ---- Stock Management (USING WRAPPER) ----
+    application.add_handler(CallbackQueryHandler(stock_management_menu_wrapper, pattern="^admin_stock_management$"))
     application.add_handler(CallbackQueryHandler(stock_upload_callback, pattern="^stock_upload$"))
     application.add_handler(CallbackQueryHandler(stock_remove_callback, pattern="^stock_remove$"))
     application.add_handler(CallbackQueryHandler(stock_remove_confirm_callback, pattern=r"^stock_remove_confirm\|"))
@@ -3730,8 +3750,8 @@ def main():
     application.add_handler(CallbackQueryHandler(fu_country_callback, pattern=r"^fu_country\|"))
     application.add_handler(CallbackQueryHandler(fu_service_callback, pattern=r"^fu_service\|"))
 
-    # API Management (original + new)
-    application.add_handler(CallbackQueryHandler(manage_api_menu, pattern="^admin_manage_api$"))
+    # ---- API Management (USING WRAPPER) ----
+    application.add_handler(CallbackQueryHandler(manage_api_menu_wrapper, pattern="^admin_manage_api$"))
     application.add_handler(CallbackQueryHandler(api_add_start, pattern="^api_add$"))
     application.add_handler(CallbackQueryHandler(api_remove_list, pattern="^api_remove$"))
     application.add_handler(CallbackQueryHandler(api_remove_execute, pattern=r"^api_remove_do\|"))
