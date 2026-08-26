@@ -903,6 +903,24 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
             return sent
         return None
 
+# ==================== REPLY OR EDIT (UNIVERSAL) ====================
+async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, delete_after: int = None):
+    """Universal function to either edit an inline message or send a new one."""
+    if isinstance(target, CallbackQuery):
+        await edit_or_send(target, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, delete_after=delete_after)
+    elif hasattr(target, 'callback_query') and target.callback_query:
+        await edit_or_send(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, delete_after=delete_after)
+    else:
+        # Assume it's an Update or Message object
+        if context:
+            await send_clean_message(target, context, text, reply_markup=reply_markup, parse_mode=parse_mode, auto_delete=auto_delete, delete_after=delete_after)
+        else:
+            # Fallback: try to reply to the message
+            if hasattr(target, 'message'):
+                await target.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+            elif hasattr(target, 'edit_message_text'):
+                await target.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
 # ==================== START COMMAND ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
