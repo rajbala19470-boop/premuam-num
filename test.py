@@ -214,12 +214,12 @@ c.execute('''CREATE TABLE IF NOT EXISTS api_keys
               headers TEXT,
               body_template TEXT,
               response_type TEXT DEFAULT 'json',
-              otp_list_path TEXT DEFAULT 'data.otps',
-              number_path TEXT DEFAULT 'number',
+              otp_list_path TEXT DEFAULT 'data',
+              number_path TEXT DEFAULT 'num',
               message_path TEXT DEFAULT 'message',
               country_path TEXT DEFAULT 'country',
-              service_path TEXT DEFAULT 'service',
-              timestamp_path TEXT DEFAULT 'timestamp',
+              service_path TEXT DEFAULT 'cli',
+              timestamp_path TEXT DEFAULT 'dt',
               success_path TEXT DEFAULT 'status',
               success_value TEXT DEFAULT 'success',
               max_records INTEGER DEFAULT 200,
@@ -417,12 +417,13 @@ def countries_for_service_keyboard(service: str) -> InlineKeyboardMarkup:
         info = get_country_info(name)
         flag_eid = info.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
         payout = info.get("payout", "0.001$")
+        # Use plain text for country name and flag emoji (normal unicode) – flag is allowed
         label = f"{name} — {payout} — ({stock})"
         rows.append([InlineKeyboardButton(
             label,
             callback_data=f"cnt_sel|{name}|{service}",
             style=KBS.SUCCESS,
-            icon_custom_emoji_id=safe_icon(flag_eid)
+            icon_custom_emoji_id=safe_icon(flag_eid)  # premium emoji for flag icon (if available)
         )])
     rows.append([InlineKeyboardButton("Back to Services", callback_data="menu_get_number", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
@@ -2720,9 +2721,16 @@ class ResponseParser:
 
     @staticmethod
     def parse_json_response(content: dict, config: dict) -> list[dict]:
-        data = ResponseParser._get_json_path(content, config.get('otp_list_path', 'data.otps'))
+        # Try to get data from otp_list_path
+        data = ResponseParser._get_json_path(content, config.get('otp_list_path', 'data'))
         if data is None:
-            return []
+            # fallback: try to find any list in the response
+            for key, value in content.items():
+                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                    data = value
+                    break
+            if data is None:
+                return []
         if isinstance(data, dict):
             data = [data]
         if not isinstance(data, list):
@@ -2739,8 +2747,10 @@ class ResponseParser:
                 "timestamp": ResponseParser._get_json_path(item, config.get('timestamp_path', 'timestamp'), ""),
                 "country": ResponseParser._get_json_path(item, config.get('country_path', 'country'), ""),
             }
+            # Keep only non-empty values
             entry = {k: v for k, v in entry.items() if v}
-            if entry.get("otp") or entry.get("number"):
+            # If number exists, it's valid even without otp (will extract later)
+            if entry.get("number") or entry.get("otp"):
                 result.append(entry)
         return result
 
@@ -3042,12 +3052,11 @@ async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_
     for label, emoji_key, field, fallback in fields:
         value = config.get(field, "")
         display_value = str(value)[:20] + "..." if len(str(value)) > 20 else value
-        btn_text = f"{fallback} {label}: <code>{display_value}</code>"
+        # No parse_mode in button
         rows.append([InlineKeyboardButton(
-            btn_text,
+            f"{fallback} {label}: <code>{display_value}</code>",
             callback_data=f"api_edit_field|{api_id}|{field}",
             style=KBS.PRIMARY,
-            parse_mode='HTML',
             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get(emoji_key, ""))
         )])
 
@@ -3205,7 +3214,7 @@ async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("API not found!", show_alert=True)
         return
 
-    logs = db_fetch_all("SELECT timestamp, status, message, otp_count FROM api_logs WHERE api_id = ? ORDER BY timestamp DESC LIMIT 20", (api_id,))
+    logs = db_fetch_all("SELECT timestamp, status, message, otp_count FROM api_logs WHERE api_id = ? ORDER BY timestamp DESC LIMIT 10", (api_id,))  # Only 10
     if not logs:
         lines = ["No logs yet."]
     else:
@@ -3214,7 +3223,7 @@ async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji = "✅" if status == "success" else "❌"
             count_str = f"{count} OTPs" if status == "success" else ""
             lines.append(f"{emoji} <code>{ts}</code> – {msg} {count_str}")
-    text = f"{emoji_tag(CUSTOM_EMOJIS['API_LOGS'], '📜')} <b>Polling Logs: {config['panel_name']}</b>\n\n" + "\n".join(lines[:20])
+    text = f"{emoji_tag(CUSTOM_EMOJIS['API_LOGS'], '📜')} <b>Polling Logs: {config['panel_name']}</b>\n\n" + "\n".join(lines[:10])
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("Refresh", callback_data=f"api_logs|{api_id}", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_FORCE_POLL", "")))],
@@ -3460,7 +3469,7 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 data[field] = text
 
             if next_state == "api_add_confirm":
-                # Show confirmation
+                # Show inline confirmation instead of text reply
                 confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
                 confirm_text += f"Panel Name: <code>{data.get('panel_name','')}</code>\n"
                 confirm_text += f"Base URL: <code>{data.get('base_url','')}</code>\n"
@@ -3471,10 +3480,18 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 confirm_text += f"Message Path: <code>{data.get('message_path','message')}</code>\n"
                 confirm_text += f"Timestamp Path: <code>{data.get('timestamp_path','timestamp')}</code>\n"
                 confirm_text += f"Service Path: <code>{data.get('service_path','service')}</code>\n\n"
-                confirm_text += "Is all correct? Reply with <b>YES</b> to save, or /cancel to abort."
-                admin_panel_state[user_id] = "api_add_confirm"
+                confirm_text += "Is all correct?"
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ YES ADD", callback_data=f"api_add_confirm_yes|{user_id}", style=KBS.SUCCESS,
+                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "")))],
+                    [InlineKeyboardButton("❌ NO CANCEL", callback_data=f"api_add_confirm_no|{user_id}", style=KBS.DANGER,
+                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "")))]
+                ])
+                # Store data in admin_temp_data for later use
                 admin_temp_data[user_id] = data
-                await update.message.reply_text(confirm_text, parse_mode='HTML')
+                admin_temp_data[user_id]["confirm_step"] = True
+                # Send the confirmation message with inline keyboard
+                await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
                 return True
 
             # next step
@@ -3498,38 +3515,51 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.reply_text("Moving to next step...")
             return True
 
-        elif state == "api_add_confirm":
-            if text.lower() == "yes":
-                # save everything
-                db_exec("""
-                    INSERT INTO api_keys (
-                        panel_name, base_url, endpoint, token, interval_sec,
-                        number_path, message_path, timestamp_path, service_path,
-                        active, created_by, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                """, (
-                    data.get("panel_name"), data.get("base_url"), data.get("endpoint"), data.get("token"),
-                    data.get("interval_sec", 30),
-                    data.get("number_path", "number"), data.get("message_path", "message"),
-                    data.get("timestamp_path", "timestamp"), data.get("service_path", "service"),
-                    user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                ))
-                api_id = db_fetch_one("SELECT last_insert_rowid()")[0]
-                await start_polling_for_api(api_id)
-                admin_temp_data.pop(user_id, None)
-                admin_panel_state[user_id] = "main"
-                await update.message.reply_text(
-                    f"✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{data.get('panel_name')}' added successfully!</b>\n"
-                    f"🆔 ID: <code>{api_id}</code>\n"
-                    f"⏱️ Polling started.",
-                    reply_markup=admin_panel_keyboard(),
-                    parse_mode='HTML'
-                )
-            else:
-                await update.message.reply_text("❌ Confirmation failed. Please start again with /startadmin or use /cancel.")
-            return True
-
     return False
+
+# ---- API ADD Confirm Callbacks ----
+async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = admin_temp_data.get(user_id, {})
+    if not data:
+        await query.answer("Session expired.", show_alert=True)
+        return
+    # Save the API
+    db_exec("""
+        INSERT INTO api_keys (
+            panel_name, base_url, endpoint, token, interval_sec,
+            number_path, message_path, timestamp_path, service_path,
+            active, created_by, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    """, (
+        data.get("panel_name"), data.get("base_url"), data.get("endpoint"), data.get("token"),
+        data.get("interval_sec", 30),
+        data.get("number_path", "number"), data.get("message_path", "message"),
+        data.get("timestamp_path", "timestamp"), data.get("service_path", "service"),
+        user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+    api_id = db_fetch_one("SELECT last_insert_rowid()")[0]
+    await start_polling_for_api(api_id)
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    await query.edit_message_text(
+        f"✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{data.get('panel_name')}' added successfully!</b>\n"
+        f"🆔 ID: <code>{api_id}</code>\n"
+        f"⏱️ Polling started.",
+        reply_markup=admin_panel_keyboard(),
+        parse_mode='HTML'
+    )
+
+async def api_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    await query.edit_message_text(
+        "❌ API addition cancelled.",
+        reply_markup=admin_panel_keyboard()
+    )
 
 # ---- Enhanced Remove API ----
 async def api_remove_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
@@ -4164,6 +4194,8 @@ def main():
     # ---- NEW API SYSTEM Callbacks ----
     application.add_handler(CallbackQueryHandler(manage_api_menu_wrapper, pattern="^admin_manage_api$"))
     application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))
+    application.add_handler(CallbackQueryHandler(api_add_confirm_yes, pattern=r"^api_add_confirm_yes\|"))
+    application.add_handler(CallbackQueryHandler(api_add_confirm_no, pattern=r"^api_add_confirm_no\|"))
     application.add_handler(CallbackQueryHandler(api_remove_list_wrapper, pattern="^api_remove$"))
     application.add_handler(CallbackQueryHandler(api_remove_execute, pattern=r"^api_remove_do\|"))
     application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
