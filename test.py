@@ -87,7 +87,7 @@ CUSTOM_EMOJIS = {
     "NEW_NUMBER": "5877410604225924969",
     "BACK": "6206505206197261313",
     "DELETE": "6203761490894264678",
-    "BROADCAST": "6203886371363364022",
+    "BROADCAST": "6206080502651164081",
     "COUNTRY_MANAGER": "5188540541922480562",
     "SERVICE_MANAGER": "5465590345108589516",
     "GIVEAWAY": "6282893896796082998",
@@ -2015,13 +2015,12 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
 
 # ==================== END OF PART 1 ====================
 # The remainder — NEW API SYSTEM FUNCTIONS — will be in Part 2.
-# ==================== PART 2 — COMPLETE FIXED VERSION ====================
-# Continue from Part 1. This is the second half of bot.py with all admin panel fixes.
+# ==================== PART 2 — COMPLETE FIXED (ALL CALLBACK WRAPPERS) ====================
+# Continue from Part 1. This is the second half of bot.py
 
 # ==================== NEW API SYSTEM FUNCTIONS ====================
 
 def get_api_config(api_id: int) -> Optional[Dict]:
-    """Fetch a single API configuration as dict"""
     row = db_fetch_one("""
         SELECT id, panel_name, base_url, token, interval_sec, active,
                endpoint, method, headers, body_template, response_type,
@@ -2043,8 +2042,6 @@ def get_api_config(api_id: int) -> Optional[Dict]:
 
 
 class ResponseParser:
-    """Parse different API response formats (JSON, text) using configured paths"""
-    
     @staticmethod
     def _get_json_path(data, path, default=None):
         if not path:
@@ -2065,7 +2062,6 @@ class ResponseParser:
                 if part in current:
                     current = current[part]
                 else:
-                    # Case-insensitive fallback
                     found = False
                     for key in current:
                         if key.lower() == part.lower():
@@ -2080,7 +2076,6 @@ class ResponseParser:
 
     @staticmethod
     def parse_json_response(content: dict, config: dict) -> List[dict]:
-        """Extract OTP entries from JSON using configured paths"""
         data = ResponseParser._get_json_path(content, config.get('otp_list_path', 'data.otps'))
         if data is None:
             return []
@@ -2100,7 +2095,6 @@ class ResponseParser:
                 "timestamp": ResponseParser._get_json_path(item, config.get('timestamp_path', 'timestamp'), ""),
                 "country": ResponseParser._get_json_path(item, config.get('country_path', 'country'), ""),
             }
-            # Remove empty values
             entry = {k: v for k, v in entry.items() if v}
             if entry.get("otp") or entry.get("number"):
                 result.append(entry)
@@ -2108,12 +2102,10 @@ class ResponseParser:
 
     @staticmethod
     def parse_response(content, config: dict) -> List[dict]:
-        """Main entry point — detects JSON/text and parses accordingly"""
         if isinstance(content, str):
             try:
                 content = json.loads(content)
             except:
-                # Fallback to text extraction using regex
                 otps = extract_all_otps_from_message(content)
                 return [{"otp": otp, "message": content[:200]} for otp in otps]
         if isinstance(content, dict):
@@ -2123,33 +2115,28 @@ class ResponseParser:
 
 # ---- Polling System ----
 async def poll_single_api(api_id: int):
-    """Background task that polls one API at its configured interval"""
     while True:
         config = get_api_config(api_id)
         if not config or not config.get('active'):
             break
         interval = config.get('interval_sec', 30)
         try:
-            # Build URL
             base_url = config['base_url'].rstrip('/')
             endpoint = config['endpoint'].lstrip('/')
             url = f"{base_url}/{endpoint}"
             url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{records}', str(config.get('max_records', 200)))
 
-            # Build headers
             headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
             for k, v in headers.items():
                 if isinstance(v, str):
                     headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token'])
 
-            # Execute request
             method = config.get('method', 'GET').upper()
             resp = None
             if method == 'GET':
                 resp = requests.get(url, headers=headers, timeout=30)
             elif method == 'POST':
                 body = json.loads(config.get('body_template', '{}')) if config.get('body_template') else {}
-                # Recursively replace placeholders
                 def replace_placeholders(obj):
                     if isinstance(obj, dict):
                         return {k: replace_placeholders(v) for k, v in obj.items()}
@@ -2164,13 +2151,11 @@ async def poll_single_api(api_id: int):
                 resp = requests.request(method, url, headers=headers, timeout=30)
 
             if resp and resp.status_code == 200:
-                # Parse response
                 otps = ResponseParser.parse_response(resp.text, config)
                 if otps:
                     await process_otps(otps, bot=application.bot)
                     db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
                             (len(otps), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
-                # Log success
                 db_exec("INSERT INTO api_logs (api_id, timestamp, status, message, otp_count) VALUES (?, ?, 'success', ?, ?)",
                         (api_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "OK", len(otps) if otps else 0))
                 db_exec("UPDATE api_keys SET error_count = 0, last_poll_time = ? WHERE id = ?",
@@ -2189,7 +2174,6 @@ async def poll_single_api(api_id: int):
 
 
 async def start_polling_for_api(api_id: int):
-    """Start the polling task for a given API if active and not already running"""
     config = get_api_config(api_id)
     if not config or not config.get('active'):
         return
@@ -2199,7 +2183,6 @@ async def start_polling_for_api(api_id: int):
 
 
 async def stop_polling_for_api(api_id: int):
-    """Stop the polling task for an API and set active=0"""
     if api_id in polling_tasks:
         polling_tasks[api_id].cancel()
         del polling_tasks[api_id]
@@ -2207,15 +2190,13 @@ async def stop_polling_for_api(api_id: int):
 
 
 async def start_all_polling():
-    """Called on bot startup to start polling for all active APIs"""
     apis = db_fetch_all("SELECT id FROM api_keys WHERE active = 1")
     for (api_id,) in apis:
         await start_polling_for_api(api_id)
 
 
-# ---- API SYSTEM Grid View ----
+# ---- API SYSTEM Grid ----
 async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Show all APIs in a 2-column grid with status"""
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
             await update.answer("Admin only!", show_alert=True)
@@ -2253,7 +2234,6 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     if row:
         rows.append(row)
 
-    # Add "Add API" and "Back" buttons
     rows.append([
         InlineKeyboardButton("➕ Add API", callback_data="api_add", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))
@@ -2267,9 +2247,8 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
 
-# ---- API Detail Page (1×1 inline) ----
+# ---- API Detail Page ----
 async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
-    """Show detailed management page for a single API (1×1 layout)"""
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
@@ -2289,8 +2268,6 @@ async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, ap
     )
 
     btns = []
-
-    # Toggle Start/Stop
     if config['active']:
         btns.append(InlineKeyboardButton(
             f"{emoji_tag(CUSTOM_EMOJIS['API_STOP_POLL'], '⏸️')} STOP POLLING",
@@ -2306,49 +2283,42 @@ async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, ap
             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_START_POLL", ""))
         ))
 
-    # Edit
     btns.append(InlineKeyboardButton(
         f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} EDIT",
         callback_data=f"api_edit|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", ""))
     ))
-    # Test
     btns.append(InlineKeyboardButton(
         f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} TEST",
         callback_data=f"api_test|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_TEST", ""))
     ))
-    # Stats
     btns.append(InlineKeyboardButton(
         f"{emoji_tag(CUSTOM_EMOJIS['API_STATS'], '📊')} STATS",
         callback_data=f"api_stats|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_STATS", ""))
     ))
-    # Logs
     btns.append(InlineKeyboardButton(
         f"{emoji_tag(CUSTOM_EMOJIS['API_LOGS'], '📜')} LOGS",
         callback_data=f"api_logs|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_LOGS", ""))
     ))
-    # Delete
     btns.append(InlineKeyboardButton(
         f"{emoji_tag(CUSTOM_EMOJIS['DELETE'], '🗑️')} DELETE",
         callback_data=f"api_delete|{api_id}",
         style=KBS.DANGER,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", ""))
     ))
-    # Force Poll
     btns.append(InlineKeyboardButton(
         f"{emoji_tag(CUSTOM_EMOJIS['API_FORCE_POLL'], '🔄')} FORCE POLL",
         callback_data=f"api_force|{api_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_FORCE_POLL", ""))
     ))
-    # Back to list
     btns.append(InlineKeyboardButton(
         f"{emoji_tag(CUSTOM_EMOJIS['BACK'], '🔙')} BACK TO LIST",
         callback_data="api_system",
@@ -2356,14 +2326,13 @@ async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, ap
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))
     ))
 
-    # Arrange 1×1: each button in its own row
     rows = [[btn] for btn in btns]
     sep = emoji_tag(CUSTOM_EMOJIS["API_SEPARATOR"], "➖") * 20
     text = f"{header}\n\n{info}\n\n{sep}\n\n"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
 
-# ---- Toggle (Start/Stop Polling) ----
+# ---- Toggle ----
 async def api_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -2384,11 +2353,10 @@ async def api_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await start_polling_for_api(api_id)
         await query.answer("Polling started.")
 
-    # Refresh detail page
     await api_detail_page(update, context, api_id, user_id)
 
 
-# ---- Edit Menu (all fields as 1×1 inline buttons) ----
+# ---- Edit Menu ----
 async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
@@ -2400,7 +2368,6 @@ async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_
 
     admin_panel_state[user_id] = f"api_edit_{api_id}"
 
-    # List of editable fields: (display label, emoji key, db field, fallback emoji)
     fields = [
         ("NAME", "API_FIELD_NAME", "panel_name", "📛"),
         ("BASE URL", "API_FIELD_URL", "base_url", "🌐"),
@@ -2472,7 +2439,7 @@ async def api_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
-# ---- Test API ----
+# ---- Test ----
 async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -2488,7 +2455,6 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} Testing <b>{config['panel_name']}</b> ...", parse_mode='HTML')
 
     try:
-        # Build request
         base_url = config['base_url'].rstrip('/')
         endpoint = config['endpoint'].lstrip('/')
         url = f"{base_url}/{endpoint}"
@@ -2594,7 +2560,6 @@ async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji = "✅" if status == "success" else "❌"
             count_str = f"{count} OTPs" if status == "success" else ""
             lines.append(f"{emoji} <code>{ts}</code> – {msg} {count_str}")
-
     text = f"{emoji_tag(CUSTOM_EMOJIS['API_LOGS'], '📜')} <b>Polling Logs: {config['panel_name']}</b>\n\n" + "\n".join(lines[:20])
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 Refresh", callback_data=f"api_logs|{api_id}", style=KBS.PRIMARY,
@@ -2605,7 +2570,7 @@ async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 
-# ---- Delete (with YES/NO confirmation) ----
+# ---- Delete ----
 async def api_delete_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -2640,10 +2605,9 @@ async def api_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     data = query.data.split('|')
     api_id = int(data[1])
-    action = data[0]  # api_delete_yes or api_delete_no
+    action = data[0]
 
     if action == "api_delete_yes":
-        # Stop polling task if running
         if api_id in polling_tasks:
             polling_tasks[api_id].cancel()
             del polling_tasks[api_id]
@@ -3094,30 +3058,78 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
 
 
-# ==================== WRAPPER FUNCTIONS FOR ADMIN PANEL (FIX FOR user_id ERROR) ====================
+# ==================== WRAPPER FUNCTIONS FOR ALL CALLBACKS ====================
 
-async def user_manager_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Wrapper to extract user_id and call the original user_manager_menu"""
+# ---- Admin Panel Menu Wrapper (for admin_back) ----
+async def admin_panel_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    await user_manager_menu(update, context, user_id)
+    await admin_panel_menu(update, user_id, context)
 
 
-async def stock_management_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Wrapper to extract user_id and call the original stock_management_menu"""
-    user_id = update.effective_user.id
-    await stock_management_menu(update, context, user_id)
-
-
+# ---- Manage API Wrappers ----
 async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Wrapper to extract user_id and call the original manage_api_menu"""
     user_id = update.effective_user.id
     await manage_api_menu(update, context, user_id)
 
 
+async def api_add_start_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await api_add_start(update, context, user_id)
+
+
+async def api_remove_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await api_remove_list(update, context, user_id)
+
+
+async def api_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await api_list(update, context, user_id)
+
+
+async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await api_system_grid(update, context, user_id)
+
+
+async def api_detail_page_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    api_id = int(query.data.split('|')[1])
+    await api_detail_page(update, context, api_id, user_id)
+
+
+async def api_edit_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    api_id = int(query.data.split('|')[1])
+    await api_edit_menu(update, context, api_id, user_id)
+
+
+# ---- Database Wrapper ----
 async def database_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Wrapper to extract user_id and call the original database_menu"""
     user_id = update.effective_user.id
     await database_menu(update, context, user_id)
+
+
+# ---- User Manager Wrapper ----
+async def user_manager_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await user_manager_menu(update, context, user_id)
+
+
+# ---- Stock Management Wrapper ----
+async def stock_management_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await stock_management_menu(update, context, user_id)
+
+
+# ---- Country Manager Wrapper (if needed, but currently country_callback handles it internally) ----
+# No need, country_callback gets user_id from query
+
+
+# ---- Service Manager Wrapper (if needed) ----
+# No need, service_callback gets user_id from query
 
 
 # ==================== DOCUMENT HANDLER (FILE UPLOADS) ====================
@@ -3233,7 +3245,7 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("No action taken – please use the admin panel.")
 
 
-# ==================== OTP PROCESSING (FULL ORIGINAL) ====================
+# ==================== OTP PROCESSING ====================
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
@@ -3252,7 +3264,6 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
 
 
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
-    """Process OTPs: forward to group, credit users, and notify"""
     if context:
         bot = context.bot
     if not bot:
@@ -3284,7 +3295,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         if not number or not otp_code:
             continue
 
-        # Forward to group
         if GROUP_ID:
             already_sent = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=0", (number, otp_code))
             if not already_sent:
@@ -3309,7 +3319,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 except Exception as e:
                     print(f"Group Rich message failed: {e}")
 
-        # Credit users
         if number in num_map:
             try:
                 otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -3360,7 +3369,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
 
 
 def format_group_otp_rich(entry):
-    """Format OTP entry for rich group message"""
     number = entry.get("number", "")
     otp_code = entry.get("otp", "")
     service_name = entry.get("service", "Unknown")
@@ -3627,10 +3635,9 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_panel_menu(update, user_id, context)
 
 
-# ==================== ADMIN TEXT HANDLER (MODIFIED TO INCLUDE NEW STATES) ====================
+# ==================== ADMIN TEXT HANDLER ====================
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Already used in text_handler; this is a wrapper.
-    # The logic is inside text_handler; we keep this for compatibility.
+    # Already used in text_handler; we keep this for compatibility.
     return False
 
 
@@ -3682,7 +3689,6 @@ def main():
     application.add_handler(CommandHandler("addadmin", add_admin_command))
     application.add_handler(CommandHandler("removeadmin", remove_admin_command))
     application.add_handler(CommandHandler("adminlist", admin_list_command))
-    # The original bot also had /country, /service, /setcountry, /setservice, /testgroup
     application.add_handler(CommandHandler("country", group_country_command))
     application.add_handler(CommandHandler("service", group_service_command))
     application.add_handler(CommandHandler("setcountry", set_country_command))
@@ -3720,7 +3726,7 @@ def main():
     application.add_handler(CallbackQueryHandler(service_callback, pattern="^service_set_emoji$"))
     application.add_handler(CallbackQueryHandler(service_callback, pattern=r"^service_emoji_set\|"))
 
-    # ---- User Manager (USING WRAPPER) ----
+    # ---- User Manager (using wrapper) ----
     application.add_handler(CallbackQueryHandler(user_manager_menu_wrapper, pattern="^admin_user_manager$"))
     application.add_handler(CallbackQueryHandler(um_search_prompt, pattern="^um_search$"))
     application.add_handler(CallbackQueryHandler(send_user_list_file, pattern="^um_download$"))
@@ -3729,12 +3735,12 @@ def main():
     application.add_handler(CallbackQueryHandler(um_ban_toggle, pattern=r"^um_ban\|"))
     application.add_handler(CallbackQueryHandler(user_manager_menu_wrapper, pattern="^um_back$"))
 
-    # ---- Database (USING WRAPPER) ----
+    # ---- Database (using wrapper) ----
     application.add_handler(CallbackQueryHandler(database_menu_wrapper, pattern="^admin_database$"))
     application.add_handler(CallbackQueryHandler(db_download, pattern="^db_download$"))
     application.add_handler(CallbackQueryHandler(db_upload_prompt, pattern="^db_upload$"))
 
-    # ---- Stock Management (USING WRAPPER) ----
+    # ---- Stock Management (using wrapper) ----
     application.add_handler(CallbackQueryHandler(stock_management_menu_wrapper, pattern="^admin_stock_management$"))
     application.add_handler(CallbackQueryHandler(stock_upload_callback, pattern="^stock_upload$"))
     application.add_handler(CallbackQueryHandler(stock_remove_callback, pattern="^stock_remove$"))
@@ -3750,18 +3756,18 @@ def main():
     application.add_handler(CallbackQueryHandler(fu_country_callback, pattern=r"^fu_country\|"))
     application.add_handler(CallbackQueryHandler(fu_service_callback, pattern=r"^fu_service\|"))
 
-    # ---- API Management (USING WRAPPER) ----
+    # ---- API Management (using wrappers) ----
     application.add_handler(CallbackQueryHandler(manage_api_menu_wrapper, pattern="^admin_manage_api$"))
-    application.add_handler(CallbackQueryHandler(api_add_start, pattern="^api_add$"))
-    application.add_handler(CallbackQueryHandler(api_remove_list, pattern="^api_remove$"))
+    application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))
+    application.add_handler(CallbackQueryHandler(api_remove_list_wrapper, pattern="^api_remove$"))
     application.add_handler(CallbackQueryHandler(api_remove_execute, pattern=r"^api_remove_do\|"))
-    application.add_handler(CallbackQueryHandler(api_list, pattern="^api_list$"))
+    application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
 
-    # API SYSTEM (new)
-    application.add_handler(CallbackQueryHandler(api_system_grid, pattern="^api_system$"))
-    application.add_handler(CallbackQueryHandler(api_detail_page, pattern=r"^api_detail\|(\d+)$"))
+    # API SYSTEM (using wrappers where needed)
+    application.add_handler(CallbackQueryHandler(api_system_grid_wrapper, pattern="^api_system$"))
+    application.add_handler(CallbackQueryHandler(api_detail_page_wrapper, pattern=r"^api_detail\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_toggle_callback, pattern=r"^api_toggle\|(\d+)$"))
-    application.add_handler(CallbackQueryHandler(api_edit_menu, pattern=r"^api_edit\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_edit_menu_wrapper, pattern=r"^api_edit\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_edit_field_prompt, pattern=r"^api_edit_field\|(\d+)\|(.+)$"))
     application.add_handler(CallbackQueryHandler(api_test_callback, pattern=r"^api_test\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_stats_callback, pattern=r"^api_stats\|(\d+)$"))
@@ -3770,8 +3776,8 @@ def main():
     application.add_handler(CallbackQueryHandler(api_delete_confirm, pattern=r"^api_delete_(yes|no)\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_force_poll, pattern=r"^api_force\|(\d+)$"))
 
-    # Admin back / cancel
-    application.add_handler(CallbackQueryHandler(admin_panel_menu, pattern="^admin_back$"))
+    # ---- Admin back / cancel (using wrapper) ----
+    application.add_handler(CallbackQueryHandler(admin_panel_menu_wrapper, pattern="^admin_back$"))
 
     # ---- Error Handler ----
     application.add_error_handler(error_handler)
@@ -3780,7 +3786,7 @@ def main():
     if application.job_queue:
         application.job_queue.run_repeating(periodic_json_save, interval=60, first=10)
 
-    # ---- Post init (start polling tasks) ----
+    # ---- Post init ----
     async def start_api_tasks(app):
         print("🚀 Starting API polling tasks...")
         await start_all_polling()
@@ -3794,7 +3800,7 @@ def main():
     application.run_polling(drop_pending_updates=True)
 
 
-# ---- Force upload callbacks (for file uploads) ----
+# ---- Force upload callbacks ----
 async def fu_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -3853,7 +3859,7 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     admin_panel_state[user_id] = "main"
 
 
-# ---- Group OTP commands (legacy) ----
+# ---- Group OTP commands ----
 async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Admin only.")
@@ -3927,7 +3933,6 @@ async def set_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin command to send a test OTP to the group using ISO2 country code."""
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ Unauthorized. Admin only.")
@@ -3995,14 +4000,13 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Error: {e}")
 
 
-# ---- Default emojis for group ----
 DEFAULT_EMOJIS = {
     "countries": {},
     "services": {},
 }
 
 
-# ==================== BACK TO MAIN MENU CALLBACK ====================
+# ---- Back to Main Menu ----
 async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await ban_check(update, context):
@@ -4013,7 +4017,7 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await show_main_menu(query, user_id, first_name, context)
 
 
-# ==================== WITHDRAW CALLBACK ====================
+# ---- Withdraw ----
 async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await ban_check(update, context):
@@ -4022,7 +4026,7 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_withdraw(update, query.from_user.id, context)
 
 
-# ==================== SEND STOCK MANAGEMENT MENU ====================
+# ---- Send Stock Management Menu ----
 async def send_stock_management_menu(target, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     text = f"{emoji_tag(CUSTOM_EMOJIS['STOCK_MANAGER'], '📦')} <b>STOCK MANAGEMENT</b>\n\nSelect an action below:"
     kb = stock_management_menu_keyboard()
