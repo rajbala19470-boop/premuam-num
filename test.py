@@ -3848,7 +3848,14 @@ COUNTRY_CODE_MAP = {
     "996": ("KG", "🇰🇬", "Kyrgyzstan"),
     "998": ("UZ", "🇺🇿", "Uzbekistan"),
 }
-ISO_TO_INFO = {v[0]: (v[1], v[2]) for v in COUNTRY_CODE_MAP.items()}
+
+# ---------------- FIX: safe build of ISO_TO_INFO ---------------
+ISO_TO_INFO = {}
+for code, val in COUNTRY_CODE_MAP.items():
+    if isinstance(val, tuple) and len(val) >= 3:
+        ISO_TO_INFO[val[0]] = (val[1], val[2])
+    else:
+        print(f"Warning: Skipping malformed entry for code {code}: {val}")
 
 def get_country_code(country_name):
     if not country_name:
