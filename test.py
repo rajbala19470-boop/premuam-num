@@ -1,5 +1,5 @@
 # bot.py — SR NUMBER HUB (Complete with Multi-API System)
-# Original code preserved except Manage API replaced with new system.
+# All original features + new API System. COUNTRY_CODE_MAP fixed.
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -126,6 +126,21 @@ CUSTOM_EMOJIS["API_SEPARATOR"] = "5870818207383686839"
 CUSTOM_EMOJIS["BACK"] = "6068830682359010545"
 CUSTOM_EMOJIS["DELETE"] = "6203761490894264678"
 CUSTOM_EMOJIS["ADMIN"] = "6206188632747808299"
+CUSTOM_EMOJIS["UPLOAD"] = "6206046503690048595"
+CUSTOM_EMOJIS["CANCEL"] = "6206003549722122915"
+CUSTOM_EMOJIS["BROADCAST"] = "6203886371363364022"
+CUSTOM_EMOJIS["ADD"] = "6206375377925839184"
+CUSTOM_EMOJIS["GIVEAWAY"] = "6282893896796082998"
+CUSTOM_EMOJIS["STATS"] = "6266936886405633043"
+CUSTOM_EMOJIS["PACKAGE"] = "5463412319948148591"
+CUSTOM_EMOJIS["GEAR"] = "6206236607532504295"
+CUSTOM_EMOJIS["CHANGE_COUNTRY"] = "5188540541922480562"
+CUSTOM_EMOJIS["GREEN_CIRCLE"] = "5339112148175959615"
+CUSTOM_EMOJIS["RED_CIRCLE"] = "5337017423906226569"
+CUSTOM_EMOJIS["CLOCK"] = "6267229004311303657"
+CUSTOM_EMOJIS["DEFAULT_FLAG"] = "5188540541922480562"
+CUSTOM_EMOJIS["DEFAULT_SERVICE"] = "5465590345108589516"
+CUSTOM_EMOJIS["JOIN_OTP_GROUP"] = "6204010762206189094"
 
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
@@ -3652,10 +3667,6 @@ async def api_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await manage_api_menu(update, context, user_id)
-
-# ---- Integrate edit value in text_handler ----
-# We already have a check for state.startswith("api_edit_value_") in text_handler.
-# We'll add that case in the main text_handler function.
 
 # ==================== FULL COUNTRY CODE MAP ====================
 COUNTRY_CODE_MAP = {
