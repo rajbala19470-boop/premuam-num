@@ -35,8 +35,10 @@ ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
-# Multiple group IDs – define as a tuple/list of strings or a comma-separated string.
-# Example: GROUP_ID = "-1003716770621","-1001234567890"
+# Multiple group IDs – you can define them as:
+#   A) a tuple/list of strings: GROUP_ID = "-1003716770621","-1001234567890"
+#   B) a comma-separated string: GROUP_ID = "-1003716770621,-1001234567890"
+#   C) a single string: GROUP_ID = "-1003716770621"
 GROUP_ID = "-1003716770621","-1001234567890"   # ← edit as needed
 CHANNEL_URL = "https://t.me/WaCreationHub"
 BOT_URL = "https://t.me/WA_CREATION_BOT"
