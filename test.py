@@ -1,8 +1,8 @@
-
-# with Multi-API System)
+# bot.py — SR NUMBER HUB (Complete with Multi-API System)
 # All features + CURL with automatic placeholder replacement.
 # SKIP means "not used" — no default values.
-# Supports {API_BASE}, {TOKEN}, {YOUR_TOKEN}, {API_TOKEN}, {RECORDS}, etc.
+# Fixed: ResponseParser.parse_response method added.
+# Fixed: Base URL and endpoint used when CURL is skipped.
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -2984,7 +2984,7 @@ Send the value or press SKIP:"""
         auto_delete=False
     )
 
-# ==================== SHOW CONFIRM STEP (UPDATED) ====================
+# ==================== SHOW CONFIRM STEP ====================
 
 async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     """Show confirmation step - shows which fields will be used and which are skipped."""
@@ -3055,7 +3055,7 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         await update.edit_message_text(confirm_text, reply_markup=kb, parse_mode='HTML')
 
-# ==================== HANDLE API ADD SKIP (UPDATED) ====================
+# ==================== HANDLE API ADD SKIP ====================
 
 async def handle_api_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """SKIP button handler - means this step is not needed; field set to None."""
@@ -3201,7 +3201,7 @@ Send <code>/continue</code> to proceed or send another CURL to update.
     
     return True
 
-# ==================== API ADD CONFIRM YES (UPDATED) ====================
+# ==================== API ADD CONFIRM YES ====================
 
 async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3399,14 +3399,18 @@ async def poll_single_api_curl_based(api_id: int):
                     headers = request["headers"]
                     data = request["data"]
                 else:
+                    # Build URL from base_url + endpoint
                     url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
+                    # Replace placeholders in URL
                     for key, value in placeholders.items():
                         url = url.replace(f"{{{key}}}", str(value))
+                    # Replace placeholders in headers
                     for key, value in headers.items():
                         if isinstance(value, str):
                             for ph_key, ph_value in placeholders.items():
                                 value = value.replace(f"{{{ph_key}}}", str(ph_value))
                             headers[key] = value
+                    # Build data
                     data = None
                     if body_template:
                         try:
@@ -4583,7 +4587,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
     
     save_user_data_json()
 
-# ==================== RESPONSE PARSER (UPDATED) ====================
+# ==================== RESPONSE PARSER (FIXED) ====================
 
 class ResponseParser:
     @staticmethod
@@ -4684,6 +4688,20 @@ class ResponseParser:
                 result.append(entry)
         
         return result
+
+    @staticmethod
+    def parse_response(content, config: dict) -> list[dict]:
+        """Main entry point for parsing API response."""
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except:
+                # If not JSON, try to extract OTPs from plain text
+                otps = extract_all_otps_from_message(content)
+                return [{"otp": otp, "message": content[:200]} for otp in otps]
+        if isinstance(content, dict):
+            return ResponseParser.parse_json_response(content, config)
+        return []
 
 # ==================== GET API CONFIG ====================
 
@@ -4909,4 +4927,4 @@ def main():
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    main()
+    main(
