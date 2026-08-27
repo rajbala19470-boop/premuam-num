@@ -1,5 +1,5 @@
 # bot.py — SR NUMBER HUB (Complete with Multi-API System)
-# All original features + new API System. COUNTRY_CODE_MAP fixed.
+# All original features + new API System with CURL and SKIP.
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -147,6 +147,9 @@ CUSTOM_EMOJIS["JOIN_OTP_GROUP"] = "6204010762206189094"
 CUSTOM_EMOJIS["API_LIST_ICON"] = "5411225014148014586"
 CUSTOM_EMOJIS["API_LIST_INTERVAL_ICON"] = "6235253239080555488"
 
+# SKIP emoji
+SKIP_EMOJI = "6267262260243076354"  # ⏭
+
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
 os.makedirs(DB_DIR, exist_ok=True)
@@ -213,7 +216,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS api_keys
               token TEXT,
               interval_sec INTEGER,
               active INTEGER DEFAULT 1,
-              endpoint TEXT DEFAULT '/all_otp',
+              endpoint TEXT DEFAULT '/',
               method TEXT DEFAULT 'GET',
               headers TEXT,
               body_template TEXT,
@@ -235,7 +238,9 @@ c.execute('''CREATE TABLE IF NOT EXISTS api_keys
               last_otp_time TEXT,
               created_by INTEGER,
               created_at TEXT,
-              updated_at TEXT)''')
+              updated_at TEXT,
+              placeholder_config TEXT DEFAULT '{}',
+              curl_command TEXT)''')
 
 # ---- API Logs ----
 c.execute('''CREATE TABLE IF NOT EXISTS api_logs
@@ -272,6 +277,7 @@ admin_temp_data = {}
 last_activation_data = {}
 polling_tasks = {}          # for new API polling
 
+# ==================== HELPER FUNCTIONS ====================
 def safe_url(url: str) -> str | None:
     if url and isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("tg://")):
         return url
@@ -2644,178 +2650,615 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
         auto_delete=False
     )
 
-# ==================== API ADD TEXT HANDLER ====================
-async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = admin_panel_state.get(user_id)
-    if not state or not state.startswith("api_add_"):
-        return False
-    text = update.message.text.strip()
-    if text == "/cancel":
-        admin_temp_data.pop(user_id, None)
-        admin_panel_state[user_id] = "main"
-        await update.message.reply_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
-        return True
+# ==================== CURL PARSER AND API ADD WITH SKIP ====================
 
-    data = admin_temp_data.get(user_id, {})
-    step_messages = {
-        "api_add_name": ("Panel Name", "panel_name", "api_add_base_url"),
-        "api_add_base_url": ("Base URL", "base_url", "api_add_endpoint"),
-        "api_add_endpoint": ("Endpoint", "endpoint", "api_add_token"),
-        "api_add_token": ("Token", "token", "api_add_interval"),
-        "api_add_interval": ("Interval (seconds, >=1)", "interval_sec", "api_add_number_path"),
-        "api_add_number_path": ("Number Field Path", "number_path", "api_add_message_path"),
-        "api_add_message_path": ("Message Field Path", "message_path", "api_add_timestamp_path"),
-        "api_add_timestamp_path": ("Timestamp Field Path", "timestamp_path", "api_add_service_path"),
-        "api_add_service_path": ("Service Field Path", "service_path", "api_add_confirm"),
-        "api_add_confirm": ("", "", "api_add_finish"),
+import re
+import json
+from urllib.parse import urlparse, parse_qs
+
+def parse_curl_complete(curl_string: str) -> dict:
+    """
+    যেকোনো CURL কমান্ড পার্স করে - ইউজার যেভাবে দিবে ঠিক সেভাবেই
+    """
+    result = {
+        "method": "GET",
+        "url": "",
+        "headers": {},
+        "data": None,
+        "raw_curl": curl_string,
+        "placeholders": {},
+        "base_url": "",
+        "endpoint": "/",
+        "original_url": ""
+    }
+    
+    # Clean up
+    curl_string = curl_string.strip()
+    if curl_string.startswith("curl"):
+        curl_string = curl_string[4:].strip()
+    
+    # ===== 1. URL Extraction - যেকোনো ফরম্যাট =====
+    url_patterns = [
+        r'["\'](https?://[^\s"\']+)["\']',
+        r'(https?://[^\s"\']+)',
+    ]
+    
+    for pattern in url_patterns:
+        url_match = re.search(pattern, curl_string)
+        if url_match:
+            result["url"] = url_match.group(1)
+            result["original_url"] = result["url"]
+            curl_string = curl_string.replace(url_match.group(0), "").strip()
+            break
+    
+    # ===== 2. Method Extraction =====
+    method_pattern = r'-[Xx]\s+["\']?([A-Z]+)["\']?'
+    method_match = re.search(method_pattern, curl_string)
+    if method_match:
+        result["method"] = method_match.group(1).upper()
+        curl_string = re.sub(method_pattern, "", curl_string).strip()
+    
+    # ===== 3. Headers Extraction =====
+    header_pattern = r'-H\s+["\']([^"\']+)["\']'
+    header_matches = re.findall(header_pattern, curl_string)
+    for header in header_matches:
+        if ": " in header:
+            key, value = header.split(": ", 1)
+            result["headers"][key.strip()] = value.strip()
+    curl_string = re.sub(header_pattern, "", curl_string).strip()
+    
+    # ===== 4. Data Extraction =====
+    data_pattern = r'-d\s+["\']([^"\']+)["\']'
+    data_match = re.search(data_pattern, curl_string)
+    if data_match:
+        data_str = data_match.group(1)
+        try:
+            result["data"] = json.loads(data_str)
+        except:
+            result["data"] = data_str
+        curl_string = re.sub(data_pattern, "", curl_string).strip()
+    
+    # ===== 5. Find ALL placeholders {something} =====
+    placeholder_pattern = r'\{([^{}]+)\}'
+    
+    # URL এ প্লেসহোল্ডার
+    if result["url"]:
+        placeholders = re.findall(placeholder_pattern, result["url"])
+        for ph in placeholders:
+            result["placeholders"][ph] = ""
+    
+    # Headers এ প্লেসহোল্ডার
+    for key, value in result["headers"].items():
+        placeholders = re.findall(placeholder_pattern, value)
+        for ph in placeholders:
+            result["placeholders"][ph] = ""
+    
+    # Data এ প্লেসহোল্ডার
+    if result["data"] and isinstance(result["data"], str):
+        placeholders = re.findall(placeholder_pattern, result["data"])
+        for ph in placeholders:
+            result["placeholders"][ph] = ""
+    elif result["data"] and isinstance(result["data"], (dict, list)):
+        data_str = json.dumps(result["data"])
+        placeholders = re.findall(placeholder_pattern, data_str)
+        for ph in placeholders:
+            result["placeholders"][ph] = ""
+    
+    # ===== 6. Extract base URL and endpoint =====
+    if result["url"]:
+        parsed = urlparse(result["url"])
+        result["base_url"] = f"{parsed.scheme}://{parsed.netloc}"
+        result["endpoint"] = parsed.path or "/"
+        if parsed.query:
+            result["endpoint"] += "?" + parsed.query
+    
+    return result
+
+def replace_all_placeholders(text: str, placeholders: dict) -> str:
+    """
+    টেক্সটের সব {placeholder} রিপ্লেস করে
+    """
+    if not text:
+        return text
+    
+    for key, value in placeholders.items():
+        text = text.replace(f"{{{key}}}", str(value))
+    
+    return text
+
+def build_request_from_curl(parsed: dict, placeholders: dict = None) -> dict:
+    """
+    Parsed CURL থেকে API রিকোয়েস্ট তৈরি করে
+    """
+    if not placeholders:
+        placeholders = parsed.get("placeholders", {})
+    
+    # URL রিপ্লেস
+    url = parsed.get("original_url", parsed.get("url", ""))
+    url = replace_all_placeholders(url, placeholders)
+    
+    # Headers রিপ্লেস
+    headers = {}
+    for key, value in parsed.get("headers", {}).items():
+        headers[key] = replace_all_placeholders(value, placeholders)
+    
+    # Data রিপ্লেস
+    data = parsed.get("data")
+    if data and isinstance(data, (dict, list)):
+        data_str = json.dumps(data)
+        data_str = replace_all_placeholders(data_str, placeholders)
+        try:
+            data = json.loads(data_str)
+        except:
+            data = data_str
+    elif data and isinstance(data, str):
+        data = replace_all_placeholders(data, placeholders)
+    
+    return {
+        "method": parsed.get("method", "GET"),
+        "url": url,
+        "headers": headers,
+        "data": data,
+        "base_url": parsed.get("base_url", ""),
+        "endpoint": parsed.get("endpoint", ""),
+        "placeholders": placeholders
     }
 
-    if state in step_messages:
-        label, field, next_state = step_messages[state]
-        if field:
-            if field == "interval_sec":
-                try:
-                    val = int(text)
-                    if val < 1:
-                        await update.message.reply_text("⏱️ Interval must be at least 1 second. Try again.")
-                        return True
-                    data[field] = val
-                except ValueError:
-                    await update.message.reply_text("❌ Please enter a valid number.")
-                    return True
-            else:
-                if not text and field not in ["number_path", "message_path", "timestamp_path", "service_path"]:
-                    await update.message.reply_text("❌ This field cannot be empty.")
-                    return True
-                data[field] = text
-
-            if next_state == "api_add_confirm":
-                confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
-                confirm_text += f"Panel Name: <code>{data.get('panel_name','')}</code>\n"
-                confirm_text += f"Base URL: <code>{data.get('base_url','')}</code>\n"
-                confirm_text += f"Endpoint: <code>{data.get('endpoint','')}</code>\n"
-                confirm_text += f"Token: <code>{data.get('token','')}</code>\n"
-                confirm_text += f"Interval: <code>{data.get('interval_sec','')} seconds</code>\n"
-                confirm_text += f"Number Path: <code>{data.get('number_path','number')}</code>\n"
-                confirm_text += f"Message Path: <code>{data.get('message_path','message')}</code>\n"
-                confirm_text += f"Timestamp Path: <code>{data.get('timestamp_path','timestamp')}</code>\n"
-                confirm_text += f"Service Path: <code>{data.get('service_path','service')}</code>\n\n"
-                confirm_text += "Is all correct?"
-                kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ YES ADD", callback_data=f"api_add_confirm_yes|{user_id}", style=KBS.SUCCESS,
-                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "")))],
-                    [InlineKeyboardButton("❌ NO CANCEL", callback_data=f"api_add_confirm_no|{user_id}", style=KBS.DANGER,
-                                          icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "")))]
-                ])
-                admin_temp_data[user_id] = data
-                await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
-                return True
-
-            admin_panel_state[user_id] = next_state
-            admin_temp_data[user_id] = data
-            step_num = STEP_ORDER.index(next_state) + 1 if next_state in STEP_ORDER else len(STEP_ORDER)
-            total_steps = len(STEP_ORDER)
-            next_label, next_field, _ = step_messages.get(next_state, ("", "", ""))
-            if next_field:
-                ex = STEP_EXAMPLES.get(next_field, "")
-                example_block = f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b> : {ex}</blockquote>" if ex else ""
-                await update.message.reply_text(
-                    f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step {step_num}/{total_steps}</b>\n\n"
-                    f"Send the <b>{next_label}</b>:\n"
-                    f"Current value: <code>{data.get(next_field, '')}</code>\n"
-                    f"{example_block}",
-                    parse_mode='HTML'
-                )
-            else:
-                await update.message.reply_text("Moving to next step...")
-            return True
-
-    return False
+# ==================== API ADD STEPS ====================
 
 STEP_ORDER = [
-    "api_add_name",
-    "api_add_base_url",
-    "api_add_endpoint",
-    "api_add_token",
-    "api_add_interval",
-    "api_add_number_path",
-    "api_add_message_path",
-    "api_add_timestamp_path",
-    "api_add_service_path",
-    "api_add_confirm"
+    "api_add_name",          # 1
+    "api_add_base_url",      # 2
+    "api_add_endpoint",      # 3
+    "api_add_token",         # 4
+    "api_add_interval",      # 5
+    "api_add_number_path",   # 6
+    "api_add_message_path",  # 7
+    "api_add_timestamp_path",# 8
+    "api_add_service_path",  # 9
+    "api_add_curl",          # 10 - CURL Example
+    "api_add_confirm"        # 11
 ]
-
-STEP_EMOJIS = {
-    "panel_name": "📛",
-    "base_url": "🌐",
-    "endpoint": "📍",
-    "token": "🔑",
-    "interval_sec": "⏱️",
-    "number_path": "📱",
-    "message_path": "💬",
-    "timestamp_path": "🕐",
-    "service_path": "🔧",
-}
 
 STEP_EXAMPLES = {
     "panel_name": "e.g., MyProvider",
-    "base_url": "e.g., http://147.135.212.197",
-    "endpoint": "e.g., /crapi/had/viewstats?token={TOKEN}&records=200",
-    "token": "e.g., QlFSRkpBUzRkbFJJRUFikHRTb3F3f2aDRENkU31dY5QdA==",
+    "base_url": "e.g., https://zebrasms.com/api/v1",
+    "endpoint": "e.g., /publicapi/getupdate",
+    "token": "e.g., SUEKjeiWiw",
     "interval_sec": "e.g., 30 (minimum 1 second)",
     "number_path": "e.g., phone or num",
     "message_path": "e.g., sms or message",
     "timestamp_path": "e.g., clock or time_stamp",
     "service_path": "e.g., cli or service",
+    "curl_command": """
+curl {API_BASE}/publicapi/getupdate -H "MAuth: {TOKEN}"
+or
+curl "http://147.135.212.197/crapi/had/viewstats?token={TOKEN}&records={RECORDS}"
+    """
 }
 
-async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+STEP_MESSAGES = {
+    "api_add_name": ("Panel Name", "panel_name", "api_add_base_url"),
+    "api_add_base_url": ("Base URL", "base_url", "api_add_endpoint"),
+    "api_add_endpoint": ("Endpoint", "endpoint", "api_add_token"),
+    "api_add_token": ("Token", "token", "api_add_interval"),
+    "api_add_interval": ("Interval (seconds, >=1)", "interval_sec", "api_add_number_path"),
+    "api_add_number_path": ("Number Field Path", "number_path", "api_add_message_path"),
+    "api_add_message_path": ("Message Field Path", "message_path", "api_add_timestamp_path"),
+    "api_add_timestamp_path": ("Timestamp Field Path", "timestamp_path", "api_add_service_path"),
+    "api_add_service_path": ("Service Field Path", "service_path", "api_add_curl"),
+    "api_add_curl": ("CURL Example (Optional)", "curl_command", "api_add_confirm"),
+    "api_add_confirm": ("", "", "api_add_finish"),
+}
+
+# কোন স্টেপ SKIP করা যাবে
+SKIPPABLE_STEPS = [
+    "api_add_name",          # Panel Name (Skip করলে ডিফল্ট নাম হবে)
+    "api_add_endpoint",      # Endpoint (Skip করলে '/' হবে)
+    "api_add_token",         # Token (Skip করলে খালি থাকবে)
+    "api_add_interval",      # Interval (Skip করলে 30 হবে)
+    "api_add_number_path",   # Number Path (Skip করলে 'number' হবে)
+    "api_add_message_path",  # Message Path (Skip করলে 'message' হবে)
+    "api_add_timestamp_path",# Timestamp Path (Skip করলে 'timestamp' হবে)
+    "api_add_service_path",  # Service Path (Skip করলে 'service' হবে)
+    "api_add_curl",          # CURL (Skip করা যায়)
+]
+
+NON_SKIPPABLE_STEPS = [
+    "api_add_base_url",      # Base URL - আবশ্যক
+    "api_add_confirm",       # Confirm - SKIP করা যাবে না
+]
+
+# ==================== KEYBOARD BUILDERS FOR API ADD ====================
+
+def get_step_keyboard(step: str) -> InlineKeyboardMarkup:
+    """স্টেপ অনুযায়ী কিবোর্ড তৈরি করে"""
+    buttons = []
+    
+    # SKIP বাটন (যদি স্কিপযোগ্য হয়)
+    if step in SKIPPABLE_STEPS:
+        buttons.append(InlineKeyboardButton(
+            "⏭ SKIP",
+            callback_data="api_add_skip",
+            style=KBS.PRIMARY,
+            icon_custom_emoji_id=safe_icon(SKIP_EMOJI)
+        ))
+    
+    # CANCEL বাটন
+    buttons.append(InlineKeyboardButton(
+        "❌ CANCEL",
+        callback_data="api_add_cancel",
+        style=KBS.DANGER,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", ""))
+    ))
+    
+    return InlineKeyboardMarkup([buttons])
+
+# ==================== API ADD STEP DISPLAY ====================
+
+async def api_add_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, step: str):
+    """যেকোনো API ADD স্টেপ দেখান"""
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
-    admin_temp_data[user_id] = {}
-    admin_panel_state[user_id] = "api_add_name"
-    await reply_or_edit(update,
-        f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step 1/{len(STEP_ORDER)}</b>\n\n"
-        f"Send the <b>Panel Name</b> for this API (e.g., <code>MyProvider</code>):\n"
-        f"<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b> : e.g., MyProvider</blockquote>",
-        reply_markup=admin_cancel_keyboard(),
+    
+    admin_panel_state[user_id] = step
+    
+    step_num = STEP_ORDER.index(step) + 1
+    total_steps = len(STEP_ORDER)
+    
+    label, field, next_step = STEP_MESSAGES.get(step, ("", "", ""))
+    
+    if step == "api_add_confirm":
+        await show_confirm_step(update, context, user_id)
+        return
+    
+    data = admin_temp_data.get(user_id, {})
+    current_value = data.get(field, "")
+    
+    # Examples
+    example_text = f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b>: {STEP_EXAMPLES.get(field, '')}</blockquote>" if field in STEP_EXAMPLES else ""
+    
+    # Required/Optional indicator
+    if step in NON_SKIPPABLE_STEPS:
+        required_text = f"{emoji_tag('4958534696645428119', '⚠️')} <b>Required</b>"
+    else:
+        required_text = f"{emoji_tag('4956721670690702265', '✅')} <b>Optional</b> (Can SKIP)"
+    
+    text = f"""{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step {step_num}/{total_steps}</b>
+
+<b>{label}</b>
+{required_text}
+
+Current value: <code>{current_value or 'Not set'}</code>
+{example_text}
+
+Send the value or press SKIP:"""
+    
+    await reply_or_edit(
+        update,
+        text,
+        reply_markup=get_step_keyboard(step),
         parse_mode='HTML',
         context=context,
-        auto_delete=False)
+        auto_delete=False
+    )
+
+async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    """কনফর্মেশন স্টেপ দেখান"""
+    data = admin_temp_data.get(user_id, {})
+    
+    confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
+    confirm_text += f"📛 <b>Panel Name</b>: <code>{data.get('panel_name', '')}</code>\n"
+    confirm_text += f"🌐 <b>Base URL</b>: <code>{data.get('base_url', '')}</code>\n"
+    confirm_text += f"📍 <b>Endpoint</b>: <code>{data.get('endpoint', '')}</code>\n"
+    confirm_text += f"🔑 <b>Token</b>: <code>{data.get('token', '')[:10]}{'...' if data.get('token') else ''}</code>\n"
+    confirm_text += f"⏱️ <b>Interval</b>: <code>{data.get('interval_sec', 30)} seconds</code>\n"
+    confirm_text += f"📱 <b>Number Path</b>: <code>{data.get('number_path', 'number')}</code>\n"
+    confirm_text += f"💬 <b>Message Path</b>: <code>{data.get('message_path', 'message')}</code>\n"
+    confirm_text += f"🕐 <b>Timestamp Path</b>: <code>{data.get('timestamp_path', 'timestamp')}</code>\n"
+    confirm_text += f"🔧 <b>Service Path</b>: <code>{data.get('service_path', 'service')}</code>\n"
+    
+    if data.get("curl_command"):
+        confirm_text += f"\n📌 <b>CURL Command</b>:\n<code>{data['curl_command'][:200]}{'...' if len(data['curl_command']) > 200 else ''}</code>\n"
+        parsed = data.get("parsed_curl")
+        if parsed and parsed.get("placeholders"):
+            placeholders = ", ".join([f"<code>{{{ph}}}</code>" for ph in parsed["placeholders"].keys()])
+            confirm_text += f"🔑 <b>Placeholders</b>: {placeholders}\n"
+    
+    confirm_text += f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Is all correct?</b></blockquote>"
+    
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ YES ADD", callback_data=f"api_add_confirm_yes|{user_id}", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "")))],
+        [InlineKeyboardButton("✏️ EDIT", callback_data=f"api_add_edit|{user_id}", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", "")))],
+        [InlineKeyboardButton("❌ CANCEL", callback_data=f"api_add_confirm_no|{user_id}", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "")))]
+    ])
+    
+    admin_panel_state[user_id] = "api_add_confirm"
+    
+    if isinstance(update, Update):
+        await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
+    else:
+        await update.edit_message_text(confirm_text, reply_markup=kb, parse_mode='HTML')
+
+# ==================== HANDLE API ADD SKIP ====================
+
+async def handle_api_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """SKIP বাটন হ্যান্ডেল করে"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer("⏭ Step skipped!")
+    
+    current_step = admin_panel_state.get(user_id)
+    if not current_step or not current_step.startswith("api_add_"):
+        await query.edit_message_text("❌ No active API addition session.", reply_markup=admin_panel_keyboard())
+        return
+    
+    data = admin_temp_data.get(user_id, {})
+    label, field, next_step = STEP_MESSAGES.get(current_step, ("", "", ""))
+    
+    # Skip logic per field
+    if field:
+        if field == "panel_name" and not data.get(field):
+            data[field] = "API_" + str(user_id)[-4:]  # ডিফল্ট নাম
+        elif field == "endpoint" and not data.get(field):
+            data[field] = "/"
+        elif field == "interval_sec" and not data.get(field):
+            data[field] = 30
+        elif field == "number_path" and not data.get(field):
+            data[field] = "number"
+        elif field == "message_path" and not data.get(field):
+            data[field] = "message"
+        elif field == "timestamp_path" and not data.get(field):
+            data[field] = "timestamp"
+        elif field == "service_path" and not data.get(field):
+            data[field] = "service"
+        elif field == "curl_command":
+            data[field] = None
+    
+    admin_temp_data[user_id] = data
+    
+    # Move to next step
+    if next_step:
+        await api_add_step(update, context, user_id, next_step)
+    else:
+        await show_confirm_step(query, context, user_id)
+
+# ==================== HANDLE API ADD CANCEL ====================
+
+async def handle_api_add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """CANCEL বাটন হ্যান্ডেল করে"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer("❌ Cancelled!")
+    
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    
+    await query.edit_message_text(
+        "❌ API addition cancelled.",
+        reply_markup=admin_panel_keyboard()
+    )
+
+# ==================== API ADD START ====================
+
+async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    """API ADD স্টার্ট - প্রথম স্টেপ থেকে"""
+    if not is_admin(user_id):
+        await update.answer("Admin only!", show_alert=True)
+        return
+    
+    admin_temp_data[user_id] = {}
+    admin_panel_state[user_id] = "api_add_name"
+    
+    await api_add_step(update, context, user_id, "api_add_name")
+
+# ==================== HANDLE API ADD TEXT INPUT ====================
+
+async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """API ADD টেক্সট ইনপুট হ্যান্ডেল করে - CURL সহ"""
+    user_id = update.effective_user.id
+    state = admin_panel_state.get(user_id)
+    
+    if not state or not state.startswith("api_add_"):
+        return False
+    
+    text = update.message.text.strip()
+    
+    if text == "/cancel":
+        admin_temp_data.pop(user_id, None)
+        admin_panel_state[user_id] = "main"
+        await update.message.reply_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
+        return True
+    
+    data = admin_temp_data.get(user_id, {})
+    label, field, next_step = STEP_MESSAGES.get(state, ("", "", ""))
+    
+    # CURL স্পেশাল হ্যান্ডলিং
+    if state == "api_add_curl":
+        if text == "/skip":
+            data["curl_command"] = None
+            data["parsed_curl"] = None
+            admin_temp_data[user_id] = data
+            await show_confirm_step(update, context, user_id)
+            return True
+        
+        try:
+            parsed = parse_curl_complete(text)
+            if not parsed.get("url"):
+                await update.message.reply_text(
+                    "❌ <b>Invalid CURL Command</b>\n\n"
+                    "Could not extract URL. Please check your CURL command.\n\n"
+                    "Or send <code>/skip</code> to skip this step.",
+                    parse_mode='HTML'
+                )
+                return True
+            
+            data["curl_command"] = text
+            data["parsed_curl"] = parsed
+            admin_temp_data[user_id] = data
+            
+            # Show parsed info
+            placeholders = parsed.get("placeholders", {})
+            placeholders_list = ", ".join([f"<code>{{{ph}}}</code>" for ph in placeholders.keys()]) if placeholders else "None"
+            
+            info_text = f"""
+✅ <b>CURL Parsed Successfully</b>
+
+🌐 <b>URL</b>: <code>{parsed.get('url', 'N/A')}</code>
+📌 <b>Method</b>: <code>{parsed.get('method', 'GET')}</code>
+📋 <b>Headers</b>: <code>{len(parsed.get('headers', {}))}</code>
+📦 <b>Data</b>: {'Yes' if parsed.get('data') else 'No'}
+🔑 <b>Placeholders</b>: {placeholders_list}
+
+<blockquote>{emoji_tag('4956721670690702265', '✅')} Bot will use this exact format for polling</blockquote>
+
+Send <code>/continue</code> to proceed or send another CURL to update.
+"""
+            admin_panel_state[user_id] = "api_add_curl_confirm"
+            await update.message.reply_text(info_text, parse_mode='HTML')
+            return True
+            
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ <b>Error parsing CURL</b>\n\n<code>{str(e)}</code>\n\nPlease send a valid CURL command or <code>/skip</code>",
+                parse_mode='HTML'
+            )
+            return True
+    
+    # Normal field handling
+    if field:
+        if field == "interval_sec":
+            try:
+                val = int(text)
+                if val < 1:
+                    await update.message.reply_text("⏱️ Interval must be at least 1 second. Try again.")
+                    return True
+                data[field] = val
+            except ValueError:
+                await update.message.reply_text("❌ Please enter a valid number.")
+                return True
+        else:
+            data[field] = text
+        
+        admin_temp_data[user_id] = data
+    
+    # Move to next step
+    if next_step:
+        await api_add_step(update, context, user_id, next_step)
+    else:
+        await show_confirm_step(update, context, user_id)
+    
+    return True
+
+# ==================== API ADD CONFIRM YES ====================
 
 async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """API ADD কনফর্ম YES - CURL সহ"""
     query = update.callback_query
     user_id = query.from_user.id
     data = admin_temp_data.get(user_id, {})
+    
     if not data:
         await query.answer("Session expired.", show_alert=True)
         return
+    
+    # Parse CURL if provided
+    parsed_curl = data.get("parsed_curl")
+    curl_command = data.get("curl_command")
+    
+    # Extract base_url and endpoint from CURL if provided
+    if parsed_curl:
+        base_url = parsed_curl.get("base_url", data.get("base_url", ""))
+        endpoint = parsed_curl.get("endpoint", data.get("endpoint", ""))
+        method = parsed_curl.get("method", "GET")
+        headers = parsed_curl.get("headers", {})
+        body_template = parsed_curl.get("data")
+        placeholders = parsed_curl.get("placeholders", {})
+        placeholder_config = json.dumps(placeholders) if placeholders else "{}"
+    else:
+        base_url = data.get("base_url", "")
+        endpoint = data.get("endpoint", "")
+        method = "GET"
+        headers = {}
+        body_template = None
+        placeholder_config = "{}"
+    
+    # Save to database
     db_exec("""
         INSERT INTO api_keys (
-            panel_name, base_url, endpoint, token, interval_sec,
+            panel_name, base_url, endpoint, token,
+            interval_sec, active,
+            method, headers, body_template,
             number_path, message_path, timestamp_path, service_path,
-            active, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            created_by, created_at,
+            otp_list_path, success_path,
+            placeholder_config, curl_command
+        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'data', 'status', ?, ?)
     """, (
-        data.get("panel_name"), data.get("base_url"), data.get("endpoint"), data.get("token"),
+        data.get("panel_name"),
+        base_url,
+        endpoint,
+        data.get("token", ""),
         data.get("interval_sec", 30),
-        data.get("number_path", "number"), data.get("message_path", "message"),
-        data.get("timestamp_path", "timestamp"), data.get("service_path", "service"),
-        user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        method,
+        json.dumps(headers) if headers else "{}",
+        json.dumps(body_template) if body_template else None,
+        data.get("number_path", "number"),
+        data.get("message_path", "message"),
+        data.get("timestamp_path", "timestamp"),
+        data.get("service_path", "service"),
+        user_id,
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        placeholder_config,
+        curl_command
     ))
+    
     api_id = db_fetch_one("SELECT last_insert_rowid()")[0]
+    
+    # Start polling
     await start_polling_for_api(api_id)
+    
     admin_temp_data.pop(user_id, None)
     admin_panel_state[user_id] = "main"
+    
+    # Success message
+    success_text = f"""
+✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{data.get('panel_name')}' added successfully!</b>
+
+🆔 <b>API ID</b>: <code>{api_id}</code>
+🌐 <b>Base URL</b>: <code>{base_url}</code>
+📍 <b>Endpoint</b>: <code>{endpoint}</code>
+⏱️ <b>Status</b>: Polling started
+"""
+    
+    if curl_command:
+        success_text += f"\n📌 <b>CURL</b>: <code>{curl_command[:100]}...</code>"
+    
+    if placeholders:
+        ph_list = ", ".join([f"<code>{{{ph}}}</code>" for ph in placeholders.keys()])
+        success_text += f"\n🔑 <b>Placeholders</b>: {ph_list}"
+        success_text += f"\n   <i>(Set values in EDIT → Placeholders)</i>"
+    
+    success_text += f"""
+    
+<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Next Steps</b>:
+1. Go to <b>API System</b> → {data.get('panel_name')}
+2. Click <b>EDIT</b> to set placeholder values
+3. Click <b>TEST</b> to verify API works
+4. Adjust OTP paths if needed</blockquote>
+"""
+    
     await query.edit_message_text(
-        f"✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{data.get('panel_name')}' added successfully!</b>\n"
-        f"🆔 ID: <code>{api_id}</code>\n"
-        f"⏱️ Polling started.",
+        success_text,
         reply_markup=admin_panel_keyboard(),
         parse_mode='HTML'
     )
+
+# ==================== API ADD CONFIRM NO ====================
 
 async def api_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2827,160 +3270,131 @@ async def api_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=admin_panel_keyboard()
     )
 
-# ==================== NEW ENHANCED API SYSTEM ====================
+# ==================== API ADD EDIT ====================
 
-def get_country_from_number(number: str) -> str | None:
-    if not number:
-        return None
-    clean = number.replace('+', '').replace(' ', '').strip()
-    for code in sorted(COUNTRY_CODE_MAP.keys(), key=len, reverse=True):
-        if clean.startswith(code):
-            return COUNTRY_CODE_MAP[code][2]
-    return None
+async def api_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = admin_temp_data.get(user_id, {})
+    if not data:
+        await query.answer("Session expired.", show_alert=True)
+        return
+    
+    # Go back to first step for editing
+    admin_panel_state[user_id] = "api_add_name"
+    await query.edit_message_text(
+        "✏️ Edit mode: You can re-enter each step. Press SKIP to keep current value.",
+        reply_markup=admin_cancel_keyboard()
+    )
+    await api_add_step(update, context, user_id, "api_add_name")
 
-def get_api_config(api_id: int) -> dict | None:
-    row = db_fetch_one("""
-        SELECT id, panel_name, base_url, token, interval_sec, active,
-               endpoint, method, headers, body_template, response_type,
-               otp_list_path, number_path, message_path, country_path,
-               service_path, timestamp_path, success_path, success_value,
-               max_records, retry_count, retry_delay, error_count, last_poll_time,
-               total_otps, last_otp_time
-        FROM api_keys WHERE id = ?
-    """, (api_id,))
-    if not row:
-        return None
-    cols = ['id','panel_name','base_url','token','interval_sec','active',
-            'endpoint','method','headers','body_template','response_type',
-            'otp_list_path','number_path','message_path','country_path',
-            'service_path','timestamp_path','success_path','success_value',
-            'max_records','retry_count','retry_delay','error_count','last_poll_time',
-            'total_otps','last_otp_time']
-    return dict(zip(cols, row))
+# ==================== CURL BASED POLLING ====================
 
-class ResponseParser:
-    @staticmethod
-    def _get_json_path(data, path, default=None):
-        if not path:
-            return data
-        parts = path.split('.')
-        current = data
-        for part in parts:
-            if part.isdigit():
-                try:
-                    idx = int(part)
-                    if isinstance(current, list) and idx < len(current):
-                        current = current[idx]
-                    else:
-                        return default
-                except:
-                    return default
-            elif isinstance(current, dict):
-                if part in current:
-                    current = current[part]
-                else:
-                    found = False
-                    for key in current:
-                        if key.lower() == part.lower():
-                            current = current[key]
-                            found = True
-                            break
-                    if not found:
-                        return default
-            else:
-                return default
-        return current if current is not None else default
-
-    @staticmethod
-    def parse_json_response(content: dict, config: dict) -> list[dict]:
-        data = ResponseParser._get_json_path(content, config.get('otp_list_path', 'data'))
-        if data is None:
-            for key, value in content.items():
-                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                    data = value
-                    break
-            if data is None:
-                return []
-        if isinstance(data, dict):
-            data = [data]
-        if not isinstance(data, list):
-            return []
-        result = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            entry = {
-                "number": ResponseParser._get_json_path(item, config.get('number_path', 'number'), ""),
-                "otp": ResponseParser._get_json_path(item, config.get('otp_path', 'otp'), ""),
-                "message": ResponseParser._get_json_path(item, config.get('message_path', 'message'), ""),
-                "service": ResponseParser._get_json_path(item, config.get('service_path', 'service'), ""),
-                "timestamp": ResponseParser._get_json_path(item, config.get('timestamp_path', 'timestamp'), ""),
-                "country": ResponseParser._get_json_path(item, config.get('country_path', 'country'), ""),
-            }
-            entry = {k: v for k, v in entry.items() if v}
-            if entry.get("number") or entry.get("otp"):
-                result.append(entry)
-        return result
-
-    @staticmethod
-    def parse_response(content, config: dict) -> list[dict]:
-        if isinstance(content, str):
-            try:
-                content = json.loads(content)
-            except:
-                otps = extract_all_otps_from_message(content)
-                return [{"otp": otp, "message": content[:200]} for otp in otps]
-        if isinstance(content, dict):
-            return ResponseParser.parse_json_response(content, config)
-        return []
-
-async def poll_single_api(api_id: int):
+async def poll_single_api_curl_based(api_id: int):
+    """CURL ভিত্তিক পোলিং - যেকোনো ফরম্যাট"""
     async with aiohttp.ClientSession() as session:
         while True:
             config = get_api_config(api_id)
             if not config or not config.get('active'):
                 break
+            
             interval = config.get('interval_sec', 30)
+            
             try:
-                base_url = config['base_url'].rstrip('/')
-                endpoint = config['endpoint'].lstrip('/')
-                url = f"{base_url}/{endpoint}"
-                url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token']).replace('{records}', str(config.get('max_records', 200)))
-
+                # Get config
+                method = config.get('method', 'GET')
+                base_url = config.get('base_url', '')
+                endpoint = config.get('endpoint', '/')
                 headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
-                for k, v in headers.items():
-                    if isinstance(v, str):
-                        headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token'])
-
-                method = config.get('method', 'GET').upper()
-                if method == 'GET':
+                body_template = config.get('body_template')
+                placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
+                token = config.get('token', '')
+                curl_command = config.get('curl_command')
+                
+                # If CURL command exists, use it to build request
+                if curl_command:
+                    # Parse the stored CURL
+                    parsed = parse_curl_complete(curl_command)
+                    
+                    # Add token to placeholders
+                    if token:
+                        parsed["placeholders"]["TOKEN"] = token
+                        parsed["placeholders"]["YOUR_TOKEN"] = token
+                        parsed["placeholders"]["API_TOKEN"] = token
+                    
+                    # Add records placeholder
+                    parsed["placeholders"]["RECORDS"] = str(config.get('max_records', 200))
+                    
+                    # Build request from CURL
+                    request = build_request_from_curl(parsed, placeholders)
+                    url = request["url"]
+                    method = request["method"]
+                    headers = request["headers"]
+                    data = request["data"]
+                else:
+                    # Build URL normally
+                    url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
+                    
+                    # Replace placeholders
+                    for key, value in placeholders.items():
+                        url = url.replace(f"{{{key}}}", str(value))
+                    
+                    if token:
+                        url = url.replace("{TOKEN}", token)
+                        url = url.replace("{YOUR_TOKEN}", token)
+                    
+                    url = url.replace("{RECORDS}", str(config.get('max_records', 200)))
+                    
+                    # Headers
+                    for key, value in headers.items():
+                        if isinstance(value, str):
+                            for ph_key, ph_value in placeholders.items():
+                                value = value.replace(f"{{{ph_key}}}", str(ph_value))
+                            if token:
+                                value = value.replace("{TOKEN}", token)
+                            headers[key] = value
+                    
+                    # Data
+                    data = None
+                    if body_template:
+                        try:
+                            data = json.loads(body_template)
+                            if data:
+                                data_str = json.dumps(data)
+                                for ph_key, ph_value in placeholders.items():
+                                    data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
+                                if token:
+                                    data_str = data_str.replace("{TOKEN}", token)
+                                data_str = data_str.replace("{RECORDS}", str(config.get('max_records', 200)))
+                                data = json.loads(data_str)
+                        except:
+                            data = body_template
+                
+                # ===== Make API Request =====
+                if method.upper() == 'GET':
                     async with session.get(url, headers=headers, timeout=30) as response:
                         text = await response.text()
                         status = response.status
-                        resp = (status, text)
-                elif method == 'POST':
-                    body = json.loads(config.get('body_template', '{}')) if config.get('body_template') else {}
-                    def replace_placeholders(obj):
-                        if isinstance(obj, dict):
-                            return {k: replace_placeholders(v) for k, v in obj.items()}
-                        elif isinstance(obj, list):
-                            return [replace_placeholders(v) for v in obj]
-                        elif isinstance(obj, str):
-                            return obj.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token']).replace('{records}', str(config.get('max_records', 200)))
-                        return obj
-                    body = replace_placeholders(body)
-                    async with session.post(url, headers=headers, json=body, timeout=30) as response:
+                elif method.upper() == 'POST':
+                    async with session.post(url, headers=headers, json=data, timeout=30) as response:
                         text = await response.text()
                         status = response.status
-                        resp = (status, text)
+                elif method.upper() == 'PUT':
+                    async with session.put(url, headers=headers, json=data, timeout=30) as response:
+                        text = await response.text()
+                        status = response.status
+                elif method.upper() == 'DELETE':
+                    async with session.delete(url, headers=headers, timeout=30) as response:
+                        text = await response.text()
+                        status = response.status
                 else:
-                    async with session.request(method, url, headers=headers, timeout=30) as response:
+                    async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
                         text = await response.text()
                         status = response.status
-                        resp = (status, text)
-
-                if resp and resp[0] == 200:
-                    otps = ResponseParser.parse_response(resp[1], config)
+                
+                # ===== Process Response =====
+                if status == 200:
+                    otps = ResponseParser.parse_response(text, config)
                     if otps:
                         for otp in otps:
                             if not otp.get('country'):
@@ -2990,28 +3404,33 @@ async def poll_single_api(api_id: int):
                         await process_otps(otps, bot=application.bot)
                         db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
                                 (len(otps), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
+                    
                     db_exec("INSERT INTO api_logs (api_id, timestamp, status, message, otp_count) VALUES (?, ?, 'success', ?, ?)",
                             (api_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "OK", len(otps) if otps else 0))
                     db_exec("UPDATE api_keys SET error_count = 0, last_poll_time = ? WHERE id = ?",
                             (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
                 else:
-                    error_msg = f"HTTP {resp[0] if resp else 'No response'}"
+                    error_msg = f"HTTP {status}"
                     db_exec("INSERT INTO api_logs (api_id, timestamp, status, message, otp_count) VALUES (?, ?, 'error', ?, 0)",
                             (api_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), error_msg))
                     db_exec("UPDATE api_keys SET error_count = error_count + 1 WHERE id = ?", (api_id,))
+                    
             except Exception as e:
                 print(f"API {api_id} error: {e}")
                 db_exec("INSERT INTO api_logs (api_id, timestamp, status, message, otp_count) VALUES (?, ?, 'error', ?, 0)",
                         (api_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(e)[:200]))
                 db_exec("UPDATE api_keys SET error_count = error_count + 1 WHERE id = ?", (api_id,))
+            
             await asyncio.sleep(interval)
+
+# ==================== API SYSTEM MANAGEMENT ====================
 
 async def start_polling_for_api(api_id: int):
     config = get_api_config(api_id)
     if not config or not config.get('active'):
         return
     if api_id not in polling_tasks or polling_tasks[api_id].done():
-        task = asyncio.create_task(poll_single_api(api_id))
+        task = asyncio.create_task(poll_single_api_curl_based(api_id))
         polling_tasks[api_id] = task
 
 async def stop_polling_for_api(api_id: int):
@@ -3025,7 +3444,8 @@ async def start_all_polling():
     for (api_id,) in apis:
         await start_polling_for_api(api_id)
 
-# ---- API SYSTEM Grid (with ADD API) ----
+# ==================== API SYSTEM GRID ====================
+
 async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
@@ -3073,6 +3493,8 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 
     text = f"{emoji_tag(CUSTOM_EMOJIS['API_SYSTEM'], '🖥️')} <b>API SYSTEM</b> ({len(apis)} configured)"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
+
+# ==================== API DETAIL PAGE ====================
 
 async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
     if not is_admin(user_id):
@@ -3157,6 +3579,8 @@ async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, ap
     text = f"{header}\n\n{info}\n\n{sep}\n\n"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
+# ==================== API TOGGLE ====================
+
 async def api_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -3178,6 +3602,8 @@ async def api_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("Polling started.")
 
     await api_detail_page(update, context, api_id, user_id)
+
+# ==================== API EDIT MENU ====================
 
 async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
     if not is_admin(user_id):
@@ -3207,12 +3633,20 @@ async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_
         ("TIMESTAMP PATH", "API_FIELD_TIMESTAMP", "timestamp_path", KBS.PRIMARY),
         ("SUCCESS PATH", "API_FIELD_SUCCESS_PATH", "success_path", KBS.PRIMARY),
         ("SUCCESS VALUE", "API_FIELD_SUCCESS_VALUE", "success_value", KBS.PRIMARY),
+        ("PLACEHOLDERS", "API_FIELD_PLACEHOLDERS", "placeholder_config", KBS.PRIMARY),
     ]
 
     rows = []
     for label, emoji_key, field, style in fields:
         value = config.get(field, "")
-        display_value = str(value)[:30] + "..." if len(str(value)) > 30 else value
+        if field == "placeholder_config":
+            try:
+                value = json.loads(value) if value else {}
+                display_value = ", ".join([f"{k}={v}" for k, v in value.items()]) if value else "None"
+            except:
+                display_value = str(value)[:20]
+        else:
+            display_value = str(value)[:30] + "..." if len(str(value)) > 30 else value
         rows.append([InlineKeyboardButton(
             f"{label}: {display_value}",
             callback_data=f"api_edit_field|{api_id}|{field}",
@@ -3232,6 +3666,8 @@ async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_
     text = f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} <b>Edit Configuration: {config['panel_name']}</b>\n\nSelect a field to edit:"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
+# ==================== API EDIT FIELD PROMPT ====================
+
 async def api_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -3250,14 +3686,25 @@ async def api_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TY
     admin_panel_state[user_id] = f"api_edit_value_{api_id}"
 
     current_val = config.get(field, "")
+    if field == "placeholder_config":
+        try:
+            current_val = json.loads(current_val) if current_val else {}
+            display_val = "\n".join([f"{k}: {v}" for k, v in current_val.items()]) if current_val else "None"
+        except:
+            display_val = str(current_val)
+    else:
+        display_val = str(current_val)
+
     await query.edit_message_text(
-        f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} Edit <b>{field}</b>\n\nCurrent value: <code>{current_val}</code>\n\nSend new value (or /cancel):",
+        f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} Edit <b>{field}</b>\n\nCurrent value:\n<code>{display_val}</code>\n\nSend new value (or /cancel):",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("Cancel", callback_data=f"api_edit|{api_id}", style=KBS.DANGER,
                                   icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
         ]),
         parse_mode='HTML'
     )
+
+# ==================== API TEST ====================
 
 async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3274,29 +3721,64 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} Testing <b>{config['panel_name']}</b> ...", parse_mode='HTML')
 
     try:
+        # Reuse polling logic
         async with aiohttp.ClientSession() as session:
-            base_url = config['base_url'].rstrip('/')
-            endpoint = config['endpoint'].lstrip('/')
-            url = f"{base_url}/{endpoint}"
-            url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token']).replace('{records}', str(config.get('max_records', 5)))
-
+            method = config.get('method', 'GET')
+            base_url = config.get('base_url', '')
+            endpoint = config.get('endpoint', '/')
             headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
-            for k, v in headers.items():
-                if isinstance(v, str):
-                    headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token'])
+            body_template = config.get('body_template')
+            placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
+            token = config.get('token', '')
+            curl_command = config.get('curl_command')
+            
+            if curl_command:
+                parsed = parse_curl_complete(curl_command)
+                if token:
+                    parsed["placeholders"]["TOKEN"] = token
+                    parsed["placeholders"]["YOUR_TOKEN"] = token
+                request = build_request_from_curl(parsed, placeholders)
+                url = request["url"]
+                method = request["method"]
+                headers = request["headers"]
+                data = request["data"]
+            else:
+                url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
+                for key, value in placeholders.items():
+                    url = url.replace(f"{{{key}}}", str(value))
+                if token:
+                    url = url.replace("{TOKEN}", token)
+                for key, value in headers.items():
+                    if isinstance(value, str):
+                        for ph_key, ph_value in placeholders.items():
+                            value = value.replace(f"{{{ph_key}}}", str(ph_value))
+                        if token:
+                            value = value.replace("{TOKEN}", token)
+                        headers[key] = value
+                data = None
+                if body_template:
+                    try:
+                        data = json.loads(body_template)
+                        if data:
+                            data_str = json.dumps(data)
+                            for ph_key, ph_value in placeholders.items():
+                                data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
+                            if token:
+                                data_str = data_str.replace("{TOKEN}", token)
+                            data = json.loads(data_str)
+                    except:
+                        data = body_template
 
-            method = config.get('method', 'GET').upper()
-            if method == 'GET':
+            if method.upper() == 'GET':
                 async with session.get(url, headers=headers, timeout=30) as response:
                     text = await response.text()
                     status = response.status
-            elif method == 'POST':
-                body = json.loads(config.get('body_template', '{}')) if config.get('body_template') else {}
-                async with session.post(url, headers=headers, json=body, timeout=30) as response:
+            elif method.upper() == 'POST':
+                async with session.post(url, headers=headers, json=data, timeout=30) as response:
                     text = await response.text()
                     status = response.status
             else:
-                async with session.request(method, url, headers=headers, timeout=30) as response:
+                async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
                     text = await response.text()
                     status = response.status
 
@@ -3312,7 +3794,7 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     result = "✅ API responded but no OTPs found.\n\nRaw response (first 300 chars):\n<code>" + text[:300] + "</code>"
             else:
-                result = f"❌ Error: HTTP {status}"
+                result = f"❌ Error: HTTP {status}\n\nResponse:\n<code>{text[:500]}</code>"
     except Exception as e:
         result = f"❌ Exception: {str(e)}"
 
@@ -3325,6 +3807,8 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=kb,
         parse_mode='HTML'
     )
+
+# ==================== API STATS ====================
 
 async def api_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3360,6 +3844,8 @@ async def api_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ])
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
+# ==================== API LOGS ====================
+
 async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -3389,6 +3875,8 @@ async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
     ])
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+
+# ==================== API DELETE ====================
 
 async def api_delete_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3437,6 +3925,8 @@ async def api_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer("Cancelled.")
         await api_detail_page(update, context, api_id, user_id)
 
+# ==================== API FORCE POLL ====================
+
 async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -3452,29 +3942,66 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_FORCE_POLL'], '🔄')} Force polling <b>{config['panel_name']}</b> ...", parse_mode='HTML')
 
     try:
+        # Reuse polling logic (same as test)
         async with aiohttp.ClientSession() as session:
-            base_url = config['base_url'].rstrip('/')
-            endpoint = config['endpoint'].lstrip('/')
-            url = f"{base_url}/{endpoint}"
-            url = url.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token']).replace('{records}', str(config.get('max_records', 200)))
-
+            method = config.get('method', 'GET')
+            base_url = config.get('base_url', '')
+            endpoint = config.get('endpoint', '/')
             headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
-            for k, v in headers.items():
-                if isinstance(v, str):
-                    headers[k] = v.replace('{API_TOKEN}', config['token']).replace('{token}', config['token']).replace('{YOUR_TOKEN}', config['token']).replace('{TOKEN}', config['token'])
+            body_template = config.get('body_template')
+            placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
+            token = config.get('token', '')
+            curl_command = config.get('curl_command')
+            
+            if curl_command:
+                parsed = parse_curl_complete(curl_command)
+                if token:
+                    parsed["placeholders"]["TOKEN"] = token
+                    parsed["placeholders"]["YOUR_TOKEN"] = token
+                parsed["placeholders"]["RECORDS"] = str(config.get('max_records', 200))
+                request = build_request_from_curl(parsed, placeholders)
+                url = request["url"]
+                method = request["method"]
+                headers = request["headers"]
+                data = request["data"]
+            else:
+                url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
+                for key, value in placeholders.items():
+                    url = url.replace(f"{{{key}}}", str(value))
+                if token:
+                    url = url.replace("{TOKEN}", token)
+                for key, value in headers.items():
+                    if isinstance(value, str):
+                        for ph_key, ph_value in placeholders.items():
+                            value = value.replace(f"{{{ph_key}}}", str(ph_value))
+                        if token:
+                            value = value.replace("{TOKEN}", token)
+                        headers[key] = value
+                data = None
+                if body_template:
+                    try:
+                        data = json.loads(body_template)
+                        if data:
+                            data_str = json.dumps(data)
+                            for ph_key, ph_value in placeholders.items():
+                                data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
+                            if token:
+                                data_str = data_str.replace("{TOKEN}", token)
+                            data_str = data_str.replace("{RECORDS}", str(config.get('max_records', 200)))
+                            data = json.loads(data_str)
+                    except:
+                        data = body_template
 
-            method = config.get('method', 'GET').upper()
-            if method == 'GET':
+            if method.upper() == 'GET':
                 async with session.get(url, headers=headers, timeout=30) as response:
                     text = await response.text()
                     status = response.status
-            elif method == 'POST':
-                body = json.loads(config.get('body_template', '{}')) if config.get('body_template') else {}
-                async with session.post(url, headers=headers, json=body, timeout=30) as response:
+            elif method.upper() == 'POST':
+                async with session.post(url, headers=headers, json=data, timeout=30) as response:
                     text = await response.text()
                     status = response.status
             else:
-                async with session.request(method, url, headers=headers, timeout=30) as response:
+                async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
                     text = await response.text()
                     status = response.status
 
@@ -3502,7 +4029,8 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML'
     )
 
-# ==================== MANAGE API MENU (NO ADD API, only LIST, SYSTEM) ====================
+# ==================== MANAGE API MENU ====================
+
 async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
@@ -3519,7 +4047,8 @@ async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     ])
     await reply_or_edit(update, "🔧 MANAGE API\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
 
-# ---- FIXED: LIST API with proper error handling ----
+# ==================== API LIST ====================
+
 async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
@@ -3534,7 +4063,7 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
 
     lines = []
     for api_id, panel_name, token, interval in apis:
-        token_first7 = token[:7] if token and len(token) >= 7 else "N/A"  # FIXED: handle None or short token
+        token_first7 = token[:7] if token and len(token) >= 7 else "N/A"
         panel_icon = CUSTOM_EMOJIS.get("API_LIST_ICON", "5411225014148014586")
         interval_icon = CUSTOM_EMOJIS.get("API_LIST_INTERVAL_ICON", "6235253239080555488")
         line = f"{emoji_tag(panel_icon, '📌')} <b>{panel_name}</b> | <code>{token_first7}</code> | <code>{interval}s</code> {emoji_tag(interval_icon, '⏱️')}"
@@ -3545,20 +4074,10 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
                                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
-async def api_remove_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    # This is kept for internal use if needed, but not exposed in menu
-    pass
-
-async def api_remove_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Kept for completeness
-    pass
-
-# ===== WRAPPER for api_list =====
 async def api_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_list(update, context, user_id)
 
-# Wrappers
 async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_system_grid(update, context, user_id)
@@ -3583,7 +4102,8 @@ async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_
     user_id = update.effective_user.id
     await manage_api_menu(update, context, user_id)
 
-# ==================== FULL COUNTRY CODE MAP ====================
+# ==================== COUNTRY CODE MAP ====================
+
 COUNTRY_CODE_MAP = {
     "1": ("US", "🇺🇸", "United States"),
     "7": ("RU", "🇷🇺", "Russia"),
@@ -3768,8 +4288,6 @@ ISO_TO_INFO = {}
 for code, val in COUNTRY_CODE_MAP.items():
     if isinstance(val, tuple) and len(val) >= 3:
         ISO_TO_INFO[val[0]] = (val[1], val[2])
-    else:
-        print(f"Warning: Skipping malformed entry for code {code}: {val}")
 
 def get_country_code(country_name):
     if not country_name:
@@ -3784,6 +4302,7 @@ def get_country_code(country_name):
     return country_name.upper()[:2]
 
 # ==================== RICH MESSAGE GROUP OTP ====================
+
 def format_group_otp_rich(entry):
     number = entry.get("number", "")
     otp_code = entry.get("otp", "")
@@ -3874,7 +4393,8 @@ def format_group_otp_rich(entry):
     }
     return html, keyboard
 
-# ==================== OTP PROCESSING (async) ====================
+# ==================== OTP PROCESSING ====================
+
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
@@ -4009,63 +4529,206 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
     
     save_user_data_json()
 
+# ==================== RESPONSE PARSER ====================
+
+class ResponseParser:
+    @staticmethod
+    def _get_json_path(data, path, default=None):
+        if not path:
+            return data
+        parts = path.split('.')
+        current = data
+        for part in parts:
+            if part.isdigit():
+                try:
+                    idx = int(part)
+                    if isinstance(current, list) and idx < len(current):
+                        current = current[idx]
+                    else:
+                        return default
+                except:
+                    return default
+            elif isinstance(current, dict):
+                if part in current:
+                    current = current[part]
+                else:
+                    found = False
+                    for key in current:
+                        if key.lower() == part.lower():
+                            current = current[key]
+                            found = True
+                            break
+                    if not found:
+                        return default
+            else:
+                return default
+        return current if current is not None else default
+
+    @staticmethod
+    def parse_json_response(content: dict, config: dict) -> list[dict]:
+        data = ResponseParser._get_json_path(content, config.get('otp_list_path', 'data'))
+        if data is None:
+            for key, value in content.items():
+                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                    data = value
+                    break
+            if data is None:
+                return []
+        if isinstance(data, dict):
+            data = [data]
+        if not isinstance(data, list):
+            return []
+        result = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            entry = {
+                "number": ResponseParser._get_json_path(item, config.get('number_path', 'number'), ""),
+                "otp": ResponseParser._get_json_path(item, config.get('otp_path', 'otp'), ""),
+                "message": ResponseParser._get_json_path(item, config.get('message_path', 'message'), ""),
+                "service": ResponseParser._get_json_path(item, config.get('service_path', 'service'), ""),
+                "timestamp": ResponseParser._get_json_path(item, config.get('timestamp_path', 'timestamp'), ""),
+                "country": ResponseParser._get_json_path(item, config.get('country_path', 'country'), ""),
+            }
+            entry = {k: v for k, v in entry.items() if v}
+            if entry.get("number") or entry.get("otp"):
+                result.append(entry)
+        return result
+
+    @staticmethod
+    def parse_response(content, config: dict) -> list[dict]:
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except:
+                otps = extract_all_otps_from_message(content)
+                return [{"otp": otp, "message": content[:200]} for otp in otps]
+        if isinstance(content, dict):
+            return ResponseParser.parse_json_response(content, config)
+        return []
+
+def get_country_from_number(number: str) -> str | None:
+    if not number:
+        return None
+    clean = number.replace('+', '').replace(' ', '').strip()
+    for code in sorted(COUNTRY_CODE_MAP.keys(), key=len, reverse=True):
+        if clean.startswith(code):
+            return COUNTRY_CODE_MAP[code][2]
+    return None
+
+def get_api_config(api_id: int) -> dict | None:
+    row = db_fetch_one("""
+        SELECT id, panel_name, base_url, token, interval_sec, active,
+               endpoint, method, headers, body_template, response_type,
+               otp_list_path, number_path, message_path, country_path,
+               service_path, timestamp_path, success_path, success_value,
+               max_records, retry_count, retry_delay, error_count, last_poll_time,
+               total_otps, last_otp_time, placeholder_config, curl_command
+        FROM api_keys WHERE id = ?
+    """, (api_id,))
+    if not row:
+        return None
+    cols = ['id','panel_name','base_url','token','interval_sec','active',
+            'endpoint','method','headers','body_template','response_type',
+            'otp_list_path','number_path','message_path','country_path',
+            'service_path','timestamp_path','success_path','success_value',
+            'max_records','retry_count','retry_delay','error_count','last_poll_time',
+            'total_otps','last_otp_time','placeholder_config','curl_command']
+    return dict(zip(cols, row))
+
 # ==================== GENERIC TEXT HANDLER ====================
+
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     if await handle_admin_text(update, context): return
-    if await handle_api_add_text(update, context): return
+    if await handle_api_add_text(update, context): return  # CURL + API ADD
+    if await handle_edit_value_text(update, context): return  # API edit value handler
+
     user_id = update.effective_user.id
     if await ban_check(update, context): return
     text = update.message.text.strip()
-
-    state = admin_panel_state.get(user_id)
-    if state and state.startswith("api_edit_value_"):
-        api_id = int(state.split("_")[-1])
-        data = admin_temp_data.get(user_id, {})
-        field = data.get("field")
-        if not field:
-            await update.message.reply_text("Session expired. Please start over.")
-            return
-        new_value = text.strip()
-        if new_value.lower() == "/cancel":
-            await api_edit_menu(update, context, api_id, user_id)
-            return
-
-        if field in ["interval_sec", "max_records", "retry_count"]:
-            try:
-                new_value = int(new_value)
-                if field == "interval_sec" and new_value < 1:
-                    await update.message.reply_text("Interval must be at least 1 second.")
-                    return
-            except ValueError:
-                await update.message.reply_text("Please enter a valid number.")
-                return
-        elif field == "method":
-            if new_value.upper() not in ["GET", "POST", "PUT", "DELETE"]:
-                await update.message.reply_text("Method must be GET, POST, PUT, or DELETE.")
-                return
-        elif field == "base_url":
-            if not new_value.startswith(("http://", "https://")):
-                await update.message.reply_text("Base URL must start with http:// or https://")
-                return
-
-        db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (new_value, api_id))
-        admin_temp_data.pop(user_id, None)
-        admin_panel_state[user_id] = "main"
-        await update.message.reply_text(f"✅ {field} updated successfully!")
-        await api_detail_page(update, context, api_id, user_id)
-        return
 
     if text == BTN_GET_NUMBER: await send_get_number_panel(update, context)
     elif text == BTN_BALANCE: await send_balance_panel(update, context)
     elif text == BTN_SUPPORT: await send_support_panel(update, context)
     elif text == BTN_ADMIN: await send_admin_panel_msg(update, context)
 
+async def handle_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """API edit value text input handler"""
+    user_id = update.effective_user.id
+    state = admin_panel_state.get(user_id)
+    if not state or not state.startswith("api_edit_value_"):
+        return False
+
+    api_id = int(state.split("_")[-1])
+    data = admin_temp_data.get(user_id, {})
+    field = data.get("field")
+    if not field:
+        await update.message.reply_text("Session expired. Please start over.")
+        return True
+
+    new_value = update.message.text.strip()
+    if new_value.lower() == "/cancel":
+        await api_edit_menu(update, context, api_id, user_id)
+        return True
+
+    # Validate based on field type
+    if field in ["interval_sec", "max_records", "retry_count"]:
+        try:
+            new_value = int(new_value)
+            if field == "interval_sec" and new_value < 1:
+                await update.message.reply_text("Interval must be at least 1 second.")
+                return True
+        except ValueError:
+            await update.message.reply_text("Please enter a valid number.")
+            return True
+    elif field == "method":
+        if new_value.upper() not in ["GET", "POST", "PUT", "DELETE"]:
+            await update.message.reply_text("Method must be GET, POST, PUT, or DELETE.")
+            return True
+    elif field == "base_url":
+        if not new_value.startswith(("http://", "https://")):
+            await update.message.reply_text("Base URL must start with http:// or https://")
+            return True
+    elif field == "placeholder_config":
+        # Allow json input or key=value format
+        try:
+            # Try to parse as JSON
+            new_value = json.loads(new_value)
+            db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (json.dumps(new_value), api_id))
+        except:
+            # Try key=value format
+            try:
+                parts = [p.strip() for p in new_value.split(',')]
+                new_placeholders = {}
+                for part in parts:
+                    if '=' in part:
+                        k, v = part.split('=', 1)
+                        new_placeholders[k.strip()] = v.strip()
+                db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (json.dumps(new_placeholders), api_id))
+            except:
+                await update.message.reply_text("Invalid format. Use JSON or key1=value1,key2=value2")
+                return True
+        admin_temp_data.pop(user_id, None)
+        admin_panel_state[user_id] = "main"
+        await update.message.reply_text(f"✅ {field} updated successfully!")
+        await api_detail_page(update, context, api_id, user_id)
+        return True
+
+    db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (new_value, api_id))
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    await update.message.reply_text(f"✅ {field} updated successfully!")
+    await api_detail_page(update, context, api_id, user_id)
+    return True
+
 # ==================== ERROR HANDLER ====================
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     print(f"Error: {context.error}")
 
 # ==================== MAIN ====================
+
 application = None
 
 def main():
@@ -4130,10 +4793,14 @@ def main():
     application.add_handler(CallbackQueryHandler(stock_toggle_do_callback, pattern=r"^stock_toggle_do\|"))
     application.add_handler(CallbackQueryHandler(stock_get_number_callback, pattern=r"^stock_get_number\|"))
 
+    # API Management
     application.add_handler(CallbackQueryHandler(manage_api_menu_wrapper, pattern="^admin_manage_api$"))
     application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))
+    application.add_handler(CallbackQueryHandler(handle_api_add_skip, pattern="^api_add_skip$"))
+    application.add_handler(CallbackQueryHandler(handle_api_add_cancel, pattern="^api_add_cancel$"))
     application.add_handler(CallbackQueryHandler(api_add_confirm_yes, pattern=r"^api_add_confirm_yes\|"))
     application.add_handler(CallbackQueryHandler(api_add_confirm_no, pattern=r"^api_add_confirm_no\|"))
+    application.add_handler(CallbackQueryHandler(api_add_edit, pattern=r"^api_add_edit\|"))
     application.add_handler(CallbackQueryHandler(api_system_grid_wrapper, pattern="^api_system$"))
     application.add_handler(CallbackQueryHandler(api_detail_page_wrapper, pattern=r"^api_detail\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_toggle_callback, pattern=r"^api_toggle\|(\d+)$"))
@@ -4145,8 +4812,6 @@ def main():
     application.add_handler(CallbackQueryHandler(api_delete_prompt, pattern=r"^api_delete\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_delete_confirm, pattern=r"^api_delete_(yes|no)\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_force_poll, pattern=r"^api_force\|(\d+)$"))
-
-    # Fix: Added api_list_wrapper handler
     application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
