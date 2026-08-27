@@ -1818,7 +1818,7 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     
-    # Generate rich message
+    # Generate rich message using the fixed function
     grp_html, grp_kb_dict = format_group_otp_rich(entry)
     grp_kb = build_inline_keyboard(grp_kb_dict)
     
@@ -4410,7 +4410,7 @@ def get_country_code(country_name):
             return iso
     return country_name.upper()[:2]
 
-# ==================== RICH MESSAGE GROUP OTP ====================
+# ==================== RICH MESSAGE GROUP OTP (FIXED - REMOVED UNSUPPORTED TAGS) ====================
 
 def format_group_otp_rich(entry):
     number = entry.get("number", "")
@@ -4460,19 +4460,11 @@ def format_group_otp_rich(entry):
     
     message_text = entry.get("message", "")[:500]
     sms_safe = message_text.replace("<", "&lt;").replace(">", "&gt;")
-    summary = (
-        f'<tg-emoji emoji-id="{LEFT_ARROW_EMOJI}">👈</tg-emoji> '
-        f'<b>View Full SMS</b> '
-        f'<tg-emoji emoji-id="{SEND_EMOJI}">📤</tg-emoji>'
-    )
-    details_block = (
-        f'<details>'
-        f'<summary>{summary}</summary>'
-        f'<blockquote><b>{sms_safe}</b></blockquote>'
-        f'</details>'
-    )
     
-    html = f'<p>{top_line}</p>\n{details_block}'
+    # Use a simple blockquote for the SMS (no <p>, no <details>/<summary>)
+    sms_block = f'<blockquote>{sms_safe}</blockquote>'
+    
+    html = f'{top_line}\n\n{sms_block}'
     
     keyboard = {
         "inline_keyboard": [
