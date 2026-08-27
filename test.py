@@ -1,6 +1,6 @@
 # bot.py — SR NUMBER HUB (Complete with Multi-API System)
-# All original features + new API System with CURL and SKIP.
-# CURL Parser supports unlimited formats: placeholders, backslashes, multiline, quotes, etc.
+# All features + CURL with automatic placeholder replacement.
+# Supports {API_BASE}, {TOKEN}, {YOUR_TOKEN}, {API_TOKEN}, {RECORDS}, etc.
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -3313,9 +3313,10 @@ async def api_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await api_add_step(update, context, user_id, "api_add_name")
 
-# ==================== CURL BASED POLLING ====================
+# ==================== CURL BASED POLLING (FIXED) ====================
 
 async def poll_single_api_curl_based(api_id: int):
+    """CURL based polling with automatic placeholder replacement for {API_BASE}, {TOKEN}, etc."""
     async with aiohttp.ClientSession() as session:
         while True:
             config = get_api_config(api_id)
@@ -3330,17 +3331,31 @@ async def poll_single_api_curl_based(api_id: int):
                 endpoint = config.get('endpoint', '/')
                 headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
                 body_template = config.get('body_template')
-                placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
                 token = config.get('token', '')
                 curl_command = config.get('curl_command')
                 
+                # Build placeholder dictionary
+                placeholders = {}
+                user_placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
+                placeholders.update(user_placeholders)
+                
+                # Add auto placeholders
+                if base_url:
+                    placeholders["API_BASE"] = base_url
+                    placeholders["BASE_URL"] = base_url
+                    placeholders["API_URL"] = base_url
+                    placeholders["API"] = base_url
+                if token:
+                    placeholders["TOKEN"] = token
+                    placeholders["YOUR_TOKEN"] = token
+                    placeholders["API_TOKEN"] = token
+                    placeholders["AUTH_TOKEN"] = token
+                placeholders["RECORDS"] = str(config.get('max_records', 200))
+                placeholders["records"] = str(config.get('max_records', 200))
+                
                 if curl_command:
                     parsed = parse_curl_complete(curl_command)
-                    if token:
-                        parsed["placeholders"]["TOKEN"] = token
-                        parsed["placeholders"]["YOUR_TOKEN"] = token
-                        parsed["placeholders"]["API_TOKEN"] = token
-                    parsed["placeholders"]["RECORDS"] = str(config.get('max_records', 200))
+                    parsed["placeholders"].update(placeholders)
                     request = build_request_from_curl(parsed, placeholders)
                     url = request["url"]
                     method = request["method"]
@@ -3350,15 +3365,10 @@ async def poll_single_api_curl_based(api_id: int):
                     url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
                     for key, value in placeholders.items():
                         url = url.replace(f"{{{key}}}", str(value))
-                    if token:
-                        url = url.replace("{TOKEN}", token)
-                    url = url.replace("{RECORDS}", str(config.get('max_records', 200)))
                     for key, value in headers.items():
                         if isinstance(value, str):
                             for ph_key, ph_value in placeholders.items():
                                 value = value.replace(f"{{{ph_key}}}", str(ph_value))
-                            if token:
-                                value = value.replace("{TOKEN}", token)
                             headers[key] = value
                     data = None
                     if body_template:
@@ -3368,9 +3378,6 @@ async def poll_single_api_curl_based(api_id: int):
                                 data_str = json.dumps(data)
                                 for ph_key, ph_value in placeholders.items():
                                     data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
-                                if token:
-                                    data_str = data_str.replace("{TOKEN}", token)
-                                data_str = data_str.replace("{RECORDS}", str(config.get('max_records', 200)))
                                 data = json.loads(data_str)
                         except:
                             data = body_template
@@ -3727,15 +3734,27 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             endpoint = config.get('endpoint', '/')
             headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
             body_template = config.get('body_template')
-            placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
             token = config.get('token', '')
             curl_command = config.get('curl_command')
             
+            placeholders = {}
+            user_placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
+            placeholders.update(user_placeholders)
+            if base_url:
+                placeholders["API_BASE"] = base_url
+                placeholders["BASE_URL"] = base_url
+                placeholders["API_URL"] = base_url
+                placeholders["API"] = base_url
+            if token:
+                placeholders["TOKEN"] = token
+                placeholders["YOUR_TOKEN"] = token
+                placeholders["API_TOKEN"] = token
+                placeholders["AUTH_TOKEN"] = token
+            placeholders["RECORDS"] = str(config.get('max_records', 200))
+            
             if curl_command:
                 parsed = parse_curl_complete(curl_command)
-                if token:
-                    parsed["placeholders"]["TOKEN"] = token
-                    parsed["placeholders"]["YOUR_TOKEN"] = token
+                parsed["placeholders"].update(placeholders)
                 request = build_request_from_curl(parsed, placeholders)
                 url = request["url"]
                 method = request["method"]
@@ -3745,14 +3764,10 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
                 for key, value in placeholders.items():
                     url = url.replace(f"{{{key}}}", str(value))
-                if token:
-                    url = url.replace("{TOKEN}", token)
                 for key, value in headers.items():
                     if isinstance(value, str):
                         for ph_key, ph_value in placeholders.items():
                             value = value.replace(f"{{{ph_key}}}", str(ph_value))
-                        if token:
-                            value = value.replace("{TOKEN}", token)
                         headers[key] = value
                 data = None
                 if body_template:
@@ -3762,8 +3777,6 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             data_str = json.dumps(data)
                             for ph_key, ph_value in placeholders.items():
                                 data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
-                            if token:
-                                data_str = data_str.replace("{TOKEN}", token)
                             data = json.loads(data_str)
                     except:
                         data = body_template
@@ -3947,16 +3960,27 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
             endpoint = config.get('endpoint', '/')
             headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
             body_template = config.get('body_template')
-            placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
             token = config.get('token', '')
             curl_command = config.get('curl_command')
             
+            placeholders = {}
+            user_placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
+            placeholders.update(user_placeholders)
+            if base_url:
+                placeholders["API_BASE"] = base_url
+                placeholders["BASE_URL"] = base_url
+                placeholders["API_URL"] = base_url
+                placeholders["API"] = base_url
+            if token:
+                placeholders["TOKEN"] = token
+                placeholders["YOUR_TOKEN"] = token
+                placeholders["API_TOKEN"] = token
+                placeholders["AUTH_TOKEN"] = token
+            placeholders["RECORDS"] = str(config.get('max_records', 200))
+            
             if curl_command:
                 parsed = parse_curl_complete(curl_command)
-                if token:
-                    parsed["placeholders"]["TOKEN"] = token
-                    parsed["placeholders"]["YOUR_TOKEN"] = token
-                parsed["placeholders"]["RECORDS"] = str(config.get('max_records', 200))
+                parsed["placeholders"].update(placeholders)
                 request = build_request_from_curl(parsed, placeholders)
                 url = request["url"]
                 method = request["method"]
@@ -3966,14 +3990,10 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
                 for key, value in placeholders.items():
                     url = url.replace(f"{{{key}}}", str(value))
-                if token:
-                    url = url.replace("{TOKEN}", token)
                 for key, value in headers.items():
                     if isinstance(value, str):
                         for ph_key, ph_value in placeholders.items():
                             value = value.replace(f"{{{ph_key}}}", str(ph_value))
-                        if token:
-                            value = value.replace("{TOKEN}", token)
                         headers[key] = value
                 data = None
                 if body_template:
@@ -3983,9 +4003,6 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             data_str = json.dumps(data)
                             for ph_key, ph_value in placeholders.items():
                                 data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
-                            if token:
-                                data_str = data_str.replace("{TOKEN}", token)
-                            data_str = data_str.replace("{RECORDS}", str(config.get('max_records', 200)))
                             data = json.loads(data_str)
                     except:
                         data = body_template
@@ -4639,8 +4656,8 @@ def get_api_config(api_id: int) -> dict | None:
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     if await handle_admin_text(update, context): return
-    if await handle_api_add_text(update, context): return  # CURL + API ADD
-    if await handle_edit_value_text(update, context): return  # API edit value handler
+    if await handle_api_add_text(update, context): return
+    if await handle_edit_value_text(update, context): return
 
     user_id = update.effective_user.id
     if await ban_check(update, context): return
