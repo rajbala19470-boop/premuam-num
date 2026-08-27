@@ -35,20 +35,32 @@ ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 
-# Multiple group IDs can be comma-separated
-# Example: GROUP_ID = "-1003716770621,-1001234567890"
-GROUP_ID = "-1003716770621,-1001234567890"  # ← আপনার গ্রুপ আইডি বসান
+# Multiple group IDs – define as a tuple/list of strings or a comma-separated string.
+# Example: GROUP_ID = "-1003716770621","-1001234567890"
+GROUP_ID = "-1003716770621","-1001234567890"   # ← edit as needed
 CHANNEL_URL = "https://t.me/WaCreationHub"
 BOT_URL = "https://t.me/WA_CREATION_BOT"
 
-# Parse group IDs into a list
-GROUP_IDS = [-1004380384761,-1003716770621]
+# Parse GROUP_ID into a list of integers
+GROUP_IDS = []
 if GROUP_ID:
-    if isinstance(GROUP_ID, str) and ',' in GROUP_ID:
-        GROUP_IDS = [int(gid.strip()) for gid in GROUP_ID.split(',') if gid.strip()]
+    if isinstance(GROUP_ID, (list, tuple)):
+        # e.g. ("-1003716770621", "-1001234567890")
+        GROUP_IDS = [int(str(gid).strip()) for gid in GROUP_ID if str(gid).strip()]
+    elif isinstance(GROUP_ID, str):
+        if ',' in GROUP_ID:
+            # Comma‑separated string: "-1003716770621,-1001234567890"
+            GROUP_IDS = [int(gid.strip()) for gid in GROUP_ID.split(',') if gid.strip()]
+        else:
+            # Single group ID as a string
+            GROUP_IDS = [int(GROUP_ID.strip())] if GROUP_ID.strip() else []
     else:
-        GROUP_IDS = [int(GROUP_ID)] if GROUP_ID else []
-
+        # Fallback: try converting directly (just in case)
+        try:
+            GROUP_IDS = [int(GROUP_ID)]
+        except (ValueError, TypeError):
+            GROUP_IDS = []
+            
 # ==================== EMOJI CONSTANTS ====================
 WELCOME_WAVE = "5199885118214255386"      # 👋
 WELCOME_THINK = "5314563983422798645"     # 🤔
@@ -138,7 +150,7 @@ CUSTOM_EMOJIS["BACK"] = "6118297066247558366"   # updated to premium
 CUSTOM_EMOJIS["DELETE"] = "6206108815075579644"   # updated to premium (same as remove stock)
 CUSTOM_EMOJIS["ADMIN"] = "6206319341487527808"    # updated to premium
 CUSTOM_EMOJIS["UPLOAD"] = "6206046503690048595"
-CUSTOM_EMOJIS["CANCEL"] = "6206003549722122915"
+CUSTOM_EMOJIS["CANCEL"] = "6267000941547885720"
 CUSTOM_EMOJIS["BROADCAST"] = "6206080502651164081" # updated to premium
 CUSTOM_EMOJIS["ADD"] = "6206375377925839184"
 CUSTOM_EMOJIS["GIVEAWAY"] = "6282893896796082998"
