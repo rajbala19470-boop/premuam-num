@@ -1,5 +1,5 @@
 # THIS PREMUAM BOT WAS MADE BY : RAKESH DEV 
-#TG : @SR_ADMIN_RAKESH,  AND DON'T TRY TO CHANGR SNY CREDIT
+#TG : @SR_ADMIN_RAKESH,  AND DON'T TRY TO CHANGE ANY CREDIT
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
 import random
@@ -1770,7 +1770,7 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
 
-# ==================== /testgroup COMMAND ====================
+# ==================== /testgroup COMMAND (FIXED - SENDS TO ALL GROUPS) ====================
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
@@ -1818,25 +1818,30 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     
-    try:
-        grp_html, grp_kb = format_group_otp_rich(entry)
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
-        payload = {
-            "chat_id": GROUP_ID,
-            "rich_message": {"html": grp_html},
-            "reply_markup": grp_kb
-        }
-        resp = requests.post(url, json=payload, timeout=10)
-        if resp.status_code == 200:
-            await update.message.reply_text(
-                f"✅ Test OTP sent to group for {service} - {country_name} ({iso2}).\n"
-                f"📱 Number: {test_number}\n"
-                f"🔑 OTP: {test_otp}"
+    # Generate rich message
+    grp_html, grp_kb_dict = format_group_otp_rich(entry)
+    grp_kb = build_inline_keyboard(grp_kb_dict)
+    
+    # Send to ALL groups in GROUP_IDS
+    success_count = 0
+    for gid in GROUP_IDS:
+        try:
+            await context.bot.send_message(
+                chat_id=gid,
+                text=grp_html,
+                reply_markup=grp_kb,
+                parse_mode='HTML'
             )
-        else:
-            await update.message.reply_text(f"❌ Failed to send. Status: {resp.status_code}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+            success_count += 1
+            await asyncio.sleep(0.05)  # small delay to avoid rate limits
+        except Exception as e:
+            print(f"Failed to send test OTP to group {gid}: {e}")
+    
+    await update.message.reply_text(
+        f"✅ Test OTP sent to {success_count} group(s) for {service} - {country_name} ({iso2}).\n"
+        f"📱 Number: {test_number}\n"
+        f"🔑 OTP: {test_otp}"
+    )
 
 # ==================== CALLBACK HANDLERS ====================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4487,6 +4492,23 @@ def format_group_otp_rich(entry):
     }
     return html, keyboard
 
+# ==================== GLOBAL HELPER FOR INLINE KEYBOARD FROM DICT ====================
+def build_inline_keyboard(keyboard_dict):
+    rows = []
+    for row in keyboard_dict.get("inline_keyboard", []):
+        buttons = []
+        for btn in row:
+            kwargs = {"text": btn.get("text", "")}
+            if "url" in btn:
+                kwargs["url"] = btn["url"]
+            if "callback_data" in btn:
+                kwargs["callback_data"] = btn["callback_data"]
+            if "copy_text" in btn:
+                kwargs["copy_text"] = CopyTextButton(text=btn["copy_text"]["text"])
+            buttons.append(InlineKeyboardButton(**kwargs))
+        rows.append(buttons)
+    return InlineKeyboardMarkup(rows)
+
 # ==================== OTP PROCESSING (FIXED - MULTI-GROUP, SPEED) ====================
 
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
@@ -4540,22 +4562,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
             except Exception as e:
                 print(f"Failed to send to {chat_id}: {e}")
-
-    def build_inline_keyboard(keyboard_dict):
-        rows = []
-        for row in keyboard_dict.get("inline_keyboard", []):
-            buttons = []
-            for btn in row:
-                kwargs = {"text": btn.get("text", "")}
-                if "url" in btn:
-                    kwargs["url"] = btn["url"]
-                if "callback_data" in btn:
-                    kwargs["callback_data"] = btn["callback_data"]
-                if "copy_text" in btn:
-                    kwargs["copy_text"] = CopyTextButton(text=btn["copy_text"]["text"])
-                buttons.append(InlineKeyboardButton(**kwargs))
-            rows.append(buttons)
-        return InlineKeyboardMarkup(rows)
 
     async def process_single_otp(otp_entry):
         nonlocal new_otp_count
