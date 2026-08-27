@@ -1,5 +1,5 @@
 # THIS PREMUAM BOT WAS MADE BY : RAKESH DEV 
-#TG : @SR_ADMIN_RAKESH,  AND DON'T TRY TO CHANGE ANY CREDIT
+#TG : @SR_ADMIN_RAKESH,  AND DON'T TRY TO CHANGR SNY CREDIT
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
 import random
@@ -1770,7 +1770,7 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
 
-# ==================== /testgroup COMMAND (FIXED - SENDS TO ALL GROUPS) ====================
+# ==================== /testgroup COMMAND (FIXED - SENDS TO ALL GROUPS WITH ERROR REPORTING) ====================
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
@@ -1822,8 +1822,9 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     grp_html, grp_kb_dict = format_group_otp_rich(entry)
     grp_kb = build_inline_keyboard(grp_kb_dict)
     
-    # Send to ALL groups in GROUP_IDS
+    # Send to ALL groups in GROUP_IDS, collect results
     success_count = 0
+    failed_groups = []
     for gid in GROUP_IDS:
         try:
             await context.bot.send_message(
@@ -1835,13 +1836,22 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             success_count += 1
             await asyncio.sleep(0.05)  # small delay to avoid rate limits
         except Exception as e:
-            print(f"Failed to send test OTP to group {gid}: {e}")
+            failed_groups.append(f"{gid} ({str(e)})")
     
-    await update.message.reply_text(
-        f"✅ Test OTP sent to {success_count} group(s) for {service} - {country_name} ({iso2}).\n"
-        f"📱 Number: {test_number}\n"
-        f"🔑 OTP: {test_otp}"
-    )
+    # Build response message
+    if success_count == 0:
+        reply = f"❌ Test OTP sent to 0 group(s).\n"
+        if failed_groups:
+            reply += "Failed groups:\n" + "\n".join(f"• {g}" for g in failed_groups)
+        else:
+            reply += "No groups found in GROUP_IDS. Please check the configuration."
+    else:
+        reply = f"✅ Test OTP sent to {success_count} group(s) for {service} - {country_name} ({iso2}).\n"
+        reply += f"📱 Number: {test_number}\n🔑 OTP: {test_otp}\n"
+        if failed_groups:
+            reply += "\n⚠️ Failed groups:\n" + "\n".join(f"• {g}" for g in failed_groups)
+    
+    await update.message.reply_text(reply)
 
 # ==================== CALLBACK HANDLERS ====================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
