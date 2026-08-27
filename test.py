@@ -3553,6 +3553,11 @@ async def api_remove_execute(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Kept for completeness
     pass
 
+# ===== WRAPPER for api_list =====
+async def api_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await api_list(update, context, user_id)
+
 # Wrappers
 async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -4141,9 +4146,7 @@ def main():
     application.add_handler(CallbackQueryHandler(api_delete_confirm, pattern=r"^api_delete_(yes|no)\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_force_poll, pattern=r"^api_force\|(\d+)$"))
 
-    # The api_list callback is already registered above via api_list_wrapper
-    # But we need to ensure it's handled correctly. Actually api_list_wrapper calls api_list.
-    # So we need to add it explicitly.
+    # Fix: Added api_list_wrapper handler
     application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
