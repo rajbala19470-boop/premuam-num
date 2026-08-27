@@ -39,7 +39,7 @@ ADMIN2_TELEGRAM = ""
 #   A) a tuple/list of strings: GROUP_ID = "-1003716770621","-1001234567890"
 #   B) a comma-separated string: GROUP_ID = "-1003716770621,-1001234567890"
 #   C) a single string: GROUP_ID = "-1003716770621"
-GROUP_ID = "-1003716770621","-1001234567890"   # ← edit as needed
+GROUP_ID = "-1003716770621","-1004309109716"   # ← edit as needed
 CHANNEL_URL = "https://t.me/WaCreationHub"
 BOT_URL = "https://t.me/WA_CREATION_BOT"
 
@@ -1784,7 +1784,7 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
 
-# ==================== /testgroup COMMAND (FIXED - SENDS TO ALL GROUPS WITH ERROR REPORTING) ====================
+# ==================== /testgroup COMMAND (FIXED - SENDS TO ALL GROUPS WITH sendRichMessage) ====================
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
@@ -1832,23 +1832,25 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     
-    # Generate rich message using the fixed function
+    # Generate rich message – this uses <p>, <details>, <summary> as in original
     grp_html, grp_kb_dict = format_group_otp_rich(entry)
-    grp_kb = build_inline_keyboard(grp_kb_dict)
     
-    # Send to ALL groups in GROUP_IDS, collect results
+    # Send to ALL groups using sendRichMessage (custom endpoint)
     success_count = 0
     failed_groups = []
     for gid in GROUP_IDS:
         try:
-            await context.bot.send_message(
-                chat_id=gid,
-                text=grp_html,
-                reply_markup=grp_kb,
-                parse_mode='HTML'
-            )
-            success_count += 1
-            await asyncio.sleep(0.05)  # small delay to avoid rate limits
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
+            payload = {
+                "chat_id": gid,
+                "rich_message": {"html": grp_html},
+                "reply_markup": grp_kb_dict   # send the dictionary, not InlineKeyboardMarkup
+            }
+            resp = requests.post(url, json=payload, timeout=10)
+            if resp.status_code == 200:
+                success_count += 1
+            else:
+                failed_groups.append(f"{gid} (HTTP {resp.status_code})")
         except Exception as e:
             failed_groups.append(f"{gid} ({str(e)})")
     
@@ -4424,7 +4426,7 @@ def get_country_code(country_name):
             return iso
     return country_name.upper()[:2]
 
-# ==================== RICH MESSAGE GROUP OTP (FIXED - REMOVED UNSUPPORTED TAGS) ====================
+# ==================== RICH MESSAGE GROUP OTP (ORIGINAL - WITH <p> AND <details>/<summary>) ====================
 
 def format_group_otp_rich(entry):
     number = entry.get("number", "")
@@ -4474,11 +4476,19 @@ def format_group_otp_rich(entry):
     
     message_text = entry.get("message", "")[:500]
     sms_safe = message_text.replace("<", "&lt;").replace(">", "&gt;")
+    summary = (
+        f'<tg-emoji emoji-id="{LEFT_ARROW_EMOJI}">👈</tg-emoji> '
+        f'<b>View Full SMS</b> '
+        f'<tg-emoji emoji-id="{SEND_EMOJI}">📤</tg-emoji>'
+    )
+    details_block = (
+        f'<details>'
+        f'<summary>{summary}</summary>'
+        f'<blockquote><b>{sms_safe}</b></blockquote>'
+        f'</details>'
+    )
     
-    # Use a simple blockquote for the SMS (no <p>, no <details>/<summary>)
-    sms_block = f'<blockquote>{sms_safe}</blockquote>'
-    
-    html = f'{top_line}\n\n{sms_block}'
+    html = f'<p>{top_line}</p>\n{details_block}'
     
     keyboard = {
         "inline_keyboard": [
@@ -4525,7 +4535,7 @@ def build_inline_keyboard(keyboard_dict):
         rows.append(buttons)
     return InlineKeyboardMarkup(rows)
 
-# ==================== OTP PROCESSING (FIXED - MULTI-GROUP, SPEED) ====================
+# ==================== OTP PROCESSING (FIXED - MULTI-GROUP, SENDS TO ALL GROUPS VIA sendRichMessage) ====================
 
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
@@ -4544,7 +4554,7 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     return diff <= 0.5
 
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
-    """Process OTPs: send to multiple groups (using standard send_message) and to users.
+    """Process OTPs: send to multiple groups (using sendRichMessage) and to users.
        Returns count of new OTPs processed."""
     if context:
         bot = context.bot
@@ -4601,7 +4611,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         existing = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND (user_id=0 OR user_id>0)", (number, otp_code))
         is_new = existing is None
 
-        # Send to groups (if new)
+        # Send to groups (if new) - using sendRichMessage
         if is_new and group_ids:
             db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
                     (number, otp_code, message, otp_timestamp_str))
@@ -4614,17 +4624,19 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     "country": otp_entry.get("country", ""),
                     "message": message
                 })
-                grp_kb = build_inline_keyboard(grp_kb_dict)
-                # Send to all groups concurrently
-                group_tasks = []
+                # Send to each group using sendRichMessage (custom endpoint)
                 for gid in group_ids:
-                    group_tasks.append(bot.send_message(chat_id=gid, text=grp_html, reply_markup=grp_kb, parse_mode='HTML'))
-                if group_tasks:
-                    await asyncio.gather(*group_tasks)
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
+                    payload = {
+                        "chat_id": gid,
+                        "rich_message": {"html": grp_html},
+                        "reply_markup": grp_kb_dict
+                    }
+                    requests.post(url, json=payload, timeout=10)
             except Exception as e:
-                print(f"Group message failed: {e}")
+                print(f"Group Rich message failed: {e}")
 
-        # Send to users
+        # Send to users (via bot.send_message)
         clean_number = number.replace('+', '')
         local_tasks = []
         if clean_number in num_map:
@@ -5022,4 +5034,4 @@ def main():
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    main()
+    main(
