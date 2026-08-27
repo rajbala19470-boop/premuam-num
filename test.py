@@ -1,5 +1,7 @@
-# bot.py — SR NUMBER HUB (Complete with Multi-API System)
+
+# with Multi-API System)
 # All features + CURL with automatic placeholder replacement.
+# SKIP means "not used" — no default values.
 # Supports {API_BASE}, {TOKEN}, {YOUR_TOKEN}, {API_TOKEN}, {RECORDS}, etc.
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
@@ -2868,10 +2870,10 @@ STEP_EXAMPLES = {
     "endpoint": "e.g., /publicapi/getupdate",
     "token": "e.g., SUEKjeiWiw",
     "interval_sec": "e.g., 30 (minimum 1 second)",
-    "number_path": "e.g., phone or num",
-    "message_path": "e.g., sms or message",
-    "timestamp_path": "e.g., clock or time_stamp",
-    "service_path": "e.g., cli or service",
+    "number_path": "e.g., number or phone",
+    "message_path": "e.g., message or sms",
+    "timestamp_path": "e.g., timestamp or time",
+    "service_path": "e.g., service or cli",
     "curl_command": """
 curl {API_BASE}/publicapi/getupdate -H "MAuth: {TOKEN}"
 or
@@ -2982,20 +2984,35 @@ Send the value or press SKIP:"""
         auto_delete=False
     )
 
+# ==================== SHOW CONFIRM STEP (UPDATED) ====================
+
 async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    """Show confirmation step."""
+    """Show confirmation step - shows which fields will be used and which are skipped."""
     data = admin_temp_data.get(user_id, {})
     
     confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
-    confirm_text += f"📛 <b>Panel Name</b>: <code>{data.get('panel_name', '')}</code>\n"
-    confirm_text += f"🌐 <b>Base URL</b>: <code>{data.get('base_url', '')}</code>\n"
-    confirm_text += f"📍 <b>Endpoint</b>: <code>{data.get('endpoint', '')}</code>\n"
-    confirm_text += f"🔑 <b>Token</b>: <code>{data.get('token', '')[:10]}{'...' if data.get('token') else ''}</code>\n"
-    confirm_text += f"⏱️ <b>Interval</b>: <code>{data.get('interval_sec', 30)} seconds</code>\n"
-    confirm_text += f"📱 <b>Number Path</b>: <code>{data.get('number_path', 'number')}</code>\n"
-    confirm_text += f"💬 <b>Message Path</b>: <code>{data.get('message_path', 'message')}</code>\n"
-    confirm_text += f"🕐 <b>Timestamp Path</b>: <code>{data.get('timestamp_path', 'timestamp')}</code>\n"
-    confirm_text += f"🔧 <b>Service Path</b>: <code>{data.get('service_path', 'service')}</code>\n"
+    
+    # Show all fields with their status
+    fields = [
+        ("Panel Name", data.get("panel_name"), "📛"),
+        ("Base URL", data.get("base_url"), "🌐"),
+        ("Endpoint", data.get("endpoint"), "📍"),
+        ("Token", data.get("token"), "🔑"),
+        ("Interval", data.get("interval_sec"), "⏱️"),
+        ("Number Path", data.get("number_path"), "📱"),
+        ("Message Path", data.get("message_path"), "💬"),
+        ("Timestamp Path", data.get("timestamp_path"), "🕐"),
+        ("Service Path", data.get("service_path"), "🔧"),
+    ]
+    
+    for label, value, icon in fields:
+        if value is None:
+            confirm_text += f"{icon} {label}: <i>Skipped (Not Used)</i>\n"
+        elif value == "":
+            confirm_text += f"{icon} {label}: <i>Not set</i>\n"
+        else:
+            display_value = str(value)[:30] + "..." if len(str(value)) > 30 else value
+            confirm_text += f"{icon} {label}: <code>{display_value}</code>\n"
     
     if data.get("curl_command"):
         confirm_text += f"\n📌 <b>CURL Command</b>:\n<code>{data['curl_command'][:200]}{'...' if len(data['curl_command']) > 200 else ''}</code>\n"
@@ -3003,25 +3020,27 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         if parsed and parsed.get("placeholders"):
             placeholders = ", ".join([f"<code>{{{ph}}}</code>" for ph in parsed["placeholders"].keys()])
             confirm_text += f"🔑 <b>Placeholders</b>: {placeholders}\n"
+    else:
+        confirm_text += f"\n📌 <b>CURL</b>: <i>Skipped (Not Used)</i>\n"
     
     confirm_text += f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Is all correct?</b></blockquote>"
     
     kb = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "YES ADD",
+                "✅ YES ADD",
                 callback_data=f"api_add_confirm_yes|{user_id}",
                 style=KBS.SUCCESS,
                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", ""))
             ),
             InlineKeyboardButton(
-                "EDIT",
+                "✏️ EDIT",
                 callback_data=f"api_add_edit|{user_id}",
                 style=KBS.PRIMARY,
                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", ""))
             ),
             InlineKeyboardButton(
-                "CANCEL",
+                "❌ CANCEL",
                 callback_data=f"api_add_confirm_no|{user_id}",
                 style=KBS.DANGER,
                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", ""))
@@ -3036,12 +3055,13 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         await update.edit_message_text(confirm_text, reply_markup=kb, parse_mode='HTML')
 
-# ==================== HANDLE API ADD SKIP ====================
+# ==================== HANDLE API ADD SKIP (UPDATED) ====================
 
 async def handle_api_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """SKIP button handler - means this step is not needed; field set to None."""
     query = update.callback_query
     user_id = query.from_user.id
-    await query.answer("⏭ Step skipped!")
+    await query.answer("⏭ Step skipped! This field will not be used.")
     
     current_step = admin_panel_state.get(user_id)
     if not current_step or not current_step.startswith("api_add_"):
@@ -3051,23 +3071,9 @@ async def handle_api_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = admin_temp_data.get(user_id, {})
     label, field, next_step = STEP_MESSAGES.get(current_step, ("", "", ""))
     
+    # SKIP = field set to None (meaning "not used")
     if field:
-        if field == "panel_name" and not data.get(field):
-            data[field] = "API_" + str(user_id)[-4:]
-        elif field == "endpoint" and not data.get(field):
-            data[field] = "/"
-        elif field == "interval_sec" and not data.get(field):
-            data[field] = 30
-        elif field == "number_path" and not data.get(field):
-            data[field] = "number"
-        elif field == "message_path" and not data.get(field):
-            data[field] = "message"
-        elif field == "timestamp_path" and not data.get(field):
-            data[field] = "timestamp"
-        elif field == "service_path" and not data.get(field):
-            data[field] = "service"
-        elif field == "curl_command":
-            data[field] = None
+        data[field] = None
     
     admin_temp_data[user_id] = data
     
@@ -3195,7 +3201,7 @@ Send <code>/continue</code> to proceed or send another CURL to update.
     
     return True
 
-# ==================== API ADD CONFIRM YES ====================
+# ==================== API ADD CONFIRM YES (UPDATED) ====================
 
 async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3209,21 +3215,36 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
     parsed_curl = data.get("parsed_curl")
     curl_command = data.get("curl_command")
     
+    # Get values - if None, use empty string or defaults
+    panel_name = data.get("panel_name") or "API_" + str(user_id)[-4:]
+    base_url = data.get("base_url") or ""
+    endpoint = data.get("endpoint") or "/"
+    token = data.get("token") or ""
+    interval = data.get("interval_sec") or 30
+    number_path = data.get("number_path")  # Can be None = not used
+    message_path = data.get("message_path")  # Can be None = not used
+    timestamp_path = data.get("timestamp_path")  # Can be None = not used
+    service_path = data.get("service_path")  # Can be None = not used
+    
     if parsed_curl:
-        base_url = parsed_curl.get("base_url", data.get("base_url", ""))
-        endpoint = parsed_curl.get("endpoint", data.get("endpoint", ""))
+        base_url = parsed_curl.get("base_url", base_url)
+        endpoint = parsed_curl.get("endpoint", endpoint)
         method = parsed_curl.get("method", "GET")
         headers = parsed_curl.get("headers", {})
         body_template = parsed_curl.get("data")
         placeholders = parsed_curl.get("placeholders", {})
         placeholder_config = json.dumps(placeholders) if placeholders else "{}"
     else:
-        base_url = data.get("base_url", "")
-        endpoint = data.get("endpoint", "")
         method = "GET"
         headers = {}
         body_template = None
         placeholder_config = "{}"
+    
+    # If number_path is None, response parser will try to find OTP from message
+    number_path = number_path if number_path is not None else ""
+    message_path = message_path if message_path is not None else ""
+    timestamp_path = timestamp_path if timestamp_path is not None else ""
+    service_path = service_path if service_path is not None else ""
     
     db_exec("""
         INSERT INTO api_keys (
@@ -3236,18 +3257,18 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
             placeholder_config, curl_command
         ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'data', 'status', ?, ?)
     """, (
-        data.get("panel_name"),
+        panel_name,
         base_url,
         endpoint,
-        data.get("token", ""),
-        data.get("interval_sec", 30),
+        token,
+        interval,
         method,
         json.dumps(headers) if headers else "{}",
         json.dumps(body_template) if body_template else None,
-        data.get("number_path", "number"),
-        data.get("message_path", "message"),
-        data.get("timestamp_path", "timestamp"),
-        data.get("service_path", "service"),
+        number_path,
+        message_path,
+        timestamp_path,
+        service_path,
         user_id,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         placeholder_config,
@@ -3260,30 +3281,45 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
     admin_temp_data.pop(user_id, None)
     admin_panel_state[user_id] = "main"
     
+    # Build success message with used fields only
+    used_fields = []
+    if panel_name: used_fields.append(f"📛 Panel: {panel_name}")
+    if base_url: used_fields.append(f"🌐 Base URL: {base_url}")
+    if endpoint and endpoint != "/": used_fields.append(f"📍 Endpoint: {endpoint}")
+    if token: used_fields.append(f"🔑 Token: {token[:8]}...")
+    used_fields.append(f"⏱️ Interval: {interval}s")
+    if number_path: used_fields.append(f"📱 Number Path: {number_path}")
+    if message_path: used_fields.append(f"💬 Message Path: {message_path}")
+    if timestamp_path: used_fields.append(f"🕐 Timestamp Path: {timestamp_path}")
+    if service_path: used_fields.append(f"🔧 Service Path: {service_path}")
+    if curl_command: used_fields.append(f"📌 CURL: {curl_command[:50]}...")
+    
+    # Show which fields were skipped
+    skipped_fields = []
+    if not number_path: skipped_fields.append("Number Path")
+    if not message_path: skipped_fields.append("Message Path")
+    if not timestamp_path: skipped_fields.append("Timestamp Path")
+    if not service_path: skipped_fields.append("Service Path")
+    if not curl_command: skipped_fields.append("CURL")
+    
     success_text = f"""
-✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{data.get('panel_name')}' added successfully!</b>
+✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{panel_name}' added successfully!</b>
 
 🆔 <b>API ID</b>: <code>{api_id}</code>
-🌐 <b>Base URL</b>: <code>{base_url}</code>
-📍 <b>Endpoint</b>: <code>{endpoint}</code>
-⏱️ <b>Status</b>: Polling started
 """
+    if used_fields:
+        success_text += "\n📋 <b>Configured:</b>\n" + "\n".join([f"  • {f}" for f in used_fields])
     
-    if curl_command:
-        success_text += f"\n📌 <b>CURL</b>: <code>{curl_command[:100]}...</code>"
-    
-    if placeholders:
-        ph_list = ", ".join([f"<code>{{{ph}}}</code>" for ph in placeholders.keys()])
-        success_text += f"\n🔑 <b>Placeholders</b>: {ph_list}"
-        success_text += f"\n   <i>(Set values in EDIT → Placeholders)</i>"
+    if skipped_fields:
+        success_text += f"\n\n⏭ <b>Skipped (Not Used):</b>\n" + "\n".join([f"  • {f}" for f in skipped_fields])
     
     success_text += f"""
     
 <blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Next Steps</b>:
-1. Go to <b>API System</b> → {data.get('panel_name')}
-2. Click <b>EDIT</b> to set placeholder values
-3. Click <b>TEST</b> to verify API works
-4. Adjust OTP paths if needed</blockquote>
+1. Go to <b>API System</b> → {panel_name}
+2. Click <b>TEST</b> to verify API works
+3. Click <b>EDIT</b> to adjust any settings
+4. Check <b>LOGS</b> for polling status</blockquote>
 """
     
     await query.edit_message_text(success_text, reply_markup=admin_panel_keyboard(), parse_mode='HTML')
@@ -3345,6 +3381,7 @@ async def poll_single_api_curl_based(api_id: int):
                     placeholders["BASE_URL"] = base_url
                     placeholders["API_URL"] = base_url
                     placeholders["API"] = base_url
+                    placeholders["URL"] = base_url
                 if token:
                     placeholders["TOKEN"] = token
                     placeholders["YOUR_TOKEN"] = token
@@ -3745,6 +3782,7 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 placeholders["BASE_URL"] = base_url
                 placeholders["API_URL"] = base_url
                 placeholders["API"] = base_url
+                placeholders["URL"] = base_url
             if token:
                 placeholders["TOKEN"] = token
                 placeholders["YOUR_TOKEN"] = token
@@ -3971,6 +4009,7 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 placeholders["BASE_URL"] = base_url
                 placeholders["API_URL"] = base_url
                 placeholders["API"] = base_url
+                placeholders["URL"] = base_url
             if token:
                 placeholders["TOKEN"] = token
                 placeholders["YOUR_TOKEN"] = token
@@ -4544,12 +4583,12 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
     
     save_user_data_json()
 
-# ==================== RESPONSE PARSER ====================
+# ==================== RESPONSE PARSER (UPDATED) ====================
 
 class ResponseParser:
     @staticmethod
     def _get_json_path(data, path, default=None):
-        if not path:
+        if not path:  # If path is empty/None, return data itself
             return data
         parts = path.split('.')
         current = data
@@ -4581,46 +4620,72 @@ class ResponseParser:
 
     @staticmethod
     def parse_json_response(content: dict, config: dict) -> list[dict]:
-        data = ResponseParser._get_json_path(content, config.get('otp_list_path', 'data'))
+        # Get path - if None/empty, use whole content
+        otp_list_path = config.get('otp_list_path', 'data')
+        if not otp_list_path:
+            data = content
+        else:
+            data = ResponseParser._get_json_path(content, otp_list_path)
+        
         if data is None:
+            # Try to find any list in the response
             for key, value in content.items():
                 if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
                     data = value
                     break
             if data is None:
                 return []
+        
         if isinstance(data, dict):
             data = [data]
         if not isinstance(data, list):
             return []
+        
         result = []
+        number_path = config.get('number_path')
+        message_path = config.get('message_path')
+        service_path = config.get('service_path')
+        timestamp_path = config.get('timestamp_path')
+        country_path = config.get('country_path')
+        
         for item in data:
             if not isinstance(item, dict):
                 continue
-            entry = {
-                "number": ResponseParser._get_json_path(item, config.get('number_path', 'number'), ""),
-                "otp": ResponseParser._get_json_path(item, config.get('otp_path', 'otp'), ""),
-                "message": ResponseParser._get_json_path(item, config.get('message_path', 'message'), ""),
-                "service": ResponseParser._get_json_path(item, config.get('service_path', 'service'), ""),
-                "timestamp": ResponseParser._get_json_path(item, config.get('timestamp_path', 'timestamp'), ""),
-                "country": ResponseParser._get_json_path(item, config.get('country_path', 'country'), ""),
-            }
+            
+            entry = {}
+            
+            # Only extract fields that have paths configured
+            if number_path:
+                entry["number"] = ResponseParser._get_json_path(item, number_path, "")
+            if message_path:
+                entry["message"] = ResponseParser._get_json_path(item, message_path, "")
+            else:
+                # If message_path is not configured, try to find any text field
+                for key, value in item.items():
+                    if isinstance(value, str) and len(value) > 10:
+                        entry["message"] = value
+                        break
+            
+            if service_path:
+                entry["service"] = ResponseParser._get_json_path(item, service_path, "")
+            if timestamp_path:
+                entry["timestamp"] = ResponseParser._get_json_path(item, timestamp_path, "")
+            if country_path:
+                entry["country"] = ResponseParser._get_json_path(item, country_path, "")
+            
+            # Try to find OTP from message if no OTP field
+            if "message" in entry and entry["message"]:
+                otp = extract_otp_from_message(entry["message"])
+                if otp:
+                    entry["otp"] = otp
+            
             entry = {k: v for k, v in entry.items() if v}
             if entry.get("number") or entry.get("otp"):
                 result.append(entry)
+        
         return result
 
-    @staticmethod
-    def parse_response(content, config: dict) -> list[dict]:
-        if isinstance(content, str):
-            try:
-                content = json.loads(content)
-            except:
-                otps = extract_all_otps_from_message(content)
-                return [{"otp": otp, "message": content[:200]} for otp in otps]
-        if isinstance(content, dict):
-            return ResponseParser.parse_json_response(content, config)
-        return []
+# ==================== GET API CONFIG ====================
 
 def get_country_from_number(number: str) -> str | None:
     if not number:
