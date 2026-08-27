@@ -1,5 +1,6 @@
 # bot.py — SR NUMBER HUB (Complete with Multi-API System)
 # All original features + new API System with CURL and SKIP.
+# CURL Parser supports unlimited formats: placeholders, backslashes, multiline, quotes, etc.
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -143,11 +144,11 @@ CUSTOM_EMOJIS["DEFAULT_FLAG"] = "5188540541922480562"
 CUSTOM_EMOJIS["DEFAULT_SERVICE"] = "5465590345108589516"
 CUSTOM_EMOJIS["JOIN_OTP_GROUP"] = "6204010762206189094"
 
-# Custom emoji IDs for LIST API format (user provided)
+# Custom emoji IDs for LIST API format
 CUSTOM_EMOJIS["API_LIST_ICON"] = "5411225014148014586"
 CUSTOM_EMOJIS["API_LIST_INTERVAL_ICON"] = "6235253239080555488"
 
-# SKIP emoji
+# SKIP emoji (premium)
 SKIP_EMOJI = "6267262260243076354"  # ⏭
 
 # ==================== DATABASE FOLDER ====================
@@ -275,7 +276,7 @@ admin_mode = {}
 admin_panel_state = {}
 admin_temp_data = {}
 last_activation_data = {}
-polling_tasks = {}          # for new API polling
+polling_tasks = {}
 
 # ==================== HELPER FUNCTIONS ====================
 def safe_url(url: str) -> str | None:
@@ -2650,7 +2651,7 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
         auto_delete=False
     )
 
-# ==================== CURL PARSER AND API ADD WITH SKIP ====================
+# ==================== CURL PARSER - UNLIMITED FORMAT SUPPORT ====================
 
 import re
 import json
@@ -2658,7 +2659,7 @@ from urllib.parse import urlparse, parse_qs
 
 def parse_curl_complete(curl_string: str) -> dict:
     """
-    যেকোনো CURL কমান্ড পার্স করে - ইউজার যেভাবে দিবে ঠিক সেভাবেই
+    Unlimited CURL parser - supports any format, any placeholders, backslashes, multiline, quotes, etc.
     """
     result = {
         "method": "GET",
@@ -2672,24 +2673,35 @@ def parse_curl_complete(curl_string: str) -> dict:
         "original_url": ""
     }
     
-    # Clean up
-    curl_string = curl_string.strip()
+    # Clean up: remove backslashes, newlines, extra spaces
+    curl_string = curl_string.replace('\\', ' ').replace('\n', ' ').replace('\r', ' ')
+    curl_string = re.sub(r'\s+', ' ', curl_string).strip()
+    
     if curl_string.startswith("curl"):
         curl_string = curl_string[4:].strip()
     
-    # ===== 1. URL Extraction - যেকোনো ফরম্যাট =====
-    url_patterns = [
-        r'["\'](https?://[^\s"\']+)["\']',
-        r'(https?://[^\s"\']+)',
-    ]
-    
-    for pattern in url_patterns:
-        url_match = re.search(pattern, curl_string)
+    # ===== 1. URL Extraction (supports quoted, unquoted, placeholders) =====
+    # Try quoted URL first
+    url_match = re.search(r'["\']((?:https?://)?[^\s"\']+)["\']', curl_string)
+    if url_match:
+        result["url"] = url_match.group(1)
+        result["original_url"] = result["url"]
+        curl_string = curl_string.replace(url_match.group(0), "").strip()
+    else:
+        # Unquoted URL (including placeholders like {API_BASE})
+        url_match = re.search(r'((?:https?://)?[^\s"\']+)', curl_string)
         if url_match:
             result["url"] = url_match.group(1)
             result["original_url"] = result["url"]
             curl_string = curl_string.replace(url_match.group(0), "").strip()
-            break
+    
+    # If still no URL, try to find a URL with placeholders like {API_BASE}/path
+    if not result["url"]:
+        placeholder_url_match = re.search(r'\{[A-Za-z_]+\}/[^\s"]+', curl_string)
+        if placeholder_url_match:
+            result["url"] = placeholder_url_match.group(0)
+            result["original_url"] = result["url"]
+            curl_string = curl_string.replace(placeholder_url_match.group(0), "").strip()
     
     # ===== 2. Method Extraction =====
     method_pattern = r'-[Xx]\s+["\']?([A-Z]+)["\']?'
@@ -2707,6 +2719,15 @@ def parse_curl_complete(curl_string: str) -> dict:
             result["headers"][key.strip()] = value.strip()
     curl_string = re.sub(header_pattern, "", curl_string).strip()
     
+    # Also handle --header
+    header_long_pattern = r'--header\s+["\']([^"\']+)["\']'
+    header_long_matches = re.findall(header_long_pattern, curl_string)
+    for header in header_long_matches:
+        if ": " in header:
+            key, value = header.split(": ", 1)
+            result["headers"][key.strip()] = value.strip()
+    curl_string = re.sub(header_long_pattern, "", curl_string).strip()
+    
     # ===== 4. Data Extraction =====
     data_pattern = r'-d\s+["\']([^"\']+)["\']'
     data_match = re.search(data_pattern, curl_string)
@@ -2718,22 +2739,42 @@ def parse_curl_complete(curl_string: str) -> dict:
             result["data"] = data_str
         curl_string = re.sub(data_pattern, "", curl_string).strip()
     
+    data_raw_pattern = r'--data-raw\s+["\']([^"\']+)["\']'
+    data_raw_match = re.search(data_raw_pattern, curl_string)
+    if data_raw_match:
+        data_str = data_raw_match.group(1)
+        try:
+            result["data"] = json.loads(data_str)
+        except:
+            result["data"] = data_str
+        curl_string = re.sub(data_raw_pattern, "", curl_string).strip()
+    
+    data_binary_pattern = r'--data-binary\s+["\']([^"\']+)["\']'
+    data_binary_match = re.search(data_binary_pattern, curl_string)
+    if data_binary_match:
+        data_str = data_binary_match.group(1)
+        try:
+            result["data"] = json.loads(data_str)
+        except:
+            result["data"] = data_str
+        curl_string = re.sub(data_binary_pattern, "", curl_string).strip()
+    
     # ===== 5. Find ALL placeholders {something} =====
     placeholder_pattern = r'\{([^{}]+)\}'
     
-    # URL এ প্লেসহোল্ডার
+    # URL placeholders
     if result["url"]:
         placeholders = re.findall(placeholder_pattern, result["url"])
         for ph in placeholders:
             result["placeholders"][ph] = ""
     
-    # Headers এ প্লেসহোল্ডার
+    # Headers placeholders
     for key, value in result["headers"].items():
         placeholders = re.findall(placeholder_pattern, value)
         for ph in placeholders:
             result["placeholders"][ph] = ""
     
-    # Data এ প্লেসহোল্ডার
+    # Data placeholders
     if result["data"] and isinstance(result["data"], str):
         placeholders = re.findall(placeholder_pattern, result["data"])
         for ph in placeholders:
@@ -2746,43 +2787,44 @@ def parse_curl_complete(curl_string: str) -> dict:
     
     # ===== 6. Extract base URL and endpoint =====
     if result["url"]:
-        parsed = urlparse(result["url"])
-        result["base_url"] = f"{parsed.scheme}://{parsed.netloc}"
-        result["endpoint"] = parsed.path or "/"
-        if parsed.query:
-            result["endpoint"] += "?" + parsed.query
+        if result["url"].startswith(("http://", "https://")):
+            parsed = urlparse(result["url"])
+            result["base_url"] = f"{parsed.scheme}://{parsed.netloc}"
+            result["endpoint"] = parsed.path or "/"
+            if parsed.query:
+                result["endpoint"] += "?" + parsed.query
+        else:
+            # URL with placeholder like {API_BASE}/path
+            parts = result["url"].split('/', 1)
+            if len(parts) > 1:
+                result["base_url"] = parts[0]
+                result["endpoint"] = "/" + parts[1]
+            else:
+                result["base_url"] = parts[0]
+                result["endpoint"] = "/"
     
     return result
 
 def replace_all_placeholders(text: str, placeholders: dict) -> str:
-    """
-    টেক্সটের সব {placeholder} রিপ্লেস করে
-    """
+    """Replace all {placeholder} with values."""
     if not text:
         return text
-    
     for key, value in placeholders.items():
         text = text.replace(f"{{{key}}}", str(value))
-    
     return text
 
 def build_request_from_curl(parsed: dict, placeholders: dict = None) -> dict:
-    """
-    Parsed CURL থেকে API রিকোয়েস্ট তৈরি করে
-    """
+    """Build request from parsed CURL."""
     if not placeholders:
         placeholders = parsed.get("placeholders", {})
     
-    # URL রিপ্লেস
     url = parsed.get("original_url", parsed.get("url", ""))
     url = replace_all_placeholders(url, placeholders)
     
-    # Headers রিপ্লেস
     headers = {}
     for key, value in parsed.get("headers", {}).items():
         headers[key] = replace_all_placeholders(value, placeholders)
     
-    # Data রিপ্লেস
     data = parsed.get("data")
     if data and isinstance(data, (dict, list)):
         data_str = json.dumps(data)
@@ -2851,53 +2893,48 @@ STEP_MESSAGES = {
     "api_add_confirm": ("", "", "api_add_finish"),
 }
 
-# কোন স্টেপ SKIP করা যাবে
+# Which steps can be skipped
 SKIPPABLE_STEPS = [
-    "api_add_name",          # Panel Name (Skip করলে ডিফল্ট নাম হবে)
-    "api_add_endpoint",      # Endpoint (Skip করলে '/' হবে)
-    "api_add_token",         # Token (Skip করলে খালি থাকবে)
-    "api_add_interval",      # Interval (Skip করলে 30 হবে)
-    "api_add_number_path",   # Number Path (Skip করলে 'number' হবে)
-    "api_add_message_path",  # Message Path (Skip করলে 'message' হবে)
-    "api_add_timestamp_path",# Timestamp Path (Skip করলে 'timestamp' হবে)
-    "api_add_service_path",  # Service Path (Skip করলে 'service' হবে)
-    "api_add_curl",          # CURL (Skip করা যায়)
+    "api_add_name",
+    "api_add_endpoint",
+    "api_add_token",
+    "api_add_interval",
+    "api_add_number_path",
+    "api_add_message_path",
+    "api_add_timestamp_path",
+    "api_add_service_path",
+    "api_add_curl",
 ]
 
 NON_SKIPPABLE_STEPS = [
-    "api_add_base_url",      # Base URL - আবশ্যক
-    "api_add_confirm",       # Confirm - SKIP করা যাবে না
+    "api_add_base_url",
+    "api_add_confirm",
 ]
 
 # ==================== KEYBOARD BUILDERS FOR API ADD ====================
 
 def get_step_keyboard(step: str) -> InlineKeyboardMarkup:
-    """স্টেপ অনুযায়ী কিবোর্ড তৈরি করে"""
+    """Build keyboard for step - only premium emojis."""
     buttons = []
-    
-    # SKIP বাটন (যদি স্কিপযোগ্য হয়)
     if step in SKIPPABLE_STEPS:
         buttons.append(InlineKeyboardButton(
-            "⏭ SKIP",
+            "SKIP",
             callback_data="api_add_skip",
             style=KBS.PRIMARY,
             icon_custom_emoji_id=safe_icon(SKIP_EMOJI)
         ))
-    
-    # CANCEL বাটন
     buttons.append(InlineKeyboardButton(
-        "❌ CANCEL",
+        "CANCEL",
         callback_data="api_add_cancel",
         style=KBS.DANGER,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", ""))
     ))
-    
     return InlineKeyboardMarkup([buttons])
 
 # ==================== API ADD STEP DISPLAY ====================
 
 async def api_add_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, step: str):
-    """যেকোনো API ADD স্টেপ দেখান"""
+    """Show any API ADD step."""
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
@@ -2916,10 +2953,11 @@ async def api_add_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     data = admin_temp_data.get(user_id, {})
     current_value = data.get(field, "")
     
-    # Examples
-    example_text = f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b>: {STEP_EXAMPLES.get(field, '')}</blockquote>" if field in STEP_EXAMPLES else ""
+    # Example with proper formatting
+    example_text = ""
+    if field in STEP_EXAMPLES:
+        example_text = f"\n\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b>:\n<code>{STEP_EXAMPLES[field]}</code></blockquote>"
     
-    # Required/Optional indicator
     if step in NON_SKIPPABLE_STEPS:
         required_text = f"{emoji_tag('4958534696645428119', '⚠️')} <b>Required</b>"
     else:
@@ -2945,7 +2983,7 @@ Send the value or press SKIP:"""
     )
 
 async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    """কনফর্মেশন স্টেপ দেখান"""
+    """Show confirmation step."""
     data = admin_temp_data.get(user_id, {})
     
     confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
@@ -2969,12 +3007,26 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     confirm_text += f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Is all correct?</b></blockquote>"
     
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ YES ADD", callback_data=f"api_add_confirm_yes|{user_id}", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "")))],
-        [InlineKeyboardButton("✏️ EDIT", callback_data=f"api_add_edit|{user_id}", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", "")))],
-        [InlineKeyboardButton("❌ CANCEL", callback_data=f"api_add_confirm_no|{user_id}", style=KBS.DANGER,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "")))]
+        [
+            InlineKeyboardButton(
+                "YES ADD",
+                callback_data=f"api_add_confirm_yes|{user_id}",
+                style=KBS.SUCCESS,
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", ""))
+            ),
+            InlineKeyboardButton(
+                "EDIT",
+                callback_data=f"api_add_edit|{user_id}",
+                style=KBS.PRIMARY,
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", ""))
+            ),
+            InlineKeyboardButton(
+                "CANCEL",
+                callback_data=f"api_add_confirm_no|{user_id}",
+                style=KBS.DANGER,
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", ""))
+            )
+        ]
     ])
     
     admin_panel_state[user_id] = "api_add_confirm"
@@ -2987,7 +3039,6 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 # ==================== HANDLE API ADD SKIP ====================
 
 async def handle_api_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """SKIP বাটন হ্যান্ডেল করে"""
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer("⏭ Step skipped!")
@@ -3000,10 +3051,9 @@ async def handle_api_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = admin_temp_data.get(user_id, {})
     label, field, next_step = STEP_MESSAGES.get(current_step, ("", "", ""))
     
-    # Skip logic per field
     if field:
         if field == "panel_name" and not data.get(field):
-            data[field] = "API_" + str(user_id)[-4:]  # ডিফল্ট নাম
+            data[field] = "API_" + str(user_id)[-4:]
         elif field == "endpoint" and not data.get(field):
             data[field] = "/"
         elif field == "interval_sec" and not data.get(field):
@@ -3021,7 +3071,6 @@ async def handle_api_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     admin_temp_data[user_id] = data
     
-    # Move to next step
     if next_step:
         await api_add_step(update, context, user_id, next_step)
     else:
@@ -3030,36 +3079,26 @@ async def handle_api_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ==================== HANDLE API ADD CANCEL ====================
 
 async def handle_api_add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """CANCEL বাটন হ্যান্ডেল করে"""
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer("❌ Cancelled!")
-    
     admin_temp_data.pop(user_id, None)
     admin_panel_state[user_id] = "main"
-    
-    await query.edit_message_text(
-        "❌ API addition cancelled.",
-        reply_markup=admin_panel_keyboard()
-    )
+    await query.edit_message_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
 
 # ==================== API ADD START ====================
 
 async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    """API ADD স্টার্ট - প্রথম স্টেপ থেকে"""
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
-    
     admin_temp_data[user_id] = {}
     admin_panel_state[user_id] = "api_add_name"
-    
     await api_add_step(update, context, user_id, "api_add_name")
 
 # ==================== HANDLE API ADD TEXT INPUT ====================
 
 async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """API ADD টেক্সট ইনপুট হ্যান্ডেল করে - CURL সহ"""
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
     
@@ -3077,7 +3116,7 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = admin_temp_data.get(user_id, {})
     label, field, next_step = STEP_MESSAGES.get(state, ("", "", ""))
     
-    # CURL স্পেশাল হ্যান্ডলিং
+    # CURL special handling
     if state == "api_add_curl":
         if text == "/skip":
             data["curl_command"] = None
@@ -3092,6 +3131,10 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.reply_text(
                     "❌ <b>Invalid CURL Command</b>\n\n"
                     "Could not extract URL. Please check your CURL command.\n\n"
+                    "Make sure your CURL has a URL like:\n"
+                    "<code>curl https://example.com/api/endpoint</code>\n"
+                    "or\n"
+                    "<code>curl {API_BASE}/api/endpoint</code>\n\n"
                     "Or send <code>/skip</code> to skip this step.",
                     parse_mode='HTML'
                 )
@@ -3101,7 +3144,6 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             data["parsed_curl"] = parsed
             admin_temp_data[user_id] = data
             
-            # Show parsed info
             placeholders = parsed.get("placeholders", {})
             placeholders_list = ", ".join([f"<code>{{{ph}}}</code>" for ph in placeholders.keys()]) if placeholders else "None"
             
@@ -3146,7 +3188,6 @@ Send <code>/continue</code> to proceed or send another CURL to update.
         
         admin_temp_data[user_id] = data
     
-    # Move to next step
     if next_step:
         await api_add_step(update, context, user_id, next_step)
     else:
@@ -3157,7 +3198,6 @@ Send <code>/continue</code> to proceed or send another CURL to update.
 # ==================== API ADD CONFIRM YES ====================
 
 async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """API ADD কনফর্ম YES - CURL সহ"""
     query = update.callback_query
     user_id = query.from_user.id
     data = admin_temp_data.get(user_id, {})
@@ -3166,11 +3206,9 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("Session expired.", show_alert=True)
         return
     
-    # Parse CURL if provided
     parsed_curl = data.get("parsed_curl")
     curl_command = data.get("curl_command")
     
-    # Extract base_url and endpoint from CURL if provided
     if parsed_curl:
         base_url = parsed_curl.get("base_url", data.get("base_url", ""))
         endpoint = parsed_curl.get("endpoint", data.get("endpoint", ""))
@@ -3187,7 +3225,6 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
         body_template = None
         placeholder_config = "{}"
     
-    # Save to database
     db_exec("""
         INSERT INTO api_keys (
             panel_name, base_url, endpoint, token,
@@ -3218,14 +3255,11 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
     ))
     
     api_id = db_fetch_one("SELECT last_insert_rowid()")[0]
-    
-    # Start polling
     await start_polling_for_api(api_id)
     
     admin_temp_data.pop(user_id, None)
     admin_panel_state[user_id] = "main"
     
-    # Success message
     success_text = f"""
 ✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{data.get('panel_name')}' added successfully!</b>
 
@@ -3252,11 +3286,7 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
 4. Adjust OTP paths if needed</blockquote>
 """
     
-    await query.edit_message_text(
-        success_text,
-        reply_markup=admin_panel_keyboard(),
-        parse_mode='HTML'
-    )
+    await query.edit_message_text(success_text, reply_markup=admin_panel_keyboard(), parse_mode='HTML')
 
 # ==================== API ADD CONFIRM NO ====================
 
@@ -3265,10 +3295,7 @@ async def api_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = query.from_user.id
     admin_temp_data.pop(user_id, None)
     admin_panel_state[user_id] = "main"
-    await query.edit_message_text(
-        "❌ API addition cancelled.",
-        reply_markup=admin_panel_keyboard()
-    )
+    await query.edit_message_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
 
 # ==================== API ADD EDIT ====================
 
@@ -3279,8 +3306,6 @@ async def api_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data:
         await query.answer("Session expired.", show_alert=True)
         return
-    
-    # Go back to first step for editing
     admin_panel_state[user_id] = "api_add_name"
     await query.edit_message_text(
         "✏️ Edit mode: You can re-enter each step. Press SKIP to keep current value.",
@@ -3291,7 +3316,6 @@ async def api_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== CURL BASED POLLING ====================
 
 async def poll_single_api_curl_based(api_id: int):
-    """CURL ভিত্তিক পোলিং - যেকোনো ফরম্যাট"""
     async with aiohttp.ClientSession() as session:
         while True:
             config = get_api_config(api_id)
@@ -3301,7 +3325,6 @@ async def poll_single_api_curl_based(api_id: int):
             interval = config.get('interval_sec', 30)
             
             try:
-                # Get config
                 method = config.get('method', 'GET')
                 base_url = config.get('base_url', '')
                 endpoint = config.get('endpoint', '/')
@@ -3311,41 +3334,25 @@ async def poll_single_api_curl_based(api_id: int):
                 token = config.get('token', '')
                 curl_command = config.get('curl_command')
                 
-                # If CURL command exists, use it to build request
                 if curl_command:
-                    # Parse the stored CURL
                     parsed = parse_curl_complete(curl_command)
-                    
-                    # Add token to placeholders
                     if token:
                         parsed["placeholders"]["TOKEN"] = token
                         parsed["placeholders"]["YOUR_TOKEN"] = token
                         parsed["placeholders"]["API_TOKEN"] = token
-                    
-                    # Add records placeholder
                     parsed["placeholders"]["RECORDS"] = str(config.get('max_records', 200))
-                    
-                    # Build request from CURL
                     request = build_request_from_curl(parsed, placeholders)
                     url = request["url"]
                     method = request["method"]
                     headers = request["headers"]
                     data = request["data"]
                 else:
-                    # Build URL normally
                     url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
-                    
-                    # Replace placeholders
                     for key, value in placeholders.items():
                         url = url.replace(f"{{{key}}}", str(value))
-                    
                     if token:
                         url = url.replace("{TOKEN}", token)
-                        url = url.replace("{YOUR_TOKEN}", token)
-                    
                     url = url.replace("{RECORDS}", str(config.get('max_records', 200)))
-                    
-                    # Headers
                     for key, value in headers.items():
                         if isinstance(value, str):
                             for ph_key, ph_value in placeholders.items():
@@ -3353,8 +3360,6 @@ async def poll_single_api_curl_based(api_id: int):
                             if token:
                                 value = value.replace("{TOKEN}", token)
                             headers[key] = value
-                    
-                    # Data
                     data = None
                     if body_template:
                         try:
@@ -3369,8 +3374,7 @@ async def poll_single_api_curl_based(api_id: int):
                                 data = json.loads(data_str)
                         except:
                             data = body_template
-                
-                # ===== Make API Request =====
+
                 if method.upper() == 'GET':
                     async with session.get(url, headers=headers, timeout=30) as response:
                         text = await response.text()
@@ -3391,8 +3395,7 @@ async def poll_single_api_curl_based(api_id: int):
                     async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
                         text = await response.text()
                         status = response.status
-                
-                # ===== Process Response =====
+
                 if status == 200:
                     otps = ResponseParser.parse_response(text, config)
                     if otps:
@@ -3404,7 +3407,6 @@ async def poll_single_api_curl_based(api_id: int):
                         await process_otps(otps, bot=application.bot)
                         db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
                                 (len(otps), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
-                    
                     db_exec("INSERT INTO api_logs (api_id, timestamp, status, message, otp_count) VALUES (?, ?, 'success', ?, ?)",
                             (api_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "OK", len(otps) if otps else 0))
                     db_exec("UPDATE api_keys SET error_count = 0, last_poll_time = ? WHERE id = ?",
@@ -3414,13 +3416,11 @@ async def poll_single_api_curl_based(api_id: int):
                     db_exec("INSERT INTO api_logs (api_id, timestamp, status, message, otp_count) VALUES (?, ?, 'error', ?, 0)",
                             (api_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), error_msg))
                     db_exec("UPDATE api_keys SET error_count = error_count + 1 WHERE id = ?", (api_id,))
-                    
             except Exception as e:
                 print(f"API {api_id} error: {e}")
                 db_exec("INSERT INTO api_logs (api_id, timestamp, status, message, otp_count) VALUES (?, ?, 'error', ?, 0)",
                         (api_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(e)[:200]))
                 db_exec("UPDATE api_keys SET error_count = error_count + 1 WHERE id = ?", (api_id,))
-            
             await asyncio.sleep(interval)
 
 # ==================== API SYSTEM MANAGEMENT ====================
@@ -3721,7 +3721,6 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} Testing <b>{config['panel_name']}</b> ...", parse_mode='HTML')
 
     try:
-        # Reuse polling logic
         async with aiohttp.ClientSession() as session:
             method = config.get('method', 'GET')
             base_url = config.get('base_url', '')
@@ -3942,7 +3941,6 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_FORCE_POLL'], '🔄')} Force polling <b>{config['panel_name']}</b> ...", parse_mode='HTML')
 
     try:
-        # Reuse polling logic (same as test)
         async with aiohttp.ClientSession() as session:
             method = config.get('method', 'GET')
             base_url = config.get('base_url', '')
@@ -4672,7 +4670,6 @@ async def handle_edit_value_text(update: Update, context: ContextTypes.DEFAULT_T
         await api_edit_menu(update, context, api_id, user_id)
         return True
 
-    # Validate based on field type
     if field in ["interval_sec", "max_records", "retry_count"]:
         try:
             new_value = int(new_value)
@@ -4691,13 +4688,10 @@ async def handle_edit_value_text(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text("Base URL must start with http:// or https://")
             return True
     elif field == "placeholder_config":
-        # Allow json input or key=value format
         try:
-            # Try to parse as JSON
             new_value = json.loads(new_value)
             db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (json.dumps(new_value), api_id))
         except:
-            # Try key=value format
             try:
                 parts = [p.strip() for p in new_value.split(',')]
                 new_placeholders = {}
