@@ -3519,6 +3519,7 @@ async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     ])
     await reply_or_edit(update, "🔧 MANAGE API\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
 
+# ---- FIXED: LIST API with proper error handling ----
 async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
@@ -3533,7 +3534,7 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
 
     lines = []
     for api_id, panel_name, token, interval in apis:
-        token_first7 = token[:7] if token else "N/A"
+        token_first7 = token[:7] if token and len(token) >= 7 else "N/A"  # FIXED: handle None or short token
         panel_icon = CUSTOM_EMOJIS.get("API_LIST_ICON", "5411225014148014586")
         interval_icon = CUSTOM_EMOJIS.get("API_LIST_INTERVAL_ICON", "6235253239080555488")
         line = f"{emoji_tag(panel_icon, '📌')} <b>{panel_name}</b> | <code>{token_first7}</code> | <code>{interval}s</code> {emoji_tag(interval_icon, '⏱️')}"
@@ -3543,9 +3544,6 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
                                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
-
-# (REMOVE API is now only accessible via DELETE button in detail page, so we remove the separate REMOVE API menu item)
-# But we still keep the internal functions for completeness (not exposed in menu)
 
 async def api_remove_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     # This is kept for internal use if needed, but not exposed in menu
@@ -4142,6 +4140,11 @@ def main():
     application.add_handler(CallbackQueryHandler(api_delete_prompt, pattern=r"^api_delete\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_delete_confirm, pattern=r"^api_delete_(yes|no)\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_force_poll, pattern=r"^api_force\|(\d+)$"))
+
+    # The api_list callback is already registered above via api_list_wrapper
+    # But we need to ensure it's handled correctly. Actually api_list_wrapper calls api_list.
+    # So we need to add it explicitly.
+    application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
