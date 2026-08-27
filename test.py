@@ -1,8 +1,9 @@
 # bot.py — SR NUMBER HUB (Complete with Multi-API System)
 # All features + CURL with automatic placeholder replacement.
 # SKIP means "not used" — no default values.
-# Fixed: ResponseParser.parse_response method added.
-# Fixed: Base URL and endpoint used when CURL is skipped.
+# Fixed: Base URL override issue; OTP List Path added as step.
+# Fixed: ResponseParser correctly handles nested lists.
+# Fixed: process_otps matches numbers with or without '+'.
 
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
@@ -2799,7 +2800,7 @@ def parse_curl_complete(curl_string: str) -> dict:
             # URL with placeholder like {API_BASE}/path
             parts = result["url"].split('/', 1)
             if len(parts) > 1:
-                result["base_url"] = parts[0]
+                result["base_url"] = parts[0]  # may be placeholder
                 result["endpoint"] = "/" + parts[1]
             else:
                 result["base_url"] = parts[0]
@@ -2849,6 +2850,7 @@ def build_request_from_curl(parsed: dict, placeholders: dict = None) -> dict:
     }
 
 # ==================== API ADD STEPS ====================
+# Updated steps: added OTP List Path as step 6, shifted others.
 
 STEP_ORDER = [
     "api_add_name",          # 1
@@ -2856,12 +2858,13 @@ STEP_ORDER = [
     "api_add_endpoint",      # 3
     "api_add_token",         # 4
     "api_add_interval",      # 5
-    "api_add_number_path",   # 6
-    "api_add_message_path",  # 7
-    "api_add_timestamp_path",# 8
-    "api_add_service_path",  # 9
-    "api_add_curl",          # 10 - CURL Example
-    "api_add_confirm"        # 11
+    "api_add_otp_list_path", # 6  NEW
+    "api_add_number_path",   # 7
+    "api_add_message_path",  # 8
+    "api_add_timestamp_path",# 9
+    "api_add_service_path",  # 10
+    "api_add_curl",          # 11
+    "api_add_confirm"        # 12
 ]
 
 STEP_EXAMPLES = {
@@ -2870,6 +2873,7 @@ STEP_EXAMPLES = {
     "endpoint": "e.g., /publicapi/getupdate",
     "token": "e.g., SUEKjeiWiw",
     "interval_sec": "e.g., 30 (minimum 1 second)",
+    "otp_list_path": "e.g., data.rows (path to list of OTPs)",
     "number_path": "e.g., number or phone",
     "message_path": "e.g., message or sms",
     "timestamp_path": "e.g., timestamp or time",
@@ -2886,7 +2890,8 @@ STEP_MESSAGES = {
     "api_add_base_url": ("Base URL", "base_url", "api_add_endpoint"),
     "api_add_endpoint": ("Endpoint", "endpoint", "api_add_token"),
     "api_add_token": ("Token", "token", "api_add_interval"),
-    "api_add_interval": ("Interval (seconds, >=1)", "interval_sec", "api_add_number_path"),
+    "api_add_interval": ("Interval (seconds, >=1)", "interval_sec", "api_add_otp_list_path"),
+    "api_add_otp_list_path": ("OTP List Path", "otp_list_path", "api_add_number_path"),
     "api_add_number_path": ("Number Field Path", "number_path", "api_add_message_path"),
     "api_add_message_path": ("Message Field Path", "message_path", "api_add_timestamp_path"),
     "api_add_timestamp_path": ("Timestamp Field Path", "timestamp_path", "api_add_service_path"),
@@ -2901,6 +2906,7 @@ SKIPPABLE_STEPS = [
     "api_add_endpoint",
     "api_add_token",
     "api_add_interval",
+    "api_add_otp_list_path",
     "api_add_number_path",
     "api_add_message_path",
     "api_add_timestamp_path",
@@ -2999,6 +3005,7 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         ("Endpoint", data.get("endpoint"), "📍"),
         ("Token", data.get("token"), "🔑"),
         ("Interval", data.get("interval_sec"), "⏱️"),
+        ("OTP List Path", data.get("otp_list_path"), "📋"),
         ("Number Path", data.get("number_path"), "📱"),
         ("Message Path", data.get("message_path"), "💬"),
         ("Timestamp Path", data.get("timestamp_path"), "🕐"),
@@ -3201,7 +3208,7 @@ Send <code>/continue</code> to proceed or send another CURL to update.
     
     return True
 
-# ==================== API ADD CONFIRM YES ====================
+# ==================== API ADD CONFIRM YES (UPDATED) ====================
 
 async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3221,14 +3228,24 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
     endpoint = data.get("endpoint") or "/"
     token = data.get("token") or ""
     interval = data.get("interval_sec") or 30
+    otp_list_path = data.get("otp_list_path") or "data"
     number_path = data.get("number_path")  # Can be None = not used
     message_path = data.get("message_path")  # Can be None = not used
     timestamp_path = data.get("timestamp_path")  # Can be None = not used
     service_path = data.get("service_path")  # Can be None = not used
     
     if parsed_curl:
-        base_url = parsed_curl.get("base_url", base_url)
-        endpoint = parsed_curl.get("endpoint", endpoint)
+        # Only use parsed_curl base_url if it's not a placeholder (i.e., contains no {})
+        if parsed_curl.get("base_url") and "{" not in parsed_curl["base_url"]:
+            base_url = parsed_curl["base_url"]
+        elif not base_url and parsed_curl.get("base_url"):
+            base_url = parsed_curl["base_url"]
+        # Similarly for endpoint
+        if parsed_curl.get("endpoint") and "{" not in parsed_curl["endpoint"]:
+            endpoint = parsed_curl["endpoint"]
+        elif not endpoint and parsed_curl.get("endpoint"):
+            endpoint = parsed_curl["endpoint"]
+        
         method = parsed_curl.get("method", "GET")
         headers = parsed_curl.get("headers", {})
         body_template = parsed_curl.get("data")
@@ -3251,11 +3268,11 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
             panel_name, base_url, endpoint, token,
             interval_sec, active,
             method, headers, body_template,
-            number_path, message_path, timestamp_path, service_path,
+            otp_list_path, number_path, message_path, timestamp_path, service_path,
             created_by, created_at,
-            otp_list_path, success_path,
+            success_path, success_value,
             placeholder_config, curl_command
-        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'data', 'status', ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'status', 'success', ?, ?)
     """, (
         panel_name,
         base_url,
@@ -3265,6 +3282,7 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
         method,
         json.dumps(headers) if headers else "{}",
         json.dumps(body_template) if body_template else None,
+        otp_list_path,
         number_path,
         message_path,
         timestamp_path,
@@ -3288,6 +3306,7 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
     if endpoint and endpoint != "/": used_fields.append(f"📍 Endpoint: {endpoint}")
     if token: used_fields.append(f"🔑 Token: {token[:8]}...")
     used_fields.append(f"⏱️ Interval: {interval}s")
+    if otp_list_path: used_fields.append(f"📋 OTP List Path: {otp_list_path}")
     if number_path: used_fields.append(f"📱 Number Path: {number_path}")
     if message_path: used_fields.append(f"💬 Message Path: {message_path}")
     if timestamp_path: used_fields.append(f"🕐 Timestamp Path: {timestamp_path}")
@@ -3301,6 +3320,7 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not timestamp_path: skipped_fields.append("Timestamp Path")
     if not service_path: skipped_fields.append("Service Path")
     if not curl_command: skipped_fields.append("CURL")
+    if not otp_list_path: skipped_fields.append("OTP List Path")
     
     success_text = f"""
 ✅ {emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>API '{panel_name}' added successfully!</b>
@@ -3369,6 +3389,7 @@ async def poll_single_api_curl_based(api_id: int):
                 body_template = config.get('body_template')
                 token = config.get('token', '')
                 curl_command = config.get('curl_command')
+                otp_list_path = config.get('otp_list_path', 'data')
                 
                 # Build placeholder dictionary
                 placeholders = {}
@@ -3445,6 +3466,8 @@ async def poll_single_api_curl_based(api_id: int):
                         status = response.status
 
                 if status == 200:
+                    # Pass otp_list_path to parser
+                    config['otp_list_path'] = otp_list_path
                     otps = ResponseParser.parse_response(text, config)
                     if otps:
                         for otp in otps:
@@ -3777,6 +3800,7 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             body_template = config.get('body_template')
             token = config.get('token', '')
             curl_command = config.get('curl_command')
+            otp_list_path = config.get('otp_list_path', 'data')
             
             placeholders = {}
             user_placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
@@ -3837,6 +3861,7 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     status = response.status
 
             if status == 200:
+                config['otp_list_path'] = otp_list_path
                 otps = ResponseParser.parse_response(text, config)
                 if otps:
                     sample = "\n".join([
@@ -4004,6 +4029,7 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
             body_template = config.get('body_template')
             token = config.get('token', '')
             curl_command = config.get('curl_command')
+            otp_list_path = config.get('otp_list_path', 'data')
             
             placeholders = {}
             user_placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
@@ -4064,6 +4090,7 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     status = response.status
 
             if status == 200:
+                config['otp_list_path'] = otp_list_path
                 otps = ResponseParser.parse_response(text, config)
                 if otps:
                     await process_otps(otps, bot=context.bot)
@@ -4451,7 +4478,7 @@ def format_group_otp_rich(entry):
     }
     return html, keyboard
 
-# ==================== OTP PROCESSING ====================
+# ==================== OTP PROCESSING (FIXED) ====================
 
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
@@ -4470,6 +4497,7 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     return diff <= 0.5
 
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
+    """Process OTPs and send to group and matching users."""
     if context:
         bot = context.bot
     if not bot:
@@ -4484,6 +4512,8 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
     active_rows = db_fetch_all(
         "SELECT number, user_id, country, assigned_date FROM numbers WHERE status='active' AND expiry_time > ?",
         (now_str,))
+    
+    # ===== FIX: Create map using numbers without '+' for matching =====
     num_map = {}
     for num, uid, country, assigned in active_rows:
         clean = num.replace('+', '')
@@ -4517,6 +4547,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         if not number or not otp_code:
             continue
         
+        # ===== Send to GROUP =====
         if GROUP_ID:
             already_sent = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=0", (number, otp_code))
             if not already_sent:
@@ -4538,36 +4569,44 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 except Exception as e:
                     print(f"Group Rich message failed: {e}")
         
-        if number in num_map:
+        # ===== Send to USER =====
+        clean_number = number.replace('+', '')
+        if clean_number in num_map:
             try:
                 otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
             except:
                 otp_timestamp = now
-            for uid, country, assigned_date_str in num_map[number]:
+            
+            for uid, country, assigned_date_str in num_map[clean_number]:
                 if db_fetch_one("SELECT banned FROM users WHERE user_id=? AND banned=1", (uid,)):
                     continue
                 try:
                     assigned_date = datetime.strptime(assigned_date_str, "%Y-%m-%d %H:%M:%S")
                 except:
                     assigned_date = now
+                # Timestamp check (if timestamp_path was skipped, this check might be redundant, but safe)
                 if otp_timestamp < assigned_date:
                     continue
                 if is_duplicate_otp_dm(number, otp_code, otp_timestamp_str):
                     continue
+                
                 country_data = get_country_info(country)
                 payout_str = country_data.get("payout", "0.001$")
                 try:
                     reward = parse_payout(payout_str)
                 except:
                     reward = 0.001
+                
                 db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
                         (reward, uid))
                 db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
                         (number, otp_code, message, otp_timestamp_str, uid))
+                
                 flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
                 country_iso = country_data.get("iso", "").upper()
                 svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
                 svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
+                
                 header = (
                     f'<blockquote>{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
                     f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b> '
