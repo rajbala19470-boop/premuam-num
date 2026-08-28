@@ -3,6 +3,7 @@
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
 import random
+import html  # <--- ADDED for escaping
 
 import aiohttp
 import requests
@@ -3030,10 +3031,11 @@ Send the value or press SKIP:"""
         auto_delete=False
     )
 
-# ==================== SHOW CONFIRM STEP ====================
+# ==================== SHOW CONFIRM STEP (FIXED - HTML ESCAPE) ====================
 
 async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    """Show confirmation step - shows which fields will be used and which are skipped."""
+    """Show confirmation step - shows which fields will be used and which are skipped.
+       Now properly escapes all user-supplied text to prevent Entity_text_invalid."""
     data = admin_temp_data.get(user_id, {})
     
     # Premium emoji mapping for fields
@@ -3049,8 +3051,7 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "Timestamp Path": CUSTOM_EMOJIS.get("API_FIELD_TIMESTAMP", "6285240160120477644"),
         "Service Path": CUSTOM_EMOJIS.get("API_FIELD_SERVICE", "5818967150278218011"),
     }
-    skipped_icon = CUSTOM_EMOJIS.get("SKIP", "6267262260243076354")
-    curl_icon = CUSTOM_EMOJIS.get("API_TEST", "5978568938156461643")  # using test icon as fallback
+    curl_icon = CUSTOM_EMOJIS.get("API_TEST", "5978568938156461643")
     
     confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
     
@@ -3075,14 +3076,20 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         elif value == "":
             confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <i>Not set</i>\n"
         else:
-            display_value = str(value)[:30] + "..." if len(str(value)) > 30 else value
+            # Escape HTML to prevent Entity_text_invalid
+            display_value = html.escape(str(value))
+            if len(display_value) > 30:
+                display_value = display_value[:30] + "..."
             confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <code>{display_value}</code>\n"
     
     if data.get("curl_command"):
-        confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL Command</b>:\n<code>{data['curl_command'][:200]}{'...' if len(data['curl_command']) > 200 else ''}</code>\n"
+        curl_cmd = html.escape(data["curl_command"][:200])
+        if len(data["curl_command"]) > 200:
+            curl_cmd += "..."
+        confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL Command</b>:\n<code>{curl_cmd}</code>\n"
         parsed = data.get("parsed_curl")
         if parsed and parsed.get("placeholders"):
-            placeholders = ", ".join([f"<code>{{{ph}}}</code>" for ph in parsed["placeholders"].keys()])
+            placeholders = ", ".join([f"<code>{{{html.escape(ph)}}}</code>" for ph in parsed["placeholders"].keys()])
             confirm_text += f"{emoji_tag(CUSTOM_EMOJIS['API_FIELD_TOKEN'], '🔑')} <b>Placeholders</b>: {placeholders}\n"
     else:
         confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL</b>: <i>Skipped (Not Used)</i>\n"
@@ -3117,10 +3124,22 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     
     admin_panel_state[user_id] = "api_add_confirm"
     
-    if isinstance(update, Update):
-        await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
-    else:
-        await update.edit_message_text(confirm_text, reply_markup=kb, parse_mode='HTML')
+    try:
+        if isinstance(update, Update):
+            await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
+        else:
+            # update is a CallbackQuery
+            await update.edit_message_text(confirm_text, reply_markup=kb, parse_mode='HTML')
+    except BadRequest as e:
+        # If editing fails (e.g., message deleted), send a new one
+        if "Message is not modified" in str(e):
+            pass
+        else:
+            # Try to send a new message
+            try:
+                await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
+            except Exception as send_err:
+                print(f"Error showing confirm: {send_err}")
 
 # ==================== HANDLE API ADD SKIP ====================
 
@@ -3237,23 +3256,29 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             admin_temp_data[user_id] = data
             
             placeholders = parsed.get("placeholders", {})
-            placeholders_list = ", ".join([f"<code>{{{ph}}}</code>" for ph in placeholders.keys()]) if placeholders else "None"
+            placeholders_list = ", ".join([f"<code>{{{html.escape(ph)}}}</code>" for ph in placeholders.keys()]) if placeholders else "None"
             
             # Premium emoji replacements
             check_icon = CUSTOM_EMOJIS.get("YES", "4956721670690702265")  # ✅
             url_icon = CUSTOM_EMOJIS.get("API_FIELD_URL", "6285048454255220485")  # 🌐
             method_icon = CUSTOM_EMOJIS.get("API_FIELD_METHOD", "5926860096008098405")  # 📌
-            headers_icon = CUSTOM_EMOJIS.get("API_FIELD_HEADERS", "5926860096008098405")  # 📋
+            headers_icon = CUSTOM_EMOJIS.get("API_FIELD_HEADERS", "5926860096008098405")  # 📋 (we don't have one, reuse)
             data_icon = CUSTOM_EMOJIS.get("API_FIELD_MESSAGE", "5980911993140284450")  # 📦
             token_icon = CUSTOM_EMOJIS.get("API_FIELD_TOKEN", "5821453562680448557")  # 🔑
+            
+            # Escape URL and other dynamic content
+            url_display = html.escape(parsed.get('url', 'N/A'))
+            method_display = html.escape(parsed.get('method', 'GET'))
+            headers_count = len(parsed.get('headers', {}))
+            data_present = 'Yes' if parsed.get('data') else 'No'
             
             info_text = f"""
 {emoji_tag(check_icon, '✅')} <b>CURL Parsed Successfully</b>
 
-{emoji_tag(url_icon, '🌐')} <b>URL</b>: <code>{parsed.get('url', 'N/A')}</code>
-{emoji_tag(method_icon, '📌')} <b>Method</b>: <code>{parsed.get('method', 'GET')}</code>
-{emoji_tag(headers_icon, '📋')} <b>Headers</b>: <code>{len(parsed.get('headers', {}))}</code>
-{emoji_tag(data_icon, '📦')} <b>Data</b>: {'Yes' if parsed.get('data') else 'No'}
+{emoji_tag(url_icon, '🌐')} <b>URL</b>: <code>{url_display}</code>
+{emoji_tag(method_icon, '📌')} <b>Method</b>: <code>{method_display}</code>
+{emoji_tag(headers_icon, '📋')} <b>Headers</b>: <code>{headers_count}</code>
+{emoji_tag(data_icon, '📦')} <b>Data</b>: {data_present}
 {emoji_tag(token_icon, '🔑')} <b>Placeholders</b>: {placeholders_list}
 
 <blockquote>✅ Bot will use this exact format for polling</blockquote>
@@ -3281,7 +3306,7 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             
         except Exception as e:
             await update.message.reply_text(
-                f"❌ <b>Error parsing CURL</b>\n\n<code>{str(e)}</code>\n\nPlease send a valid CURL command or <code>/skip</code>",
+                f"❌ <b>Error parsing CURL</b>\n\n<code>{html.escape(str(e))}</code>\n\nPlease send a valid CURL command or <code>/skip</code>",
                 parse_mode='HTML'
             )
             return True
