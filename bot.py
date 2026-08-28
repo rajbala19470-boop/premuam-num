@@ -3036,61 +3036,81 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     """Show confirmation step - shows which fields will be used and which are skipped."""
     data = admin_temp_data.get(user_id, {})
     
+    # Premium emoji mapping for fields
+    field_emojis = {
+        "Panel Name": CUSTOM_EMOJIS.get("API_FIELD_NAME", "5818775306974006843"),
+        "Base URL": CUSTOM_EMOJIS.get("API_FIELD_URL", "6285048454255220485"),
+        "Endpoint": CUSTOM_EMOJIS.get("API_FIELD_ENDPOINT", "6267172559851099903"),
+        "Token": CUSTOM_EMOJIS.get("API_FIELD_TOKEN", "5821453562680448557"),
+        "Interval": CUSTOM_EMOJIS.get("API_FIELD_INTERVAL", "6093456762113888541"),
+        "OTP List Path": CUSTOM_EMOJIS.get("API_FIELD_OTP_PATH", "5818955300463447293"),
+        "Number Path": CUSTOM_EMOJIS.get("API_FIELD_NUMBER", "5877410604225924969"),
+        "Message Path": CUSTOM_EMOJIS.get("API_FIELD_MESSAGE", "5980911993140284450"),
+        "Timestamp Path": CUSTOM_EMOJIS.get("API_FIELD_TIMESTAMP", "6285240160120477644"),
+        "Service Path": CUSTOM_EMOJIS.get("API_FIELD_SERVICE", "5818967150278218011"),
+    }
+    skipped_icon = CUSTOM_EMOJIS.get("SKIP", "6267262260243076354")
+    curl_icon = CUSTOM_EMOJIS.get("API_TEST", "5978568938156461643")  # using test icon as fallback
+    
     confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
     
     # Show all fields with their status
     fields = [
-        ("Panel Name", data.get("panel_name"), "📛"),
-        ("Base URL", data.get("base_url"), "🌐"),
-        ("Endpoint", data.get("endpoint"), "📍"),
-        ("Token", data.get("token"), "🔑"),
-        ("Interval", data.get("interval_sec"), "⏱️"),
-        ("OTP List Path", data.get("otp_list_path"), "📋"),
-        ("Number Path", data.get("number_path"), "📱"),
-        ("Message Path", data.get("message_path"), "💬"),
-        ("Timestamp Path", data.get("timestamp_path"), "🕐"),
-        ("Service Path", data.get("service_path"), "🔧"),
+        ("Panel Name", data.get("panel_name")),
+        ("Base URL", data.get("base_url")),
+        ("Endpoint", data.get("endpoint")),
+        ("Token", data.get("token")),
+        ("Interval", data.get("interval_sec")),
+        ("OTP List Path", data.get("otp_list_path")),
+        ("Number Path", data.get("number_path")),
+        ("Message Path", data.get("message_path")),
+        ("Timestamp Path", data.get("timestamp_path")),
+        ("Service Path", data.get("service_path")),
     ]
     
-    for label, value, icon in fields:
+    for label, value in fields:
+        emoji_id = field_emojis.get(label, CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "5465590345108589516"))
         if value is None:
-            confirm_text += f"{icon} {label}: <i>Skipped (Not Used)</i>\n"
+            confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <i>Skipped (Not Used)</i>\n"
         elif value == "":
-            confirm_text += f"{icon} {label}: <i>Not set</i>\n"
+            confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <i>Not set</i>\n"
         else:
             display_value = str(value)[:30] + "..." if len(str(value)) > 30 else value
-            confirm_text += f"{icon} {label}: <code>{display_value}</code>\n"
+            confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <code>{display_value}</code>\n"
     
     if data.get("curl_command"):
-        confirm_text += f"\n📌 <b>CURL Command</b>:\n<code>{data['curl_command'][:200]}{'...' if len(data['curl_command']) > 200 else ''}</code>\n"
+        confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL Command</b>:\n<code>{data['curl_command'][:200]}{'...' if len(data['curl_command']) > 200 else ''}</code>\n"
         parsed = data.get("parsed_curl")
         if parsed and parsed.get("placeholders"):
             placeholders = ", ".join([f"<code>{{{ph}}}</code>" for ph in parsed["placeholders"].keys()])
-            confirm_text += f"🔑 <b>Placeholders</b>: {placeholders}\n"
+            confirm_text += f"{emoji_tag(CUSTOM_EMOJIS['API_FIELD_TOKEN'], '🔑')} <b>Placeholders</b>: {placeholders}\n"
     else:
-        confirm_text += f"\n📌 <b>CURL</b>: <i>Skipped (Not Used)</i>\n"
+        confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL</b>: <i>Skipped (Not Used)</i>\n"
     
     confirm_text += f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Is all correct?</b></blockquote>"
     
+    # New keyboard layout: Row1: YES ADD | CANCEL, Row2: EDIT VALUE
     kb = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "✅ YES ADD",
+                "YES ADD",
                 callback_data=f"api_add_confirm_yes|{user_id}",
                 style=KBS.SUCCESS,
-                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", ""))
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "4956721670690702265"))
             ),
             InlineKeyboardButton(
-                "✏️ EDIT",
-                callback_data=f"api_add_edit|{user_id}",
-                style=KBS.PRIMARY,
-                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", ""))
-            ),
-            InlineKeyboardButton(
-                "❌ CANCEL",
+                "CANCEL",
                 callback_data=f"api_add_confirm_no|{user_id}",
                 style=KBS.DANGER,
-                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", ""))
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "6206110936789423908"))
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "EDIT VALUE",
+                callback_data=f"api_add_edit|{user_id}",
+                style=KBS.PRIMARY,
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", "6204162490515855272"))
             )
         ]
     ])
@@ -3443,7 +3463,7 @@ async def api_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await api_add_step(update, context, user_id, "api_add_name")
 
-# ==================== CURL BASED POLLING (FIXED) ====================
+# ==================== CURL BASED POLLING (FIXED - DECODING) ====================
 
 async def poll_single_api_curl_based(api_id: int):
     """CURL based polling with automatic placeholder replacement for {API_BASE}, {TOKEN}, etc."""
@@ -3520,24 +3540,33 @@ async def poll_single_api_curl_based(api_id: int):
 
                 if method.upper() == 'GET':
                     async with session.get(url, headers=headers, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
                 elif method.upper() == 'POST':
                     async with session.post(url, headers=headers, json=data, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
                 elif method.upper() == 'PUT':
                     async with session.put(url, headers=headers, json=data, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
                 elif method.upper() == 'DELETE':
                     async with session.delete(url, headers=headers, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
                 else:
                     async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
+                
+                # Decode with fallback
+                try:
+                    text = raw_bytes.decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        text = raw_bytes.decode('latin-1')
+                    except:
+                        text = raw_bytes.decode('utf-8', errors='ignore')
 
                 if status == 200:
                     # Pass otp_list_path to parser
@@ -3922,16 +3951,25 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if method.upper() == 'GET':
                 async with session.get(url, headers=headers, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
             elif method.upper() == 'POST':
                 async with session.post(url, headers=headers, json=data, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
             else:
                 async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
+
+            # Decode with fallback
+            try:
+                text = raw_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    text = raw_bytes.decode('latin-1')
+                except:
+                    text = raw_bytes.decode('utf-8', errors='ignore')
 
             if status == 200:
                 config['otp_list_path'] = otp_list_path
@@ -4151,16 +4189,25 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if method.upper() == 'GET':
                 async with session.get(url, headers=headers, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
             elif method.upper() == 'POST':
                 async with session.post(url, headers=headers, json=data, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
             else:
                 async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
+
+            # Decode with fallback
+            try:
+                text = raw_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    text = raw_bytes.decode('latin-1')
+                except:
+                    text = raw_bytes.decode('utf-8', errors='ignore')
 
             if status == 200:
                 config['otp_list_path'] = otp_list_path
