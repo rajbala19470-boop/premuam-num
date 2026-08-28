@@ -3,7 +3,7 @@
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
 import random
-import html  # <--- ADDED for escaping
+import html  # for escaping
 
 import aiohttp
 import requests
@@ -3031,14 +3031,24 @@ Send the value or press SKIP:"""
         auto_delete=False
     )
 
-# ==================== SHOW CONFIRM STEP (FIXED - HTML ESCAPE) ====================
+# ==================== SHOW CONFIRM STEP (FIXED) ====================
+
+import html
+import re
+
+def sanitize_text(text: str) -> str:
+    """Remove non-printable characters and trim."""
+    if not text:
+        return ""
+    # Remove control characters except newline and tab
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    return text
 
 async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    """Show confirmation step - shows which fields will be used and which are skipped.
-       Now properly escapes all user-supplied text to prevent Entity_text_invalid."""
+    """Show confirmation step - HTML-safe, with fallback to plain text."""
     data = admin_temp_data.get(user_id, {})
     
-    # Premium emoji mapping for fields
+    # Premium emoji mapping for fields (using unicode fallback)
     field_emojis = {
         "Panel Name": CUSTOM_EMOJIS.get("API_FIELD_NAME", "5818775306974006843"),
         "Base URL": CUSTOM_EMOJIS.get("API_FIELD_URL", "6285048454255220485"),
@@ -3053,9 +3063,9 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     }
     curl_icon = CUSTOM_EMOJIS.get("API_TEST", "5978568938156461643")
     
+    # Build HTML part (safe)
     confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
     
-    # Show all fields with their status
     fields = [
         ("Panel Name", data.get("panel_name")),
         ("Base URL", data.get("base_url")),
@@ -3076,27 +3086,29 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         elif value == "":
             confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <i>Not set</i>\n"
         else:
-            # Escape HTML to prevent Entity_text_invalid
-            display_value = html.escape(str(value))
-            if len(display_value) > 30:
-                display_value = display_value[:30] + "..."
-            confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <code>{display_value}</code>\n"
+            # Sanitize and escape
+            safe_val = sanitize_text(str(value))
+            safe_val = html.escape(safe_val)
+            if len(safe_val) > 30:
+                safe_val = safe_val[:30] + "..."
+            confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <code>{safe_val}</code>\n"
     
     if data.get("curl_command"):
-        curl_cmd = html.escape(data["curl_command"][:200])
+        raw_curl = sanitize_text(data["curl_command"][:200])
+        curl_cmd = html.escape(raw_curl)
         if len(data["curl_command"]) > 200:
             curl_cmd += "..."
         confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL Command</b>:\n<code>{curl_cmd}</code>\n"
         parsed = data.get("parsed_curl")
         if parsed and parsed.get("placeholders"):
-            placeholders = ", ".join([f"<code>{{{html.escape(ph)}}}</code>" for ph in parsed["placeholders"].keys()])
-            confirm_text += f"{emoji_tag(CUSTOM_EMOJIS['API_FIELD_TOKEN'], '🔑')} <b>Placeholders</b>: {placeholders}\n"
+            ph_list = [sanitize_text(ph) for ph in parsed["placeholders"].keys()]
+            ph_str = ", ".join([f"<code>{{{html.escape(ph)}}}</code>" for ph in ph_list])
+            confirm_text += f"{emoji_tag(CUSTOM_EMOJIS['API_FIELD_TOKEN'], '🔑')} <b>Placeholders</b>: {ph_str}\n"
     else:
         confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL</b>: <i>Skipped (Not Used)</i>\n"
     
     confirm_text += f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Is all correct?</b></blockquote>"
     
-    # New keyboard layout: Row1: YES ADD | CANCEL, Row2: EDIT VALUE
     kb = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -3124,22 +3136,51 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     
     admin_panel_state[user_id] = "api_add_confirm"
     
-    try:
-        if isinstance(update, Update):
-            await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
-        else:
-            # update is a CallbackQuery
-            await update.edit_message_text(confirm_text, reply_markup=kb, parse_mode='HTML')
-    except BadRequest as e:
-        # If editing fails (e.g., message deleted), send a new one
-        if "Message is not modified" in str(e):
-            pass
-        else:
-            # Try to send a new message
+    # Try to send HTML, fallback to plain text
+    async def send_confirm(chat_id, message_id=None):
+        try:
+            if message_id:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=confirm_text,
+                    reply_markup=kb,
+                    parse_mode='HTML'
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=confirm_text,
+                    reply_markup=kb,
+                    parse_mode='HTML'
+                )
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                return
+            # Fallback to plain text (remove all HTML tags)
+            plain_text = re.sub(r'<[^>]+>', '', confirm_text)
+            plain_text = plain_text.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
             try:
-                await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
-            except Exception as send_err:
-                print(f"Error showing confirm: {send_err}")
+                if message_id:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=plain_text,
+                        reply_markup=kb
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=plain_text,
+                        reply_markup=kb
+                    )
+            except Exception as fallback_err:
+                print(f"Fallback also failed: {fallback_err}")
+
+    chat_id = update.message.chat.id if hasattr(update, 'message') else update.message.chat.id
+    message_id = update.message.message_id if hasattr(update, 'message') else None
+    
+    await send_confirm(chat_id, message_id)
 
 # ==================== HANDLE API ADD SKIP ====================
 
@@ -3256,7 +3297,8 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             admin_temp_data[user_id] = data
             
             placeholders = parsed.get("placeholders", {})
-            placeholders_list = ", ".join([f"<code>{{{html.escape(ph)}}}</code>" for ph in placeholders.keys()]) if placeholders else "None"
+            ph_list = [sanitize_text(ph) for ph in placeholders.keys()]
+            placeholders_list = ", ".join([f"<code>{{{html.escape(ph)}}}</code>" for ph in ph_list]) if ph_list else "None"
             
             # Premium emoji replacements
             check_icon = CUSTOM_EMOJIS.get("YES", "4956721670690702265")  # ✅
@@ -3267,8 +3309,8 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             token_icon = CUSTOM_EMOJIS.get("API_FIELD_TOKEN", "5821453562680448557")  # 🔑
             
             # Escape URL and other dynamic content
-            url_display = html.escape(parsed.get('url', 'N/A'))
-            method_display = html.escape(parsed.get('method', 'GET'))
+            url_display = html.escape(sanitize_text(parsed.get('url', 'N/A')))
+            method_display = html.escape(sanitize_text(parsed.get('method', 'GET')))
             headers_count = len(parsed.get('headers', {}))
             data_present = 'Yes' if parsed.get('data') else 'No'
             
