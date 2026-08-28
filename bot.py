@@ -21,7 +21,7 @@ from telegram.error import BadRequest
 from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8769374062:AAE5TRLXYcFP5TUi29sWeesrhl2hI6XHpAQ"
+BOT_TOKEN = "8789807943:AAHae96lsddEva4nvB3LdEyJAS_q_0L06Yc"
 SUPER_ADMIN_IDS = [8744359777]
 
 AUTO_DELETE_DELAY = 2          # seconds (for normal messages)
@@ -40,8 +40,8 @@ ADMIN2_TELEGRAM = ""
 #   B) a comma-separated string: GROUP_ID = "-1003716770621,-1001234567890"
 #   C) a single string: GROUP_ID = "-1003716770621"
 GROUP_ID = "-1003716770621","-1004309109716"   # ← edit as needed
-CHANNEL_URL = "https://t.me/A_S_COMMUNITY_9_x"
-BOT_URL = "https://t.me/AIR_NUMBER_BOT"
+CHANNEL_URL = "https://t.me/WaCreationHub"
+BOT_URL = "https://t.me/WA_CREATION_BOT"
 
 # Parse GROUP_ID into a list of integers
 GROUP_IDS = []
@@ -62,7 +62,7 @@ if GROUP_ID:
             GROUP_IDS = [int(GROUP_ID)]
         except (ValueError, TypeError):
             GROUP_IDS = []
-
+            
 # ==================== EMOJI CONSTANTS ====================
 WELCOME_WAVE = "5199885118214255386"      # 👋
 WELCOME_THINK = "5314563983422798645"     # 🤔
@@ -862,38 +862,10 @@ def start_welcome_html():
     inbox = emoji_tag(INBOX_EMOJI, "📩")
     money = emoji_tag(MONEY_EMOJI, "🤑")
     blockquote = (
-        f'<blockquote>{wave} <b>WELCOME TO 𝐀𝐈𝐑 𝐍𝐔𝐌𝐁𝐄𝐑 𝐁𝐎𝐓</b> {think}</blockquote>'
+        f'<blockquote>{wave} <b>WELCOME TO OUR 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓</b> {think}</blockquote>'
     )
     sub = f'<b>{inbox} RECEIVE OTP\'S AND START EARNING MONEY {money}</b>'
     return f'{blockquote}\n{sub}'
-
-# ==================== PERSISTENT KEYBOARD ANCHOR ====================
-async def ensure_keyboard_anchor(context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str = None):
-    """Ensure there is a message with the reply keyboard attached. If not, create one."""
-    if text is None:
-        text = "Main Menu"
-    kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
-    if kb_id_row and kb_id_row[0]:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=user_id,
-                message_id=kb_id_row[0],
-                text=text,
-                reply_markup=bottom_menu_keyboard(user_id)
-            )
-            return
-        except Exception:
-            try:
-                await context.bot.delete_message(chat_id=user_id, message_id=kb_id_row[0])
-            except:
-                pass
-    # create new anchor
-    sent = await context.bot.send_message(
-        chat_id=user_id,
-        text=text,
-        reply_markup=bottom_menu_keyboard(user_id)
-    )
-    db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
 
 # ==================== AUTO-CLEAN HELPERS ====================
 async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -903,7 +875,6 @@ async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT
             await update.message.delete()
     except:
         pass
-    # Only delete the last bot message, not the keyboard anchor
     row = db_fetch_one("SELECT last_bot_message_id FROM users WHERE user_id=?", (user_id,))
     if row and row[0]:
         try:
@@ -919,42 +890,28 @@ async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
             when=delay
         )
 
-async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True, persistent_menu: bool = True, delete_after: int = None):
+async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True, delete_after: int = None):
     user_id = update.effective_user.id
     await delete_previous_messages(update, context)
-    
-    # If we are sending an inline keyboard, we do NOT attach a reply keyboard to this message.
-    # The reply keyboard is kept on the anchor message.
-    if isinstance(reply_markup, InlineKeyboardMarkup):
-        sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
-        db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-        if delete_after:
-            await schedule_delete(context, user_id, sent.message_id, delete_after)
-        return sent
+    sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
+    if auto_delete and delete_after is None:
+        await schedule_delete(context, user_id, sent.message_id)
+    elif delete_after:
+        await schedule_delete(context, user_id, sent.message_id, delete_after)
+    return sent
 
-    # For normal messages (with reply keyboard or no keyboard), we attach the reply keyboard if persistent_menu is True.
-    if persistent_menu:
-        await ensure_keyboard_anchor(context, user_id, text if persistent_menu else None)
-        sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=None, parse_mode=parse_mode)
-        db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-        if auto_delete and reply_markup is None:
-            await schedule_delete(context, user_id, sent.message_id)
-        elif delete_after:
-            await schedule_delete(context, user_id, sent.message_id, delete_after)
-        return sent
+async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    """Send a persistent Main Menu message with bottom keyboard."""
+    main_text = f'{emoji_tag(MAIN_MENU_EMOJI, "📱")} <b>Main Menu</b>'
+    if isinstance(update, CallbackQuery):
+        await edit_or_send(update, main_text, reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML', context=context, auto_delete=False, delete_after=None)
     else:
-        sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
-        db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-        if auto_delete and reply_markup is None:
-            await schedule_delete(context, user_id, sent.message_id)
-        elif delete_after:
-            await schedule_delete(context, user_id, sent.message_id, delete_after)
-        return sent
+        await send_clean_message(update, context, main_text, reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML', auto_delete=False)
 
 # ==================== SAFE EDIT / SEND FALLBACK ====================
-async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False, delete_after: int = None):
+async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, delete_after: int = None):
     user_id = query.from_user.id
-
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         if delete_after:
@@ -962,65 +919,42 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
         return None
     except BadRequest as e:
         if "Message is not modified" in str(e):
-            if persistent_menu:
-                await ensure_keyboard_anchor(context, user_id, text if persistent_menu else None)
             return None
         if context and context.bot:
             try:
                 await query.message.delete()
             except:
                 pass
-
-            if persistent_menu:
-                await ensure_keyboard_anchor(context, user_id, text)
-                sent = await context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text=text,
-                    reply_markup=None,
-                    parse_mode=parse_mode
-                )
-                db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?",
-                        (sent.message_id, user_id))
-                if auto_delete and reply_markup is None:
-                    await schedule_delete(context, query.message.chat_id, sent.message_id)
-                elif delete_after:
-                    await schedule_delete(context, query.message.chat_id, sent.message_id, delete_after)
-                return sent
-            else:
-                sent = await context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text=text,
-                    reply_markup=reply_markup,
-                    parse_mode=parse_mode
-                )
-                db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?",
-                        (sent.message_id, user_id))
-                if auto_delete and reply_markup is None:
-                    await schedule_delete(context, query.message.chat_id, sent.message_id)
-                elif delete_after:
-                    await schedule_delete(context, query.message.chat_id, sent.message_id, delete_after)
-                return sent
+            sent = await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?",
+                    (sent.message_id, user_id))
+            if auto_delete and delete_after is None:
+                await schedule_delete(context, query.message.chat_id, sent.message_id)
+            elif delete_after:
+                await schedule_delete(context, query.message.chat_id, sent.message_id, delete_after)
+            return sent
         return None
 
-async def safe_edit_message(query, text, **kwargs):
-    try:
-        await query.edit_message_text(text, **kwargs)
-    except BadRequest as e:
-        if "Message is not modified" not in str(e):
-            raise
-
-# ==================== REPLY OR EDIT ====================
-async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, persistent_menu: bool = False, delete_after: int = None):
+# ==================== REPLY OR EDIT (UNIVERSAL) ====================
+async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, delete_after: int = None):
+    """Universal function to either edit an inline message or send a new one."""
     if isinstance(target, CallbackQuery):
-        await edit_or_send(target, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, persistent_menu=persistent_menu, delete_after=delete_after)
+        await edit_or_send(target, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, delete_after=delete_after)
     elif hasattr(target, 'callback_query') and target.callback_query:
-        await edit_or_send(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, persistent_menu=persistent_menu, delete_after=delete_after)
+        await edit_or_send(target.callback_query, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, delete_after=delete_after)
     else:
         if context:
-            await send_clean_message(target, context, text, reply_markup=reply_markup, parse_mode=parse_mode, auto_delete=auto_delete, persistent_menu=persistent_menu, delete_after=delete_after)
+            await send_clean_message(target, context, text, reply_markup=reply_markup, parse_mode=parse_mode, auto_delete=auto_delete, delete_after=delete_after)
         else:
-            if hasattr(target, 'message') and target.message:
+            if hasattr(target, 'message'):
                 await target.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+            elif hasattr(target, 'edit_message_text'):
+                await target.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
 # ==================== START COMMAND ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1037,11 +971,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last_activation_data.pop(user_id, None)
     db_exec("UPDATE users SET current_number = NULL, current_country = NULL, current_service = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
     await delete_previous_messages(update, context)
-    # Send welcome message (without reply keyboard, because anchor will provide it)
-    sent = await update.message.reply_text(start_welcome_html(), parse_mode='HTML')
-    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-    # Ensure the keyboard anchor exists
-    await ensure_keyboard_anchor(context, user_id, "Main Menu")
+    await ensure_persistent_welcome(context, user_id)
 
 # ==================== BAN CHECK ====================
 async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1057,7 +987,6 @@ async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.edit_message_text(text, reply_markup=support_keyboard(), parse_mode='HTML')
         else:
             await update.message.reply_text(text, reply_markup=support_keyboard(), parse_mode='HTML')
-        await ensure_keyboard_anchor(context, user_id, "Main Menu")
         return True
     return False
 
@@ -1074,25 +1003,7 @@ async def show_main_menu(update: Update, user_id, first_name, context: ContextTy
     if hasattr(update, 'effective_user') and update.effective_user:
         username = update.effective_user.username
     ensure_user(user_id, username, first_name)
-    
-    short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
-    
-    # Edit or create the anchor with the short message and keyboard
-    await ensure_keyboard_anchor(context, user_id, short_msg)
-
-async def show_main_menu_with_temp(update: Update, user_id, first_name, context: ContextTypes.DEFAULT_TYPE = None):
-    await show_main_menu(update, user_id, first_name, context)
-    # Also send a temporary message that will delete after 120 seconds
-    short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
-    if isinstance(update, CallbackQuery):
-        await edit_or_send(update, short_msg, reply_markup=None, parse_mode='HTML',
-                           context=context, persistent_menu=False,
-                           auto_delete=False, delete_after=MAIN_MENU_DELETE)
-    else:
-        if context:
-            await send_clean_message(update, context, short_msg, reply_markup=None, parse_mode='HTML',
-                                     persistent_menu=False,
-                                     auto_delete=False, delete_after=MAIN_MENU_DELETE)
+    await send_main_menu(update, context, user_id)
 
 async def show_get_number(update: Update, context, user_id, first_name):
     ensure_user(user_id, update.effective_user.username, first_name)
@@ -1102,9 +1013,9 @@ async def show_get_number(update: Update, context, user_id, first_name):
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"], "📱")}'
     )
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, text, reply_markup=services_keyboard(), parse_mode='HTML', context=context, persistent_menu=True)
+        await edit_or_send(update, text, reply_markup=services_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
     else:
-        await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML', persistent_menu=True)
+        await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML', auto_delete=False)
 
 async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
@@ -1134,18 +1045,18 @@ async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TY
         f'<blockquote><b>{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code></b></blockquote>'
     )
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
+        InlineKeyboardButton("WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon("5445353829304387411"))
     ]])
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, text, reply_markup=kb, parse_mode='HTML', context=context, persistent_menu=True)
+        await edit_or_send(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
     else:
         if context:
-            await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', persistent_menu=True)
+            await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
-    balance = db_fetch_one("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    balance = db_fetch_one("SELECT balance FROM users WHERE user_id=?", (user_id,))
     if not balance:
         return
     balance = balance[0] or 0.0
@@ -1179,27 +1090,19 @@ async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_T
         )
         kb = None
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, text, reply_markup=kb, parse_mode='HTML', context=context, persistent_menu=True)
+        await edit_or_send(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
     else:
         if context:
-            await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', persistent_menu=True)
+            await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
-    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: 𝑹𝑨𝑲𝑬𝑺𝑯 𝑫𝑬𝑽"
+    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓"
     if isinstance(update, CallbackQuery):
         user_id = update.effective_user.id
-        await edit_or_send(update, text, reply_markup=support_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-        await ensure_keyboard_anchor(context, user_id)
+        await edit_or_send(update, text, reply_markup=support_keyboard(), context=context, auto_delete=False)
     else:
         if context:
-            await send_clean_message(update, context, text, reply_markup=None, persistent_menu=True)
-
-async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: 𝑹𝑨𝑲𝑬𝑺𝑯 𝑫𝑬𝑽"
-    await ensure_keyboard_anchor(context, user_id)
-    sent_inline = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=support_keyboard())
-    db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent_inline.message_id, user_id))
+            await send_clean_message(update, context, text, reply_markup=None, auto_delete=False)
 
 # ==================== ADMIN COMMANDS ====================
 async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1207,7 +1110,7 @@ async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if is_admin(user_id):
         admin_mode[user_id] = True
         admin_panel_state[user_id] = "main"
-        await send_clean_message(update, context, "ADMIN PANEL\n\nDeveloper: 𝑹𝑨𝑲𝑬𝑺𝑯 𝑫𝑬𝑽\n\nSelect an action below:", reply_markup=admin_panel_keyboard(), auto_delete=False, persistent_menu=True)
+        await send_clean_message(update, context, "ADMIN PANEL\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓\n\nSelect an action below:", reply_markup=admin_panel_keyboard(), auto_delete=False)
     else:
         await update.message.reply_text("Unauthorized access!")
 
@@ -1216,7 +1119,6 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if user_id in admin_mode:
         admin_mode.pop(user_id, None)
         admin_panel_state.pop(user_id, None)
-        await ensure_keyboard_anchor(context, user_id, "Main Menu")
         await update.message.reply_text("Admin mode deactivated!")
     else:
         await update.message.reply_text("You're not in admin mode!")
@@ -1236,7 +1138,6 @@ async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     db_exec("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (target_uid,))
     await update.message.reply_text(f"✅ User {target_uid} has been added as an admin.")
-    await ensure_keyboard_anchor(context, user_id)
 
 async def remove_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1258,7 +1159,6 @@ async def remove_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
     admin_mode.pop(target_uid, None)
     admin_panel_state.pop(target_uid, None)
     await update.message.reply_text(f"❌ User {target_uid} has been removed from admin list.")
-    await ensure_keyboard_anchor(context, user_id)
 
 async def admin_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1274,7 +1174,6 @@ async def admin_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         super_label = " (Super)" if uid in SUPER_ADMIN_IDS else ""
         lines.append(f"• {uid}{super_label}")
     await update.message.reply_text("\n".join(lines))
-    await ensure_keyboard_anchor(context, user_id)
 
 # ==================== ADMIN PANEL MENU ====================
 async def admin_panel_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
@@ -1286,12 +1185,12 @@ async def admin_panel_menu(update: Update, user_id, context: ContextTypes.DEFAUL
         return
     admin_mode[user_id] = True
     admin_panel_state[user_id] = "main"
-    text = "ADMIN PANEL\n\nDeveloper: 𝑹𝑨𝑲𝑬𝑺𝑯 𝑫𝑬𝑽\n\nSelect an action below:"
+    text = "ADMIN PANEL\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓\n\nSelect an action below:"
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, text, reply_markup=admin_panel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
+        await edit_or_send(update, text, reply_markup=admin_panel_keyboard(), context=context, auto_delete=False)
     else:
         if context:
-            await send_clean_message(update, context, text, reply_markup=admin_panel_keyboard(), auto_delete=False, persistent_menu=True)
+            await send_clean_message(update, context, text, reply_markup=admin_panel_keyboard(), auto_delete=False)
 
 # ==================== USER DATA JSON SAVE/LOAD ====================
 def save_user_data_json():
@@ -1376,11 +1275,11 @@ async def user_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.DANGER,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ])
-    await reply_or_edit(update, "USER MANAGER\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False, persistent_menu=True)
+    await reply_or_edit(update, "USER MANAGER\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
 
 async def um_search_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     admin_panel_state[user_id] = "um_searching"
-    await reply_or_edit(update, "Send the user ID or username to search.", reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
+    await reply_or_edit(update, "Send the user ID or username to search.", reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def show_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, user_data):
     uid, first_name, username, balance, withdrawn, total_otp, banned, joined, last_active = user_data
@@ -1413,14 +1312,14 @@ async def show_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         [InlineKeyboardButton("Back", callback_data="um_back", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ])
-    await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False, persistent_menu=True)
+    await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False)
 
 async def um_edit_balance_prompt(query, user_id, context: ContextTypes.DEFAULT_TYPE):
     target_uid = query.data.split('|')[1]
     admin_panel_state[user_id] = "um_editbal"
     admin_temp_data[user_id] = {"target_uid": target_uid}
     await edit_or_send(query, "Send amount to add/subtract (e.g., +0.5 or -0.2) and optional reason.",
-                       reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
+                       reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def um_ban_toggle(query, user_id, context: ContextTypes.DEFAULT_TYPE):
     target_uid = query.data.split('|')[1]
@@ -1454,7 +1353,6 @@ async def um_ban_toggle(query, user_id, context: ContextTypes.DEFAULT_TYPE):
     user_data = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=?", (target_uid,))
     if user_data:
         await show_user_detail(query, context, user_data)
-    await ensure_keyboard_anchor(context, user_id)
 
 async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = db_fetch_one("SELECT COUNT(*) FROM users")[0]
@@ -1469,7 +1367,7 @@ async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Banned: {banned}\n"
         f"Today's OTP: {today_otp}\n"
     )
-    await reply_or_edit(update, text, reply_markup=admin_back_button(), context=context, auto_delete=False, persistent_menu=True)
+    await reply_or_edit(update, text, reply_markup=admin_back_button(), context=context, auto_delete=False)
 
 # ==================== DATABASE DOWNLOAD/UPLOAD ====================
 async def database_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
@@ -1482,7 +1380,7 @@ async def database_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         [InlineKeyboardButton("Back", callback_data="admin_back", style=KBS.DANGER,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ])
-    await reply_or_edit(update, "DATABASE MANAGEMENT\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False, persistent_menu=True)
+    await reply_or_edit(update, "DATABASE MANAGEMENT\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
 
 async def db_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1511,7 +1409,6 @@ async def db_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_document(chat_id=query.message.chat_id, document=open(zip_path, 'rb'))
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
-    await ensure_keyboard_anchor(context, user_id)
 
 async def db_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1519,7 +1416,7 @@ async def db_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id): return
     admin_panel_state[user_id] = "waiting_db_upload"
     await edit_or_send(query, "Upload the sr-number-data.zip file to restore the database.",
-                       reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
+                       reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 # ==================== SINGLE DOCUMENT HANDLER ====================
 async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1647,9 +1544,8 @@ async def fu_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard.append([InlineKeyboardButton("Cancel", callback_data="admin_back")])
     await edit_or_send(query,
         f"Country: {country}\nSelect the service for this file:",
-        reply_markup=InlineKeyboardMarkup(keyboard), context=context, auto_delete=False, persistent_menu=True)
+        reply_markup=InlineKeyboardMarkup(keyboard), context=context, auto_delete=False)
     admin_panel_state[user_id] = "waiting_fu_service"
-    await ensure_keyboard_anchor(context, user_id)
 
 async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1669,11 +1565,10 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             admin_panel_state[user_id] = "waiting_service_emoji_upload"
             await edit_or_send(query,
                 f"✅ {count} numbers loaded.\nNew service '{service}' detected.\nSend emoji ID or /skip.",
-                reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-            await ensure_keyboard_anchor(context, user_id)
+                reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
             return
         msg = stock_added_message(country, service, count)
-        await edit_or_send(query, msg, parse_mode='HTML', context=context, auto_delete=False, persistent_menu=True)
+        await edit_or_send(query, msg, parse_mode='HTML', context=context, auto_delete=False)
         
         broadcast_msg, broadcast_kb = stock_added_broadcast_with_button(country, service, count)
         users = db_fetch_all("SELECT user_id FROM users")
@@ -1687,10 +1582,9 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await send_stock_management_menu(query, context, user_id)
     else:
         await edit_or_send(query, "No valid numbers found in the file.",
-                           reply_markup=admin_panel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
+                           reply_markup=admin_panel_keyboard(), context=context, auto_delete=False)
 
     admin_panel_state[user_id] = "main"
-    await ensure_keyboard_anchor(context, user_id)
 
 # ==================== ADMIN TEXT HANDLER ====================
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1721,7 +1615,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         admin_panel_state[user_id] = "main"
         await msg.reply_text(f"Broadcast sent to {sent_counter} users!", reply_markup=admin_panel_keyboard())
-        await ensure_keyboard_anchor(context, user_id)
         return True
 
     if state == "waiting_db_upload":
@@ -1738,11 +1631,9 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user = db_fetch_one("SELECT user_id, first_name, username, balance, withdrawn, total_otp, banned, joined_date, last_active FROM users WHERE user_id=?", (int(text),))
         if not user:
             await update.message.reply_text("User not found.")
-            await ensure_keyboard_anchor(context, user_id)
             return True
         admin_panel_state[user_id] = "user_manager"
         await show_user_detail(update, context, user)
-        await ensure_keyboard_anchor(context, user_id)
         return True
 
     if state == "um_editbal":
@@ -1750,18 +1641,15 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_uid = data.get("target_uid")
         if not target_uid:
             await update.message.reply_text("Session expired.")
-            await ensure_keyboard_anchor(context, user_id)
             return True
         try:
             amount = float(text.split()[0])
         except ValueError:
             await update.message.reply_text("Invalid amount. Use format: +0.5 or -0.2")
-            await ensure_keyboard_anchor(context, user_id)
             return True
         current = db_fetch_one("SELECT balance FROM users WHERE user_id=?", (target_uid,))
         if not current:
             await update.message.reply_text("User not found.")
-            await ensure_keyboard_anchor(context, user_id)
             return True
         new_balance = (current[0] or 0.0) + amount
         db_exec("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, target_uid))
@@ -1769,7 +1657,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Balance updated for {target_uid}. New balance: ${new_balance:.3f}")
         admin_panel_state[user_id] = "main"
         await admin_panel_menu(update, user_id, context)
-        await ensure_keyboard_anchor(context, user_id)
         return True
 
     if state == "waiting_giveaway":
@@ -1778,24 +1665,21 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             target, count = int(parts[0]), int(parts[1]) if len(parts) > 1 else 1
             await update.message.reply_text(f"Given {count} free account(s) to {target}.", reply_markup=admin_panel_keyboard())
             admin_panel_state[user_id] = "main"
-            await ensure_keyboard_anchor(context, user_id)
         except:
             await update.message.reply_text("Invalid format!")
-            await ensure_keyboard_anchor(context, user_id)
         return True
 
     elif state == "waiting_country_add":
         try:
             parts = [p.strip() for p in text.split('|')]
-            if len(parts) < 4: await update.message.reply_text("Format: CountryName | Code | ISO | payout | emoji_id"); await ensure_keyboard_anchor(context, user_id); return True
+            if len(parts) < 4: await update.message.reply_text("Format: CountryName | Code | ISO | payout | emoji_id"); return True
             name, code, iso, payout = parts[0], parts[1], parts[2].upper(), parts[3]
             emoji_id = parts[4] if len(parts) >= 5 else ""
             COUNTRIES_DATA[name] = {"code": code, "iso": iso, "payout": payout, "emoji_id": emoji_id}
             save_countries_db(COUNTRIES_DATA)
             await country_add_service_selection(update, user_id, name, context)
-            await ensure_keyboard_anchor(context, user_id)
             return True
-        except Exception as e: await update.message.reply_text(f"Error: {e}"); await ensure_keyboard_anchor(context, user_id)
+        except Exception as e: await update.message.reply_text(f"Error: {e}")
         return True
 
     elif state == "waiting_country_edit":
@@ -1803,11 +1687,10 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             admin_panel_state[user_id] = "country_manager"
             await update.message.reply_text("No changes.")
             await country_manager_menu(update, user_id, context)
-            await ensure_keyboard_anchor(context, user_id)
             return True
         try:
             parts = [p.strip() for p in text.split('|')]
-            if len(parts) < 3: await update.message.reply_text("At least Code | ISO | payout required."); await ensure_keyboard_anchor(context, user_id); return True
+            if len(parts) < 3: await update.message.reply_text("At least Code | ISO | payout required."); return True
             code, iso, payout = parts[0], parts[1].upper(), parts[2]
             emoji_id = parts[3] if len(parts) >= 4 else ""
             country_name = admin_temp_data.get(user_id, {}).get("edit_country")
@@ -1816,8 +1699,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             admin_panel_state[user_id] = "country_manager"
             await update.message.reply_text(f"Country {country_name} updated!")
             await country_manager_menu(update, user_id, context)
-            await ensure_keyboard_anchor(context, user_id)
-        except Exception as e: await update.message.reply_text(f"Error: {e}"); await ensure_keyboard_anchor(context, user_id)
+        except Exception as e: await update.message.reply_text(f"Error: {e}")
         return True
 
     elif state == "waiting_service_name":
@@ -1827,7 +1709,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except sqlite3.IntegrityError: await update.message.reply_text(f"Service {text} already exists!")
         admin_panel_state[user_id] = "service_manager"
         await service_manager_menu(update, user_id, context)
-        await ensure_keyboard_anchor(context, user_id)
         return True
 
     elif state == "waiting_service_emoji":
@@ -1857,7 +1738,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_stock_management_menu(update, context, user_id)
         admin_panel_state[user_id] = "main"
         admin_temp_data.pop(user_id, None)
-        await ensure_keyboard_anchor(context, user_id)
         return True
 
     return False
@@ -1881,7 +1761,6 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     numbers = get_numbers_from_stock(country, service, 3)
     if not numbers:
         await query.answer("No numbers available right now!", show_alert=True)
-        await ensure_keyboard_anchor(context, user_id)
         return
     
     old_data = last_activation_data.get(user_id)
@@ -1904,14 +1783,12 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
-    await ensure_keyboard_anchor(context, user_id)
 
-# ==================== /testgroup COMMAND (SENDS TO ALL GROUPS VIA sendRichMessage) ====================
+# ==================== /testgroup COMMAND (FIXED - SENDS TO ALL GROUPS WITH sendRichMessage) ====================
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ Unauthorized. Admin only.")
-        await ensure_keyboard_anchor(context, user_id)
         return
     
     args = context.args
@@ -1920,7 +1797,6 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Usage: /testgroup <service> <iso2>\n"
             "Example: /testgroup WhatsApp BD"
         )
-        await ensure_keyboard_anchor(context, user_id)
         return
     
     service = args[0]
@@ -1929,7 +1805,6 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     country_name = get_country_name_by_iso(iso2)
     if not country_name:
         await update.message.reply_text(f"❌ Country with ISO2 '{iso2}' not found.")
-        await ensure_keyboard_anchor(context, user_id)
         return
     
     country_info = get_country_info(country_name)
@@ -1957,8 +1832,10 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     
+    # Generate rich message – this uses <p>, <details>, <summary> as in original
     grp_html, grp_kb_dict = format_group_otp_rich(entry)
     
+    # Send to ALL groups using sendRichMessage (custom endpoint)
     success_count = 0
     failed_groups = []
     for gid in GROUP_IDS:
@@ -1967,7 +1844,7 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             payload = {
                 "chat_id": gid,
                 "rich_message": {"html": grp_html},
-                "reply_markup": grp_kb_dict
+                "reply_markup": grp_kb_dict   # send the dictionary, not InlineKeyboardMarkup
             }
             resp = requests.post(url, json=payload, timeout=10)
             if resp.status_code == 200:
@@ -1977,12 +1854,20 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             failed_groups.append(f"{gid} ({str(e)})")
     
-    reply = f"✅ Test OTP sent to {success_count} group(s) for {service} - {country_name} ({iso2}).\n"
-    reply += f"📱 Number: {test_number}\n🔑 OTP: {test_otp}"
-    if failed_groups:
-        reply += "\n\n⚠️ Failed groups:\n" + "\n".join(f"• {g}" for g in failed_groups)
+    # Build response message
+    if success_count == 0:
+        reply = f"❌ Test OTP sent to 0 group(s).\n"
+        if failed_groups:
+            reply += "Failed groups:\n" + "\n".join(f"• {g}" for g in failed_groups)
+        else:
+            reply += "No groups found in GROUP_IDS. Please check the configuration."
+    else:
+        reply = f"✅ Test OTP sent to {success_count} group(s) for {service} - {country_name} ({iso2}).\n"
+        reply += f"📱 Number: {test_number}\n🔑 OTP: {test_otp}\n"
+        if failed_groups:
+            reply += "\n⚠️ Failed groups:\n" + "\n".join(f"• {g}" for g in failed_groups)
+    
     await update.message.reply_text(reply)
-    await ensure_keyboard_anchor(context, user_id)
 
 # ==================== CALLBACK HANDLERS ====================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1998,25 +1883,21 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "balance": await show_balance(update, user_id, context)
     elif action == "support": await show_support(update, context)
     elif action == "admin": await admin_panel_menu(update, user_id, context)
-    await ensure_keyboard_anchor(context, user_id)
 
 async def balance_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await ban_check(update, context): return
     await query.answer()
     await show_balance(update, query.from_user.id, context)
-    await ensure_keyboard_anchor(context, query.from_user.id)
 
 async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await ban_check(update, context): return
     await query.answer()
     await show_withdraw(update, query.from_user.id, context)
-    await ensure_keyboard_anchor(context, query.from_user.id)
 
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await ensure_keyboard_anchor(context, update.callback_query.from_user.id)
 
 async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2024,8 +1905,7 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer()
-    await show_main_menu_with_temp(query, user_id, first_name, context)
-    await ensure_keyboard_anchor(context, user_id)
+    await send_main_menu(query, context, user_id)
 
 # ==================== TOGGLE CC CALLBACK ====================
 async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2041,13 +1921,11 @@ async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         new_val = 0
     data = last_activation_data.get(user_id)
     if not data:
-        await edit_or_send(query, "No active numbers to display.", reply_markup=back_to_main_keyboard(), context=context, persistent_menu=True)
-        await ensure_keyboard_anchor(context, user_id)
+        await edit_or_send(query, "No active numbers to display.", reply_markup=back_to_main_keyboard(), context=context, auto_delete=False)
         return
     country, service, numbers, msg_id = data
     msg, kb = format_numbers_message(country, service, numbers, user_id=user_id)
-    await edit_or_send(query, msg, reply_markup=kb, parse_mode='HTML', context=context, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await edit_or_send(query, msg, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 # ==================== SERVICE→COUNTRY FLOW ====================
 async def service_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2061,8 +1939,7 @@ async def service_selection_callback(update: Update, context: ContextTypes.DEFAU
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_COUNTRY_PREFIX"], "🌍")} '
         f'<b>Select country for {service.upper()}</b> {service_emoji_tag(service)}'
     )
-    await edit_or_send(query, text, reply_markup=countries_for_service_keyboard(service), parse_mode='HTML', context=context, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await edit_or_send(query, text, reply_markup=countries_for_service_keyboard(service), parse_mode='HTML', context=context, auto_delete=False)
 
 async def country_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2073,19 +1950,17 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     parts = query.data.split('|')
     if len(parts) < 3:
         await query.answer("Invalid selection.", show_alert=True)
-        await ensure_keyboard_anchor(context, user_id)
         return
     country = parts[1]
     service = parts[2]
 
-    await edit_or_send(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML', context=context, persistent_menu=True)
+    await edit_or_send(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML', context=context, auto_delete=False)
     await asyncio.sleep(1)
 
     numbers = get_numbers_from_stock(country, service, 3)
     if not numbers:
         await query.answer("No numbers available for this country/service!", show_alert=True)
-        await edit_or_send(query, "Select a Country:", reply_markup=countries_for_service_keyboard(service), context=context, persistent_menu=True)
-        await ensure_keyboard_anchor(context, user_id)
+        await edit_or_send(query, "Select a Country:", reply_markup=countries_for_service_keyboard(service), context=context, auto_delete=False)
         return
 
     old_data = last_activation_data.get(user_id)
@@ -2112,7 +1987,6 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
         await query.delete_message()
     except:
         pass
-    await ensure_keyboard_anchor(context, user_id)
 
 async def back_to_services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2124,8 +1998,7 @@ async def back_to_services_callback(update: Update, context: ContextTypes.DEFAUL
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_SERVICE_PREFIX"], "🔧")} <b>Select service</b> '
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"], "📱")}'
     )
-    await edit_or_send(query, text, reply_markup=services_keyboard(), parse_mode='HTML', context=context, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await edit_or_send(query, text, reply_markup=services_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
 
 async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2134,7 +2007,7 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     first_name = query.from_user.first_name or "User"
     await query.answer("Getting next 3 numbers...")
     
-    await edit_or_send(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML', context=context, persistent_menu=True)
+    await edit_or_send(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML', context=context, auto_delete=False)
     await asyncio.sleep(1)
 
     result = db_fetch_one("SELECT current_country, current_service FROM users WHERE user_id = ?", (user_id,))
@@ -2146,14 +2019,12 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if fallback: country, service = fallback
     if not country or not service:
         await query.answer("Please select a service and country first!", show_alert=True)
-        await edit_or_send(query, "Select a Service:", reply_markup=services_keyboard(), context=context, persistent_menu=True)
-        await ensure_keyboard_anchor(context, user_id)
+        await edit_or_send(query, "Select a Service:", reply_markup=services_keyboard(), context=context, auto_delete=False)
         return
     numbers = get_numbers_from_stock(country, service, 3)
     if not numbers:
         await query.answer(f"No more {country} {service} numbers!", show_alert=True)
-        await edit_or_send(query, f"Select a Country for {service}:", reply_markup=countries_for_service_keyboard(service), context=context, persistent_menu=True)
-        await ensure_keyboard_anchor(context, user_id)
+        await edit_or_send(query, f"Select a Country for {service}:", reply_markup=countries_for_service_keyboard(service), context=context, auto_delete=False)
         return
 
     old_data = last_activation_data.get(user_id)
@@ -2179,7 +2050,6 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.delete_message()
     except:
         pass
-    await ensure_keyboard_anchor(context, user_id)
 
 # ==================== ADMIN CALLBACKS ====================
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2198,7 +2068,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await query.answer(f"Error deleting {parts[1]} — {parts[2]}!", show_alert=True)
             await show_delete_options(query, user_id, context)
-        await ensure_keyboard_anchor(context, user_id)
         return
     action = data[len("admin_"):]
     if action == "stats": await show_admin_stats(update, user_id, context)
@@ -2214,9 +2083,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "exit": await exit_admin_callback_query(query, user_id, context.bot)
     elif action == "back":
         admin_panel_state[user_id] = "main"
-        await edit_or_send(query, "ADMIN PANEL\n\nDeveloper: 𝑹𝑨𝑲𝑬𝑺𝑯 𝑫𝑬𝑽\n\nSelect an action below:",
-                           reply_markup=admin_panel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-        await ensure_keyboard_anchor(context, user_id)
+        await edit_or_send(query, "ADMIN PANEL\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓\n\nSelect an action below:",
+                           reply_markup=admin_panel_keyboard(), context=context, auto_delete=False)
     elif action == "stock_management":
         await stock_management_menu(query, context, user_id)
 
@@ -2228,10 +2096,9 @@ async def send_stock_management_menu(target, context: ContextTypes.DEFAULT_TYPE,
     )
     kb = stock_management_menu_keyboard()
     if isinstance(target, CallbackQuery):
-        await edit_or_send(target, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False, persistent_menu=True)
+        await edit_or_send(target, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
     else:
-        await send_clean_message(target, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+        await send_clean_message(target, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def stock_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     await send_stock_management_menu(update, context, user_id)
@@ -2242,8 +2109,7 @@ async def stock_upload_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     admin_panel_state[user_id] = "waiting_file"
     await edit_or_send(query, "UPLOAD STOCK\n\nSend a .txt file with phone numbers.\nFilename must contain country & service name.\nOne number per line.",
-                       reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+                       reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def stock_remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2254,8 +2120,7 @@ async def stock_remove_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     rows = db_fetch_all("SELECT name, service, stock FROM countries WHERE stock > 0 ORDER BY name, service")
     if not rows:
-        await edit_or_send(query, "No stock available to remove.", reply_markup=stock_management_menu_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-        await ensure_keyboard_anchor(context, user_id)
+        await edit_or_send(query, "No stock available to remove.", reply_markup=stock_management_menu_keyboard(), context=context, auto_delete=False)
         return
     kb_buttons = []
     for country, service, stock in rows:
@@ -2270,8 +2135,7 @@ async def stock_remove_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )])
     kb_buttons.append([InlineKeyboardButton("Back", callback_data="admin_stock_management", style=KBS.PRIMARY,
                                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await edit_or_send(query, "Select stock to remove:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await edit_or_send(query, "Select stock to remove:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_remove_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2291,8 +2155,7 @@ async def stock_remove_confirm_callback(update: Update, context: ContextTypes.DE
         [InlineKeyboardButton("NO", callback_data="stock_remove_no", style=KBS.DANGER,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "")))],
     ])
-    await edit_or_send(query, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await edit_or_send(query, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_remove_yes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2341,8 +2204,7 @@ async def stock_status_callback(update: Update, context: ContextTypes.DEFAULT_TY
         InlineKeyboardButton("Back", callback_data="admin_stock_management", style=KBS.PRIMARY,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))
     ]])
-    await edit_or_send(query, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await edit_or_send(query, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2353,8 +2215,7 @@ async def stock_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     rows = db_fetch_all("SELECT name, service, active FROM countries ORDER BY name, service")
     if not rows:
-        await edit_or_send(query, "No countries/services defined.", reply_markup=stock_management_menu_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-        await ensure_keyboard_anchor(context, user_id)
+        await edit_or_send(query, "No countries/services defined.", reply_markup=stock_management_menu_keyboard(), context=context, auto_delete=False)
         return
     kb_buttons = []
     for country, service, active in rows:
@@ -2370,8 +2231,7 @@ async def stock_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )])
     kb_buttons.append([InlineKeyboardButton("Back", callback_data="admin_stock_management", style=KBS.PRIMARY,
                                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await edit_or_send(query, "Select stock to toggle active status:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await edit_or_send(query, "Select stock to toggle active status:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_toggle_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2417,14 +2277,12 @@ async def show_admin_stats(update: Update, user_id, context: ContextTypes.DEFAUL
         text += f'\n\n{emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")} STOCK DETAILS {emoji_tag(CUSTOM_EMOJIS["PACKAGE"], "📦")}:\n'
         for name, service, stock_count in countries:
             text += f'In stock {country_flag_emoji(name)} {name} — {service_emoji_tag(service)}: {stock_count}\n'
-    await reply_or_edit(update, text, reply_markup=admin_back_button(), parse_mode='HTML', context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, text, reply_markup=admin_back_button(), parse_mode='HTML', context=context, auto_delete=False)
 
 async def show_delete_options(query, user_id, context: ContextTypes.DEFAULT_TYPE):
     countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
     if not countries:
-        await edit_or_send(query, "No countries to delete!", reply_markup=admin_back_button(), context=context, auto_delete=False, persistent_menu=True)
-        await ensure_keyboard_anchor(context, user_id)
+        await edit_or_send(query, "No countries to delete!", reply_markup=admin_back_button(), context=context, auto_delete=False)
         return
     rows = []
     for name, service, stock_count in countries:
@@ -2435,55 +2293,30 @@ async def show_delete_options(query, user_id, context: ContextTypes.DEFAULT_TYPE
     rows.append([InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     await edit_or_send(query, "DELETE STOCK\n\nSelect a country/service to delete all its numbers:",
-                       reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+                       reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def request_upload(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     admin_panel_state[user_id] = "waiting_file"
     await reply_or_edit(update, "UPLOAD STOCK\n\nSend a .txt file with phone numbers.\nFilename must contain country & service name.\nOne number per line.",
-                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def request_broadcast(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     admin_panel_state[user_id] = "waiting_broadcast"
     await reply_or_edit(update, "BROADCAST MESSAGE\n\nSend the message you want to broadcast to ALL users (any media or text).",
-                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def request_giveaway(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     admin_panel_state[user_id] = "waiting_giveaway"
     await reply_or_edit(update, "GIVE FREE ACCOUNT\n\nSend: user_id count\nExample: 123456789 5",
-                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def exit_admin_callback_query(query, user_id, bot):
     admin_mode.pop(user_id, None)
     admin_panel_state.pop(user_id, None)
     try:
-        short_msg = f'{emoji_tag(MAIN_MENU_EMOJI, "✨")} <b>Main Menu</b>'
-        await edit_or_send(query, short_msg, reply_markup=None, parse_mode='HTML',
-                           context=None, persistent_menu=True,
-                           auto_delete=False, delete_after=MAIN_MENU_DELETE)
+        await send_main_menu(query, None, user_id)
     except Exception:
         await bot.send_message(user_id, "Main Menu")
-    try:
-        kb_id_row = db_fetch_one("SELECT keyboard_message_id FROM users WHERE user_id=?", (user_id,))
-        if kb_id_row and kb_id_row[0]:
-            await bot.edit_message_text(
-                chat_id=user_id,
-                message_id=kb_id_row[0],
-                text="Main Menu",
-                reply_markup=bottom_menu_keyboard(user_id)
-            )
-        else:
-            sent = await bot.send_message(
-                chat_id=user_id,
-                text="Main Menu",
-                reply_markup=bottom_menu_keyboard(user_id)
-            )
-            db_exec("UPDATE users SET keyboard_message_id=? WHERE user_id=?", (sent.message_id, user_id))
-    except:
-        pass
 
 # ==================== COUNTRY & SERVICE CALLBACKS ====================
 async def country_manager_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
@@ -2501,8 +2334,7 @@ async def country_manager_menu(update: Update, user_id, context: ContextTypes.DE
         [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ]
-    await reply_or_edit(update, "COUNTRY MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, "COUNTRY MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2528,8 +2360,7 @@ async def country_add_start(update: Update, user_id, context: ContextTypes.DEFAU
     await reply_or_edit(update,
         "ADD NEW COUNTRY\n\nFormat: CountryName | Code | ISO | payout | emoji_id\n"
         "Example: Bangladesh | +880 | BD | 0.001$ | 5911365056594973179",
-        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def country_list_show(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     lines = [f'ALL COUNTRIES {emoji_tag(CUSTOM_EMOJIS["CHANGE_COUNTRY"], "🌍")}', '']
@@ -2537,8 +2368,7 @@ async def country_list_show(update: Update, user_id, context: ContextTypes.DEFAU
         lines.append(f'• {country_flag_emoji(name)} {name}')
         lines.append(f'  Code: {info["code"]} | ISO: {info["iso"]} | Payout: {info.get("payout", "0.001$")} | Emoji ID: {info.get("emoji_id") or "Not set"}')
         lines.append('')
-    await reply_or_edit(update, '\n'.join(lines), reply_markup=admin_back_button(), parse_mode='HTML', context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, '\n'.join(lines), reply_markup=admin_back_button(), parse_mode='HTML', context=context, auto_delete=False)
 
 async def country_edit_select(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     rows = []
@@ -2550,8 +2380,7 @@ async def country_edit_select(update: Update, user_id, context: ContextTypes.DEF
                                           icon_custom_emoji_id=safe_icon(icon))])
     rows.append([InlineKeyboardButton("Back", callback_data="admin_country_manager", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await reply_or_edit(update, "Select country to edit:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, "Select country to edit:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def country_edit_start(update: Update, user_id, country_name, context: ContextTypes.DEFAULT_TYPE):
     admin_temp_data[user_id] = {"edit_country": country_name}
@@ -2559,8 +2388,7 @@ async def country_edit_start(update: Update, user_id, country_name, context: Con
     info = COUNTRIES_DATA[country_name]
     await reply_or_edit(update,
         f"EDIT COUNTRY: {country_name}\n\nCurrent:\nCode: {info['code']}\nISO: {info['iso']}\nPayout: {info.get('payout','0.001$')}\nEmoji ID: {info.get('emoji_id', 'Not set')}\n\nSend new details: Code | ISO | payout | emoji_id\nSend /skip to keep.",
-        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def country_delete_select(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     rows = []
@@ -2570,8 +2398,7 @@ async def country_delete_select(update: Update, user_id, context: ContextTypes.D
                                           icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))])
     rows.append([InlineKeyboardButton("Back", callback_data="admin_country_manager", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await reply_or_edit(update, "Select country to delete:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, "Select country to delete:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def country_delete_direct(query, user_id, country_name, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id): await query.answer("Admin mode required!", show_alert=True); return
@@ -2599,8 +2426,7 @@ async def country_add_service_selection(update: Update, user_id, country_name, c
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     kb = InlineKeyboardMarkup(rows)
     text = f"Country '{country_name}' added. Select a service to link (or Skip):"
-    await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False)
 
 async def country_add_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2612,8 +2438,7 @@ async def country_add_service_callback(update: Update, context: ContextTypes.DEF
     db_exec("INSERT OR IGNORE INTO countries (name, service, flag, stock) VALUES (?, ?, ?, 0)", (country_name, service_name, country_name))
     await query.answer(f"{country_name} now available for {service_name}!")
     admin_panel_state[user_id] = "main"
-    await edit_or_send(query, "Country linked successfully.", reply_markup=admin_panel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await edit_or_send(query, "Country linked successfully.", reply_markup=admin_panel_keyboard(), context=context, auto_delete=False)
 
 # ==================== SERVICE MANAGER ====================
 async def service_manager_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
@@ -2633,8 +2458,7 @@ async def service_manager_menu(update: Update, user_id, context: ContextTypes.DE
         [InlineKeyboardButton("Back to Admin Panel", callback_data="admin_back", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ]
-    await reply_or_edit(update, "SERVICE MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, "SERVICE MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2661,8 +2485,7 @@ async def service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def service_add_start(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     admin_panel_state[user_id] = "waiting_service_name"
-    await reply_or_edit(update, "Send the service name.", reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, "Send the service name.", reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def service_remove_select(target, user_id, context: ContextTypes.DEFAULT_TYPE):
     services = db_fetch_all("SELECT name, display_name FROM services ORDER BY name")
@@ -2674,8 +2497,7 @@ async def service_remove_select(target, user_id, context: ContextTypes.DEFAULT_T
                                           icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", "")))])
     rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await reply_or_edit(target, "Select service to remove:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(target, "Select service to remove:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def service_remove_execute(query, service_name, context: ContextTypes.DEFAULT_TYPE):
     db_exec("DELETE FROM services WHERE name = ?", (service_name,))
@@ -2695,8 +2517,7 @@ async def service_toggle_select(target, user_id, context: ContextTypes.DEFAULT_T
                                           icon_custom_emoji_id=safe_icon("4956583802240500602"))])
     rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await reply_or_edit(target, "Select service to toggle:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(target, "Select service to toggle:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def service_toggle_execute(query, service_name, context: ContextTypes.DEFAULT_TYPE):
     result = db_fetch_one("SELECT active FROM services WHERE name = ?", (service_name,))
@@ -2717,113 +2538,94 @@ async def service_set_emoji_select(update: Update, user_id, context: ContextType
                                           icon_custom_emoji_id=safe_icon("4956214413578207998"))])
     rows.append([InlineKeyboardButton("Back", callback_data="admin_service_manager", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    await reply_or_edit(update, "Select service to set emoji:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, "Select service to set emoji:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def service_set_emoji_start(update: Update, user_id, service_name, context: ContextTypes.DEFAULT_TYPE):
     admin_temp_data[user_id] = {"set_emoji_service": service_name}
     admin_panel_state[user_id] = "waiting_service_emoji"
-    await reply_or_edit(update, f"Send custom emoji ID for '{service_name}'.\nSend /skip to keep.", reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False, persistent_menu=True)
-    await ensure_keyboard_anchor(context, user_id)
+    await reply_or_edit(update, f"Send custom emoji ID for '{service_name}'.\nSend /skip to keep.", reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def handle_service_emoji_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
     service_name = admin_temp_data.get(user_id, {}).get("set_emoji_service")
-    if not service_name: await update.message.reply_text("Session expired."); await ensure_keyboard_anchor(context, user_id); return True
+    if not service_name: await update.message.reply_text("Session expired."); return True
     if text == "/skip": text = ""
     db_exec("UPDATE services SET emoji_id = ? WHERE name = ?", (text, service_name))
     await update.message.reply_text(f"Emoji for {service_name} updated!")
     admin_panel_state[user_id] = "service_manager"
     await service_manager_menu(update, user_id, context)
-    await ensure_keyboard_anchor(context, user_id)
     return True
 
 # ==================== /setcountry & /setservice COMMANDS ====================
 async def set_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔ Admin only.")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     if not context.args:
         await update.message.reply_text("Usage: /setcountry ISO|EMOJI_ID\nExample: /setcountry BD|5911365056594973179")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     parts = " ".join(context.args).split("|")
     if len(parts) != 2:
         await update.message.reply_text("Invalid format. Use ISO|EMOJI_ID")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     iso = parts[0].strip().upper()
     eid = parts[1].strip()
     db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('country', ?, ?)", (iso, eid))
     DEFAULT_EMOJIS["countries"][iso.lower()] = eid
     await update.message.reply_text(f"✅ Country emoji for {iso} set to <code>{eid}</code>", parse_mode="HTML")
-    await ensure_keyboard_anchor(context, update.effective_user.id)
 
 async def set_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔ Admin only.")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     if not context.args:
         await update.message.reply_text("Usage: /setservice NAME|EMOJI_ID\nExample: /setservice PayPal|123456789")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     parts = " ".join(context.args).split("|")
     if len(parts) != 2:
         await update.message.reply_text("Invalid format. Use NAME|EMOJI_ID")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     name = parts[0].strip().lower()
     eid = parts[1].strip()
     db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('service', ?, ?)", (name, eid))
     DEFAULT_EMOJIS["services"][name.lower()] = eid
     await update.message.reply_text(f"✅ Service emoji for {name} set to <code>{eid}</code>", parse_mode="HTML")
-    await ensure_keyboard_anchor(context, update.effective_user.id)
 
 # ==================== /country & /service COMMANDS (legacy) ====================
 async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Admin only.")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     if not context.args:
         await update.message.reply_text("Usage: /country ISO|EMOJI_ID\nExample: /country GB|123456789")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     parts = " ".join(context.args).split("|")
     if len(parts) != 2:
         await update.message.reply_text("Invalid format. Use ISO|EMOJI_ID")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     iso = parts[0].strip().upper()
     eid = parts[1].strip()
     db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('country', ?, ?)", (iso, eid))
     DEFAULT_EMOJIS["countries"][iso.lower()] = eid
     await update.message.reply_text(f"✅ Group country emoji for {iso} set to <code>{eid}</code>", parse_mode="HTML")
-    await ensure_keyboard_anchor(context, update.effective_user.id)
 
 async def group_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Admin only.")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     if not context.args:
         await update.message.reply_text("Usage: /service NAME|EMOJI_ID\nExample: /service PayPal|123456789")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     parts = " ".join(context.args).split("|")
     if len(parts) != 2:
         await update.message.reply_text("Invalid format. Use NAME|EMOJI_ID")
-        await ensure_keyboard_anchor(context, update.effective_user.id)
         return
     name = parts[0].strip().lower()
     eid = parts[1].strip()
     db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('service', ?, ?)", (name, eid))
     DEFAULT_EMOJIS["services"][name.lower()] = eid
     await update.message.reply_text(f"✅ Group service emoji for {name} set to <code>{eid}</code>", parse_mode="HTML")
-    await ensure_keyboard_anchor(context, update.effective_user.id)
 
 # ==================== BOTTOM MENU TEXT ROUTERS ====================
 async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2835,7 +2637,7 @@ async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TY
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_SERVICE_PREFIX"], "🔧")} <b>Select service</b> '
         f'{emoji_tag(CUSTOM_EMOJIS["SELECT_SERVICE_SUFFIX"], "📱")}'
     )
-    await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML', persistent_menu=True)
+    await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML', auto_delete=False)
 
 async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -2867,15 +2669,14 @@ async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f'<blockquote><b>{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code></b></blockquote>'
     )
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
+        InlineKeyboardButton("WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon("5445353829304387411"))
     ]])
-    await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', persistent_menu=True)
+    await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: 𝑹𝑨𝑲𝑬𝑺𝑯 𝑫𝑬𝑽"
-    await ensure_keyboard_anchor(context, user_id)
+    text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓"
     sent_inline = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=support_keyboard())
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent_inline.message_id, user_id))
 
@@ -2888,12 +2689,10 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
     admin_panel_state[user_id] = "main"
     await send_clean_message(
         update, context,
-        "ADMIN PANEL\n\nDeveloper: 𝑹𝑨𝑲𝑬𝑺𝑯 𝑫𝑬𝑽",
+        "ADMIN PANEL\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓",
         reply_markup=admin_panel_keyboard(),
-        auto_delete=False,
-        persistent_menu=True
+        auto_delete=False
     )
-    await ensure_keyboard_anchor(context, user_id)
 
 # ==================== CURL PARSER - UNLIMITED FORMAT SUPPORT ====================
 
@@ -3350,6 +3149,25 @@ async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     admin_panel_state[user_id] = "api_add_name"
     await api_add_step(update, context, user_id, "api_add_name")
 
+# ==================== CURL CONFIRMATION BUTTONS ====================
+
+async def api_add_curl_continue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle CONTINUE button after CURL parsing."""
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer("Proceeding to confirmation...")
+    # Proceed to confirm step
+    await show_confirm_step(query, context, user_id)
+
+async def api_add_curl_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle CANCEL button after CURL parsing."""
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer("Cancelled.")
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    await query.edit_message_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
+
 # ==================== HANDLE API ADD TEXT INPUT ====================
 
 async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3370,7 +3188,7 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = admin_temp_data.get(user_id, {})
     label, field, next_step = STEP_MESSAGES.get(state, ("", "", ""))
     
-    # CURL special handling (with inline buttons)
+    # CURL special handling
     if state == "api_add_curl":
         if text == "/skip":
             data["curl_command"] = None
@@ -3389,52 +3207,53 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                     "<code>curl https://example.com/api/endpoint</code>\n"
                     "or\n"
                     "<code>curl {API_BASE}/api/endpoint</code>\n\n"
-                    "Or press <b>CANCEL</b> to abort.",
+                    "Or send <code>/skip</code> to skip this step.",
                     parse_mode='HTML'
                 )
                 return True
-
+            
             data["curl_command"] = text
             data["parsed_curl"] = parsed
             admin_temp_data[user_id] = data
-
+            
             placeholders = parsed.get("placeholders", {})
             placeholders_list = ", ".join([f"<code>{{{ph}}}</code>" for ph in placeholders.keys()]) if placeholders else "None"
+            
+            info_text = f"""
+✅ <b>CURL Parsed Successfully</b>
 
-            info_text = (
-                f"✅ <b>CURL Parsed Successfully</b>\n\n"
-                f"🌐 <b>URL</b>: <code>{parsed.get('url', 'N/A')}</code>\n"
-                f"📌 <b>Method</b>: <code>{parsed.get('method', 'GET')}</code>\n"
-                f"📋 <b>Headers</b>: <code>{len(parsed.get('headers', {}))}</code>\n"
-                f"📦 <b>Data</b>: {'Yes' if parsed.get('data') else 'No'}\n"
-                f"🔑 <b>Placeholders</b>: {placeholders_list}\n\n"
-                f"<blockquote>✅ Bot will use this exact format for polling</blockquote>"
-            )
+🌐 <b>URL</b>: <code>{parsed.get('url', 'N/A')}</code>
+📌 <b>Method</b>: <code>{parsed.get('method', 'GET')}</code>
+📋 <b>Headers</b>: <code>{len(parsed.get('headers', {}))}</code>
+📦 <b>Data</b>: {'Yes' if parsed.get('data') else 'No'}
+🔑 <b>Placeholders</b>: {placeholders_list}
 
+<blockquote>✅ Bot will use this exact format for polling</blockquote>
+"""
+            # Inline buttons: CONTINUE and CANCEL
             kb = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
                         "CONTINUE",
-                        callback_data=f"curl_continue|{user_id}",
+                        callback_data="api_add_curl_continue",
                         style=KBS.SUCCESS,
-                        icon_custom_emoji_id="6266818250818983044"
+                        icon_custom_emoji_id=safe_icon("6266818250818983044")  # Provided CONTINUE emoji
                     ),
                     InlineKeyboardButton(
                         "CANCEL",
-                        callback_data=f"curl_cancel|{user_id}",
+                        callback_data="api_add_curl_cancel",
                         style=KBS.DANGER,
-                        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL"))
+                        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", ""))
                     )
                 ]
             ])
-
             admin_panel_state[user_id] = "api_add_curl_confirm"
             await update.message.reply_text(info_text, reply_markup=kb, parse_mode='HTML')
             return True
-
+            
         except Exception as e:
             await update.message.reply_text(
-                f"❌ <b>Error parsing CURL</b>\n\n<code>{str(e)}</code>\n\nPlease send a valid CURL command or press CANCEL.",
+                f"❌ <b>Error parsing CURL</b>\n\n<code>{str(e)}</code>\n\nPlease send a valid CURL command or <code>/skip</code>",
                 parse_mode='HTML'
             )
             return True
@@ -3462,27 +3281,6 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         await show_confirm_step(update, context, user_id)
     
     return True
-
-# ==================== CURL CONTINUE / CANCEL CALLBACKS ====================
-
-async def curl_continue_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    await query.answer()
-    state = admin_panel_state.get(user_id)
-    if state != "api_add_curl_confirm":
-        await query.edit_message_text("Session expired or invalid action.", reply_markup=None)
-        return
-    await show_confirm_step(query, context, user_id)
-
-async def curl_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    await query.answer("❌ Cancelled!")
-    admin_temp_data.pop(user_id, None)
-    admin_panel_state.pop(user_id, None)
-    await query.edit_message_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
-    await ensure_keyboard_anchor(context, user_id)
 
 # ==================== API ADD CONFIRM YES (UPDATED) ====================
 
@@ -4662,7 +4460,7 @@ def get_country_code(country_name):
             return iso
     return country_name.upper()[:2]
 
-# ==================== RICH MESSAGE GROUP OTP (FIXED - PRESERVES ORIGINAL FORMAT) ====================
+# ==================== RICH MESSAGE GROUP OTP (FIXED) ====================
 
 def format_group_otp_rich(entry):
     number = entry.get("number", "")
@@ -4673,45 +4471,50 @@ def format_group_otp_rich(entry):
     if not country_iso and country_raw:
         country_iso = get_country_code(country_raw) or "??"
     
-    # ---- COUNTRY EMOJI (priority: group_emojis → COUNTRIES_DATA → DEFAULT_EMOJIS) ----
+    # ---- COUNTRY EMOJI: priority: manual override (group_emojis) -> country data -> default ----
     country_emoji_id = None
+    # 1) Check group_emojis (manual override)
     if country_iso:
-        # 1. group_emojis (from /setcountry)
         row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.upper(),))
         if not row:
             row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.lower(),))
         if row and row[0]:
             country_emoji_id = row[0]
-    # 2. COUNTRIES_DATA (admin panel countries.json)
-    if not country_emoji_id and country_raw:
-        country_info = get_country_info(country_raw)
-        if country_info.get("emoji_id"):
-            country_emoji_id = country_info["emoji_id"]
-    # 3. DEFAULT_EMOJIS
+    # 2) If not, get from country data (countries.json) via ISO or name
+    if not country_emoji_id:
+        # try to get country name from ISO
+        country_name_from_iso = get_country_name_by_iso(country_iso) if country_iso else None
+        if country_name_from_iso:
+            country_info = get_country_info(country_name_from_iso)
+            if country_info.get("emoji_id"):
+                country_emoji_id = country_info["emoji_id"]
+        elif country_raw and country_raw not in ["?", "??"]:
+            # if we have country name directly (maybe from entry)
+            country_info = get_country_info(country_raw)
+            if country_info.get("emoji_id"):
+                country_emoji_id = country_info["emoji_id"]
+    # 3) Fallback to DEFAULT_EMOJIS
     if not country_emoji_id and country_iso and country_iso.lower() in DEFAULT_EMOJIS["countries"]:
         country_emoji_id = DEFAULT_EMOJIS["countries"][country_iso.lower()]
-    # fallback
+    
     flag_fallback = ISO_TO_INFO.get(country_iso, ("🏳", ""))[0] if country_iso else "🏳"
     if country_emoji_id:
         country_display = f'<tg-emoji emoji-id="{country_emoji_id}">{flag_fallback}</tg-emoji><b>{country_iso}</b>'
     else:
         country_display = f'{flag_fallback}<b>{country_iso}</b>'
     
-    # ---- SERVICE EMOJI (priority: group_emojis → services → DEFAULT_EMOJIS) ----
+    # ---- SERVICE EMOJI: priority: group_emojis (manual override) -> services table -> default ----
     service_emoji_id = None
-    # 1. group_emojis (from /setservice)
-    row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='service' AND LOWER(key)=?", (service_name.lower(),))
-    if row and row[0]:
-        service_emoji_id = row[0]
-    # 2. services table (admin panel)
-    if not service_emoji_id:
+    # 1) Check group_emojis (manual override)
+    svc_row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='service' AND LOWER(key)=LOWER(?)", (service_name,))
+    if svc_row and svc_row[0]:
+        service_emoji_id = svc_row[0]
+    else:
+        # 2) Check services table
         svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
         if svc_row and svc_row[0]:
             service_emoji_id = svc_row[0]
-    # 3. DEFAULT_EMOJIS
-    if not service_emoji_id:
-        service_emoji_id = DEFAULT_EMOJIS.get("services", {}).get(service_name.lower())
-    # 4. hardcoded fallback
+    # 3) Default
     if not service_emoji_id:
         service_emoji_id = CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "6204108584381322968")
     
@@ -4790,7 +4593,7 @@ def build_inline_keyboard(keyboard_dict):
         rows.append(buttons)
     return InlineKeyboardMarkup(rows)
 
-# ==================== OTP PROCESSING (SENDS TO ALL GROUPS VIA sendRichMessage) ====================
+# ==================== OTP PROCESSING (FIXED - MULTI-GROUP, SENDS TO ALL GROUPS VIA sendRichMessage) ====================
 
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
@@ -4879,7 +4682,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     "country": otp_entry.get("country", ""),
                     "message": message
                 })
-                # Send to each group
+                # Send to each group using sendRichMessage (custom endpoint)
                 for gid in group_ids:
                     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
                     payload = {
@@ -4959,7 +4762,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
     save_user_data_json()
     return new_otp_count
 
-# ==================== RESPONSE PARSER ====================
+# ==================== RESPONSE PARSER (FIXED) ====================
 
 class ResponseParser:
     @staticmethod
@@ -5254,8 +5057,6 @@ def main():
     application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))
     application.add_handler(CallbackQueryHandler(handle_api_add_skip, pattern="^api_add_skip$"))
     application.add_handler(CallbackQueryHandler(handle_api_add_cancel, pattern="^api_add_cancel$"))
-    application.add_handler(CallbackQueryHandler(curl_continue_callback, pattern=r"^curl_continue\|"))
-    application.add_handler(CallbackQueryHandler(curl_cancel_callback, pattern=r"^curl_cancel\|"))
     application.add_handler(CallbackQueryHandler(api_add_confirm_yes, pattern=r"^api_add_confirm_yes\|"))
     application.add_handler(CallbackQueryHandler(api_add_confirm_no, pattern=r"^api_add_confirm_no\|"))
     application.add_handler(CallbackQueryHandler(api_add_edit, pattern=r"^api_add_edit\|"))
@@ -5271,6 +5072,9 @@ def main():
     application.add_handler(CallbackQueryHandler(api_delete_confirm, pattern=r"^api_delete_(yes|no)\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_force_poll, pattern=r"^api_force\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
+    # CURL confirmation buttons
+    application.add_handler(CallbackQueryHandler(api_add_curl_continue, pattern="^api_add_curl_continue$"))
+    application.add_handler(CallbackQueryHandler(api_add_curl_cancel, pattern="^api_add_curl_cancel$"))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
@@ -5287,7 +5091,6 @@ def main():
     save_user_data_json()
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
     print("✅ Full bot started with Multi-API System and Country Map.")
-    print(f"✅ Groups: {GROUP_IDS}")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
