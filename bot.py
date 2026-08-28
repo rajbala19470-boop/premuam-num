@@ -3239,18 +3239,26 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             placeholders = parsed.get("placeholders", {})
             placeholders_list = ", ".join([f"<code>{{{ph}}}</code>" for ph in placeholders.keys()]) if placeholders else "None"
             
+            # Premium emoji replacements
+            check_icon = CUSTOM_EMOJIS.get("YES", "4956721670690702265")  # ✅
+            url_icon = CUSTOM_EMOJIS.get("API_FIELD_URL", "6285048454255220485")  # 🌐
+            method_icon = CUSTOM_EMOJIS.get("API_FIELD_METHOD", "5926860096008098405")  # 📌
+            headers_icon = CUSTOM_EMOJIS.get("API_FIELD_HEADERS", "5926860096008098405")  # 📋
+            data_icon = CUSTOM_EMOJIS.get("API_FIELD_MESSAGE", "5980911993140284450")  # 📦
+            token_icon = CUSTOM_EMOJIS.get("API_FIELD_TOKEN", "5821453562680448557")  # 🔑
+            
             info_text = f"""
-✅ <b>CURL Parsed Successfully</b>
+{emoji_tag(check_icon, '✅')} <b>CURL Parsed Successfully</b>
 
-🌐 <b>URL</b>: <code>{parsed.get('url', 'N/A')}</code>
-📌 <b>Method</b>: <code>{parsed.get('method', 'GET')}</code>
-📋 <b>Headers</b>: <code>{len(parsed.get('headers', {}))}</code>
-📦 <b>Data</b>: {'Yes' if parsed.get('data') else 'No'}
-🔑 <b>Placeholders</b>: {placeholders_list}
+{emoji_tag(url_icon, '🌐')} <b>URL</b>: <code>{parsed.get('url', 'N/A')}</code>
+{emoji_tag(method_icon, '📌')} <b>Method</b>: <code>{parsed.get('method', 'GET')}</code>
+{emoji_tag(headers_icon, '📋')} <b>Headers</b>: <code>{len(parsed.get('headers', {}))}</code>
+{emoji_tag(data_icon, '📦')} <b>Data</b>: {'Yes' if parsed.get('data') else 'No'}
+{emoji_tag(token_icon, '🔑')} <b>Placeholders</b>: {placeholders_list}
 
 <blockquote>✅ Bot will use this exact format for polling</blockquote>
 """
-            # Inline buttons: CONTINUE and CANCEL
+            # Inline buttons: CONTINUE and CANCEL with premium emojis
             kb = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
