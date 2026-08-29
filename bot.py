@@ -22,7 +22,7 @@ from telegram.error import BadRequest
 from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8769374062:AAE5TRLXYcFP5TUi29sWeesrhl2hI6XHpAQ"
+BOT_TOKEN = "8769374062:AAHTIxugF2XHffjlg6p2Xrd4Br-OUezroro"
 SUPER_ADMIN_IDS = [8744359777]
 
 AUTO_DELETE_DELAY = 2          # seconds (for normal messages)
@@ -34,15 +34,15 @@ MIN_WITHDRAW = 0.1
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
-ADMIN2_TELEGRAM = ""
+ADMIN2_TELEGRAM = "t.me/ABU_SAID_0_9"
 
 # Multiple group IDs – you can define them as:
 #   A) a tuple/list of strings: GROUP_ID = "-1003716770621","-1001234567890"
 #   B) a comma-separated string: GROUP_ID = "-1003716770621,-1001234567890"
 #   C) a single string: GROUP_ID = "-1003716770621"
 GROUP_ID = "-1003716770621","-1004309109716"   # ← edit as needed
-CHANNEL_URL = "https://t.me/WaCreationHub"
-BOT_URL = "https://t.me/WA_CREATION_BOT"
+CHANNEL_URL = "https://t.me/A_S_COMMUNITY_9_x"
+BOT_URL = "https://t.me/AIR_NUMBER_BOT?start=1"
 
 # Parse GROUP_ID into a list of integers
 GROUP_IDS = []
