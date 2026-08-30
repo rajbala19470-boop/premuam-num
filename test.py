@@ -28,7 +28,7 @@ SUPER_ADMIN_IDS = [8744359777]
 AUTO_DELETE_DELAY = 2          # seconds (for normal messages)
 MAIN_MENU_DELETE = 120         # 2 minutes
 
-OTP_GROUP_URL = "https://t.me/NumberFlexOTP"
+OTP_GROUP_URL = "https://t.me/AIR_OTP"
 MIN_WITHDRAW = 0.1
 
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
