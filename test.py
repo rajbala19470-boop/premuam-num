@@ -1,13 +1,9 @@
-# bot.py — SR NUMBER HUB (Complete with Multi-API System)
-# All features + CURL with automatic placeholder replacement.
-# SKIP means "not used" — no default values.
-# Fixed: Base URL override issue; OTP List Path added as step.
-# Fixed: ResponseParser correctly handles nested lists.
-# Fixed: process_otps matches numbers with or without '+'.
-
+# THIS PREMUAM BOT WAS MADE BY : RAKESH DEV 
+#TG : @SR_ADMIN_RAKESH,  AND DON'T TRY TO CHANGR SNY CREDIT
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil
 from datetime import datetime, timedelta
 import random
+import html  # for escaping
 
 import aiohttp
 import requests
@@ -26,7 +22,7 @@ from telegram.error import BadRequest
 from emoji import CUSTOM_EMOJIS
 
 # ==================== CONFIGURATION ====================
-BOT_TOKEN = "8789807943:AAHae96lsddEva4nvB3LdEyJAS_q_0L06Yc"
+BOT_TOKEN = "8769374062:AAHTIxugF2XHffjlg6p2Xrd4Br-OUezroro"
 SUPER_ADMIN_IDS = [8744359777]
 
 AUTO_DELETE_DELAY = 2          # seconds (for normal messages)
@@ -38,12 +34,36 @@ MIN_WITHDRAW = 0.1
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
-ADMIN2_TELEGRAM = ""
+ADMIN2_TELEGRAM = "t.me/ABU_SAID_0_9"
 
-GROUP_ID = -1003716770621
-CHANNEL_URL = "https://t.me/WaCreationHub"
-BOT_URL = "https://t.me/WA_CREATION_BOT"
+# Multiple group IDs – you can define them as:
+#   A) a tuple/list of strings: GROUP_ID = "-1003716770621","-1001234567890"
+#   B) a comma-separated string: GROUP_ID = "-1003716770621,-1001234567890"
+#   C) a single string: GROUP_ID = "-1003716770621"
+GROUP_ID = "-1003716770621","-1004309109716"   # ← edit as needed
+CHANNEL_URL = "https://t.me/A_S_COMMUNITY_9_x"
+BOT_URL = "https://t.me/AIR_NUMBER_BOT?start=1"
 
+# Parse GROUP_ID into a list of integers
+GROUP_IDS = []
+if GROUP_ID:
+    if isinstance(GROUP_ID, (list, tuple)):
+        # e.g. ("-1003716770621", "-1001234567890")
+        GROUP_IDS = [int(str(gid).strip()) for gid in GROUP_ID if str(gid).strip()]
+    elif isinstance(GROUP_ID, str):
+        if ',' in GROUP_ID:
+            # Comma‑separated string: "-1003716770621,-1001234567890"
+            GROUP_IDS = [int(gid.strip()) for gid in GROUP_ID.split(',') if gid.strip()]
+        else:
+            # Single group ID as a string
+            GROUP_IDS = [int(GROUP_ID.strip())] if GROUP_ID.strip() else []
+    else:
+        # Fallback: try converting directly (just in case)
+        try:
+            GROUP_IDS = [int(GROUP_ID)]
+        except (ValueError, TypeError):
+            GROUP_IDS = []
+            
 # ==================== EMOJI CONSTANTS ====================
 WELCOME_WAVE = "5199885118214255386"      # 👋
 WELCOME_THINK = "5314563983422798645"     # 🤔
@@ -68,6 +88,7 @@ LEFT_ARROW_EMOJI = "6068830682359010545"
 SEND_EMOJI = "5433614747381538714"
 
 # ==================== CUSTOM EMOJIS ADDITIONS ====================
+# Updated with premium emoji IDs
 CUSTOM_EMOJIS["USER_MANAGER"] = "6307777408300753473"
 CUSTOM_EMOJIS["SEARCH_USER"] = "6206446249181189526"
 CUSTOM_EMOJIS["DOWNLOAD_LIST"] = "6203886371363364022"
@@ -85,7 +106,7 @@ CUSTOM_EMOJIS["PROFILE_ICON"] = "5818715087237549366"
 
 # Stock Management
 CUSTOM_EMOJIS["STOCK_MANAGER"] = "6206236607532504295"
-CUSTOM_EMOJIS["REMOVE_STOCK"] = "4958534924278694938"
+CUSTOM_EMOJIS["REMOVE_STOCK"] = "6206108815075579644"  # updated to premium
 CUSTOM_EMOJIS["STOCK_STATUS"] = "4958506272551863292"
 CUSTOM_EMOJIS["TOGGLE_STOCK"] = "4956583802240500602"
 CUSTOM_EMOJIS["YES"] = "4956721670690702265"
@@ -93,7 +114,7 @@ CUSTOM_EMOJIS["NO"] = "6206110936789423908"
 CUSTOM_EMOJIS["GET_NUMBER"] = "5303449763406954093"
 CUSTOM_EMOJIS["NEW_NUMBER"] = "5877410604225924969"
 
-# ==================== NEW API SYSTEM EMOJIS ====================
+# API System
 CUSTOM_EMOJIS["API_SYSTEM"] = "6271486270384378674"
 CUSTOM_EMOJIS["API_STATUS_ACTIVE"] = "5339112148175959615"
 CUSTOM_EMOJIS["API_STATUS_INACTIVE"] = "5337017423906226569"
@@ -128,12 +149,12 @@ CUSTOM_EMOJIS["API_OTP_COUNT"] = "5978854270013804830"
 CUSTOM_EMOJIS["API_BLOCK_START"] = "5947029782121155470"
 CUSTOM_EMOJIS["API_BLOCK_END"] = "5947216621788465862"
 CUSTOM_EMOJIS["API_SEPARATOR"] = "5870818207383686839"
-CUSTOM_EMOJIS["BACK"] = "6068830682359010545"
-CUSTOM_EMOJIS["DELETE"] = "6203761490894264678"
-CUSTOM_EMOJIS["ADMIN"] = "6206188632747808299"
+CUSTOM_EMOJIS["BACK"] = "6118297066247558366"   # updated to premium
+CUSTOM_EMOJIS["DELETE"] = "6206108815075579644"   # updated to premium (same as remove stock)
+CUSTOM_EMOJIS["ADMIN"] = "6206319341487527808"    # updated to premium
 CUSTOM_EMOJIS["UPLOAD"] = "6206046503690048595"
-CUSTOM_EMOJIS["CANCEL"] = "6206003549722122915"
-CUSTOM_EMOJIS["BROADCAST"] = "6203886371363364022"
+CUSTOM_EMOJIS["CANCEL"] = "6267000941547885720"
+CUSTOM_EMOJIS["BROADCAST"] = "6206080502651164081" # updated to premium
 CUSTOM_EMOJIS["ADD"] = "6206375377925839184"
 CUSTOM_EMOJIS["GIVEAWAY"] = "6282893896796082998"
 CUSTOM_EMOJIS["STATS"] = "6266936886405633043"
@@ -153,6 +174,9 @@ CUSTOM_EMOJIS["API_LIST_INTERVAL_ICON"] = "6235253239080555488"
 
 # SKIP emoji (premium)
 SKIP_EMOJI = "6267262260243076354"  # ⏭
+
+# Database emoji (premium)
+DATABASE_EMOJI = "5818955300463447293"
 
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
@@ -482,7 +506,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("Database", callback_data="admin_database", style=KBS.SUCCESS,
-                                 icon_custom_emoji_id=safe_icon("6206236607532504295")),
+                                 icon_custom_emoji_id=safe_icon(DATABASE_EMOJI)),  # updated
         ],
         [
             InlineKeyboardButton("Back to Main Menu", callback_data="back_to_menu", style=KBS.PRIMARY,
@@ -652,60 +676,145 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-# -------------------- OTP EXTRACTION --------------------
+# ============================================================
+# ==================== UPDATED OTP DETECTION ====================
+# ============================================================
+
+# Universal regex for OTP-like tokens (provided)
+UNIVERSAL_OTP_REGEX = re.compile(
+    r'(?i)(?<![A-Z0-9])(?:\d{3,10}|[A-Z0-9]{3,10}|[A-Z0-9]{1,10}(?:\s*[-–—]\s*[A-Z0-9]{1,10})+)(?![A-Z0-9])'
+)
+
+# Keywords that strongly indicate an OTP
+OTP_KEYWORDS = [
+    r'otp', r'code', r'pin', r'passcode', r'verification', r'auth',
+    r'confirm', r'security', r'two[- ]factor', r'sms',
+    r'ওটিপি', r'ভেরিফিকেশন', r'পিন', r'কোড',  # Bangla
+    r'ओटीपी', r'कोड', r'पिन', r'सत्यापन',    # Hindi
+    r'código', r'verificación', r'clave',      # Spanish
+    r'رمز', r'التحقق', r'كلمة المرور'         # Arabic
+]
+OTP_KEYWORD_PATTERN = re.compile(r'(?i)(?:' + '|'.join(OTP_KEYWORDS) + r')')
+
+# Patterns that commonly appear before the OTP value (e.g., "is:", ":", "=")
+OTP_SEPARATORS = r'[:=]\s*'
+
+def _clean_token(token: str) -> str:
+    """Remove common separators (space, dash, underscore, etc.) and return cleaned token."""
+    # Remove whitespace and common separators but keep dashes if they are part of format like AB-123
+    # We'll keep the original token for display, but for matching we may need to clean.
+    # Return token as is; we'll handle matching with original.
+    return token.strip()
+
+def _score_candidate(candidate: str, full_message: str) -> int:
+    """
+    Score a candidate OTP based on context and likelihood.
+    Higher score = more likely to be the actual OTP.
+    """
+    score = 0
+    # Prefer candidates that are near keywords
+    # Find all keyword matches
+    keyword_matches = list(OTP_KEYWORD_PATTERN.finditer(full_message))
+    if keyword_matches:
+        # Find distance from candidate to nearest keyword
+        candidate_start = full_message.find(candidate)
+        if candidate_start != -1:
+            nearest_distance = min(abs(m.start() - candidate_start) for m in keyword_matches)
+            # Closer = higher score
+            if nearest_distance < 20:
+                score += 50
+            elif nearest_distance < 50:
+                score += 30
+            elif nearest_distance < 100:
+                score += 10
+    # Prefer candidates that are preceded by separator (like ':', '=', 'is')
+    sep_match = re.search(OTP_SEPARATORS + re.escape(candidate), full_message)
+    if sep_match:
+        score += 40
+    # Prefer candidates that have 4-6 digits (common OTP length)
+    if re.match(r'^\d{4,6}$', candidate):
+        score += 20
+    elif re.match(r'^[A-Z0-9]{4,8}$', candidate):
+        score += 15
+    # Penalise very long or very short (but still allow)
+    if len(candidate) < 4:
+        score -= 10
+    if len(candidate) > 10:
+        score -= 5
+    # Penalise if candidate looks like a phone number (starts with + or has length >10 and all digits)
+    if re.match(r'^\+?\d{10,15}$', candidate):
+        score -= 50
+    # Penalise if candidate looks like a year (19xx or 20xx)
+    if re.match(r'^(19|20)\d{2}$', candidate):
+        score -= 30
+    # Penalise if candidate is purely numeric and appears as part of a longer number
+    # (e.g., "1234567890" might be phone; but we already penalised phone)
+    return score
+
 def extract_otp_from_message(message: str) -> str | None:
+    """
+    Intelligent OTP extractor using regex, scoring, and fallback.
+    Returns the most likely OTP string, or None if nothing suitable found.
+    """
     if not message:
         return None
-    patterns = [
-        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+is\s+(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:ওটিপি|ভেরিফিকেশন|পিন|কোড)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:ओटीपी|कोड|पिन|सत्यापन)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:código|verificación|pin|clave)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:رمز|التحقق|كلمة المرور|OTP)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:code|vérification|pin|mot de passe)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:Code|Bestätigung|PIN|Sicherheit)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'\b(\d{3,4}[-.\s]?\d{3,4})\b',
-        r'\[(\d{4,6})\]',
-        r'\((\d{4,6})\)',
-        r'\b(\d\s\d\s\d\s\d\s\d\s\d)\b',
-        r'\b(\d\s\d\s\d\s\d)\b',
-        r'\b(\d{4,6})\b',
-        r'\b([A-Z0-9]{4,8})\b',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, message, re.IGNORECASE)
-        if match:
-            otp = match.group(1)
-            otp_clean = re.sub(r'[-\s.]', '', otp)
-            if 4 <= len(otp_clean) <= 8:
-                if len(otp_clean) == 4 and otp_clean.startswith(('19', '20')):
-                    continue
-                return otp_clean
-    numbers = re.findall(r'\b(\d{4,6})\b', message)
-    for num in numbers:
-        if num.startswith(('19', '20')) and len(num) == 4:
-            continue
-        return num
+
+    # 1. Use the universal regex to get all candidate tokens
+    candidates = UNIVERSAL_OTP_REGEX.findall(message)
+    if not candidates:
+        # No tokens found; try to extract any 4-6 digit sequence as last resort
+        fallback = re.findall(r'\b(\d{4,6})\b', message)
+        if fallback:
+            # Filter out obvious years
+            filtered = [num for num in fallback if not (len(num)==4 and num.startswith(('19','20')))]
+            if filtered:
+                # Take the first one that appears near an OTP keyword or at the end
+                candidates = filtered
+
+    if not candidates:
+        return None
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_candidates = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            unique_candidates.append(c)
+    candidates = unique_candidates
+
+    # Score each candidate
+    scored = [(c, _score_candidate(c, message)) for c in candidates]
+    # Sort by score descending
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Return the highest scoring candidate if score > 0, otherwise None
+    best = scored[0]
+    if best[1] > 0:
+        return best[0]
+    else:
+        # If no positive score, but we have candidates, return the first one
+        # Only if it's reasonably OTP-like (len between 3 and 10)
+        for c, s in scored:
+            if 3 <= len(c) <= 10:
+                return c
     return None
 
 def extract_all_otps_from_message(message: str) -> list[str]:
+    """
+    Return a list of all potential OTP tokens found in the message.
+    This is used for debugging or other purposes, but main extraction uses the above.
+    """
     if not message:
         return []
-    otps = []
-    numbers = re.findall(r'\b(\d{4,6})\b', message)
-    for num in numbers:
-        if num.startswith(('19', '20')) and len(num) == 4:
-            continue
-        if num not in otps:
-            otps.append(num)
-    hyphen = re.findall(r'\b(\d{3,4}-\d{3,4})\b', message)
-    for h in hyphen:
-        clean = h.replace('-', '')
-        if 4 <= len(clean) <= 6 and clean not in otps:
-            otps.append(clean)
-    return otps
+    candidates = UNIVERSAL_OTP_REGEX.findall(message)
+    # Filter out obvious non-OTP patterns (phone numbers, years) but keep for now
+    # We'll just return unique tokens
+    return list(set(candidates))
+
+# ============================================================
+# ==================== END OF OTP DETECTION ====================
+# ============================================================
 
 # ==================== NUMBERS MESSAGE FORMATTER ====================
 def format_numbers_message(country, service, numbers, user_id=None, first_name=None):
@@ -879,12 +988,12 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
     return sent
 
 async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Send a temporary Main Menu message that auto-deletes after 120 seconds."""
+    """Send a persistent Main Menu message with bottom keyboard."""
     main_text = f'{emoji_tag(MAIN_MENU_EMOJI, "📱")} <b>Main Menu</b>'
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, main_text, reply_markup=None, parse_mode='HTML', context=context, auto_delete=True, delete_after=MAIN_MENU_DELETE)
+        await edit_or_send(update, main_text, reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML', context=context, auto_delete=False, delete_after=None)
     else:
-        await send_clean_message(update, context, main_text, reply_markup=None, parse_mode='HTML', auto_delete=True, delete_after=MAIN_MENU_DELETE)
+        await send_clean_message(update, context, main_text, reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML', auto_delete=False)
 
 # ==================== SAFE EDIT / SEND FALLBACK ====================
 async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, delete_after: int = None):
@@ -1761,7 +1870,7 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
     sent_msg = await query.message.reply_text(msg, reply_markup=kb, parse_mode='HTML')
     last_activation_data[user_id] = (country, service, numbers, sent_msg.message_id)
 
-# ==================== /testgroup COMMAND ====================
+# ==================== /testgroup COMMAND (FIXED - SENDS TO ALL GROUPS WITH sendRichMessage) ====================
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
@@ -1809,25 +1918,42 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     
-    try:
-        grp_html, grp_kb = format_group_otp_rich(entry)
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
-        payload = {
-            "chat_id": GROUP_ID,
-            "rich_message": {"html": grp_html},
-            "reply_markup": grp_kb
-        }
-        resp = requests.post(url, json=payload, timeout=10)
-        if resp.status_code == 200:
-            await update.message.reply_text(
-                f"✅ Test OTP sent to group for {service} - {country_name} ({iso2}).\n"
-                f"📱 Number: {test_number}\n"
-                f"🔑 OTP: {test_otp}"
-            )
+    # Generate rich message – this uses <p>, <details>, <summary> as in original
+    grp_html, grp_kb_dict = format_group_otp_rich(entry)
+    
+    # Send to ALL groups using sendRichMessage (custom endpoint)
+    success_count = 0
+    failed_groups = []
+    for gid in GROUP_IDS:
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
+            payload = {
+                "chat_id": gid,
+                "rich_message": {"html": grp_html},
+                "reply_markup": grp_kb_dict   # send the dictionary, not InlineKeyboardMarkup
+            }
+            resp = requests.post(url, json=payload, timeout=10)
+            if resp.status_code == 200:
+                success_count += 1
+            else:
+                failed_groups.append(f"{gid} (HTTP {resp.status_code})")
+        except Exception as e:
+            failed_groups.append(f"{gid} ({str(e)})")
+    
+    # Build response message
+    if success_count == 0:
+        reply = f"❌ Test OTP sent to 0 group(s).\n"
+        if failed_groups:
+            reply += "Failed groups:\n" + "\n".join(f"• {g}" for g in failed_groups)
         else:
-            await update.message.reply_text(f"❌ Failed to send. Status: {resp.status_code}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+            reply += "No groups found in GROUP_IDS. Please check the configuration."
+    else:
+        reply = f"✅ Test OTP sent to {success_count} group(s) for {service} - {country_name} ({iso2}).\n"
+        reply += f"📱 Number: {test_number}\n🔑 OTP: {test_otp}\n"
+        if failed_groups:
+            reply += "\n⚠️ Failed groups:\n" + "\n".join(f"• {g}" for g in failed_groups)
+    
+    await update.message.reply_text(reply)
 
 # ==================== CALLBACK HANDLERS ====================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2800,7 +2926,7 @@ def parse_curl_complete(curl_string: str) -> dict:
             # URL with placeholder like {API_BASE}/path
             parts = result["url"].split('/', 1)
             if len(parts) > 1:
-                result["base_url"] = parts[0]  # may be placeholder
+                result["base_url"] = parts[0]
                 result["endpoint"] = "/" + parts[1]
             else:
                 result["base_url"] = parts[0]
@@ -2858,7 +2984,7 @@ STEP_ORDER = [
     "api_add_endpoint",      # 3
     "api_add_token",         # 4
     "api_add_interval",      # 5
-    "api_add_otp_list_path", # 6  NEW
+    "api_add_otp_list_path", # 6
     "api_add_number_path",   # 7
     "api_add_message_path",  # 8
     "api_add_timestamp_path",# 9
@@ -2990,77 +3116,156 @@ Send the value or press SKIP:"""
         auto_delete=False
     )
 
-# ==================== SHOW CONFIRM STEP ====================
+# ==================== SHOW CONFIRM STEP (FIXED) ====================
+
+import html
+import re
+
+def sanitize_text(text: str) -> str:
+    """Remove non-printable characters and trim."""
+    if not text:
+        return ""
+    # Remove control characters except newline and tab
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    return text
 
 async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    """Show confirmation step - shows which fields will be used and which are skipped."""
+    """Show confirmation step - HTML-safe, with fallback to plain text."""
     data = admin_temp_data.get(user_id, {})
     
+    # Premium emoji mapping for fields (using unicode fallback)
+    field_emojis = {
+        "Panel Name": CUSTOM_EMOJIS.get("API_FIELD_NAME", "5818775306974006843"),
+        "Base URL": CUSTOM_EMOJIS.get("API_FIELD_URL", "6285048454255220485"),
+        "Endpoint": CUSTOM_EMOJIS.get("API_FIELD_ENDPOINT", "6267172559851099903"),
+        "Token": CUSTOM_EMOJIS.get("API_FIELD_TOKEN", "5821453562680448557"),
+        "Interval": CUSTOM_EMOJIS.get("API_FIELD_INTERVAL", "6093456762113888541"),
+        "OTP List Path": CUSTOM_EMOJIS.get("API_FIELD_OTP_PATH", "5818955300463447293"),
+        "Number Path": CUSTOM_EMOJIS.get("API_FIELD_NUMBER", "5877410604225924969"),
+        "Message Path": CUSTOM_EMOJIS.get("API_FIELD_MESSAGE", "5980911993140284450"),
+        "Timestamp Path": CUSTOM_EMOJIS.get("API_FIELD_TIMESTAMP", "6285240160120477644"),
+        "Service Path": CUSTOM_EMOJIS.get("API_FIELD_SERVICE", "5818967150278218011"),
+    }
+    curl_icon = CUSTOM_EMOJIS.get("API_TEST", "5978568938156461643")
+    
+    # Build HTML part (safe)
     confirm_text = f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Confirm API Details</b>\n\n"
     
-    # Show all fields with their status
     fields = [
-        ("Panel Name", data.get("panel_name"), "📛"),
-        ("Base URL", data.get("base_url"), "🌐"),
-        ("Endpoint", data.get("endpoint"), "📍"),
-        ("Token", data.get("token"), "🔑"),
-        ("Interval", data.get("interval_sec"), "⏱️"),
-        ("OTP List Path", data.get("otp_list_path"), "📋"),
-        ("Number Path", data.get("number_path"), "📱"),
-        ("Message Path", data.get("message_path"), "💬"),
-        ("Timestamp Path", data.get("timestamp_path"), "🕐"),
-        ("Service Path", data.get("service_path"), "🔧"),
+        ("Panel Name", data.get("panel_name")),
+        ("Base URL", data.get("base_url")),
+        ("Endpoint", data.get("endpoint")),
+        ("Token", data.get("token")),
+        ("Interval", data.get("interval_sec")),
+        ("OTP List Path", data.get("otp_list_path")),
+        ("Number Path", data.get("number_path")),
+        ("Message Path", data.get("message_path")),
+        ("Timestamp Path", data.get("timestamp_path")),
+        ("Service Path", data.get("service_path")),
     ]
     
-    for label, value, icon in fields:
+    for label, value in fields:
+        emoji_id = field_emojis.get(label, CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "5465590345108589516"))
         if value is None:
-            confirm_text += f"{icon} {label}: <i>Skipped (Not Used)</i>\n"
+            confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <i>Skipped (Not Used)</i>\n"
         elif value == "":
-            confirm_text += f"{icon} {label}: <i>Not set</i>\n"
+            confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <i>Not set</i>\n"
         else:
-            display_value = str(value)[:30] + "..." if len(str(value)) > 30 else value
-            confirm_text += f"{icon} {label}: <code>{display_value}</code>\n"
+            # Sanitize and escape
+            safe_val = sanitize_text(str(value))
+            safe_val = html.escape(safe_val)
+            if len(safe_val) > 30:
+                safe_val = safe_val[:30] + "..."
+            confirm_text += f"{emoji_tag(emoji_id, '•')} {label}: <code>{safe_val}</code>\n"
     
     if data.get("curl_command"):
-        confirm_text += f"\n📌 <b>CURL Command</b>:\n<code>{data['curl_command'][:200]}{'...' if len(data['curl_command']) > 200 else ''}</code>\n"
+        raw_curl = sanitize_text(data["curl_command"][:200])
+        curl_cmd = html.escape(raw_curl)
+        if len(data["curl_command"]) > 200:
+            curl_cmd += "..."
+        confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL Command</b>:\n<code>{curl_cmd}</code>\n"
         parsed = data.get("parsed_curl")
         if parsed and parsed.get("placeholders"):
-            placeholders = ", ".join([f"<code>{{{ph}}}</code>" for ph in parsed["placeholders"].keys()])
-            confirm_text += f"🔑 <b>Placeholders</b>: {placeholders}\n"
+            ph_list = [sanitize_text(ph) for ph in parsed["placeholders"].keys()]
+            ph_str = ", ".join([f"<code>{{{html.escape(ph)}}}</code>" for ph in ph_list])
+            confirm_text += f"{emoji_tag(CUSTOM_EMOJIS['API_FIELD_TOKEN'], '🔑')} <b>Placeholders</b>: {ph_str}\n"
     else:
-        confirm_text += f"\n📌 <b>CURL</b>: <i>Skipped (Not Used)</i>\n"
+        confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL</b>: <i>Skipped (Not Used)</i>\n"
     
     confirm_text += f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Is all correct?</b></blockquote>"
     
     kb = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "✅ YES ADD",
+                "YES ADD",
                 callback_data=f"api_add_confirm_yes|{user_id}",
                 style=KBS.SUCCESS,
-                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", ""))
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "4956721670690702265"))
             ),
             InlineKeyboardButton(
-                "✏️ EDIT",
-                callback_data=f"api_add_edit|{user_id}",
-                style=KBS.PRIMARY,
-                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", ""))
-            ),
-            InlineKeyboardButton(
-                "❌ CANCEL",
+                "CANCEL",
                 callback_data=f"api_add_confirm_no|{user_id}",
                 style=KBS.DANGER,
-                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", ""))
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "6206110936789423908"))
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "EDIT VALUE",
+                callback_data=f"api_add_edit|{user_id}",
+                style=KBS.PRIMARY,
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", "6204162490515855272"))
             )
         ]
     ])
     
     admin_panel_state[user_id] = "api_add_confirm"
     
-    if isinstance(update, Update):
-        await update.message.reply_text(confirm_text, reply_markup=kb, parse_mode='HTML')
-    else:
-        await update.edit_message_text(confirm_text, reply_markup=kb, parse_mode='HTML')
+    # Try to send HTML, fallback to plain text
+    async def send_confirm(chat_id, message_id=None):
+        try:
+            if message_id:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=confirm_text,
+                    reply_markup=kb,
+                    parse_mode='HTML'
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=confirm_text,
+                    reply_markup=kb,
+                    parse_mode='HTML'
+                )
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                return
+            # Fallback to plain text (remove all HTML tags)
+            plain_text = re.sub(r'<[^>]+>', '', confirm_text)
+            plain_text = plain_text.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+            try:
+                if message_id:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=plain_text,
+                        reply_markup=kb
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=plain_text,
+                        reply_markup=kb
+                    )
+            except Exception as fallback_err:
+                print(f"Fallback also failed: {fallback_err}")
+
+    chat_id = update.message.chat.id if hasattr(update, 'message') else update.message.chat.id
+    message_id = update.message.message_id if hasattr(update, 'message') else None
+    
+    await send_confirm(chat_id, message_id)
 
 # ==================== HANDLE API ADD SKIP ====================
 
@@ -3108,6 +3313,25 @@ async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     admin_temp_data[user_id] = {}
     admin_panel_state[user_id] = "api_add_name"
     await api_add_step(update, context, user_id, "api_add_name")
+
+# ==================== CURL CONFIRMATION BUTTONS ====================
+
+async def api_add_curl_continue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle CONTINUE button after CURL parsing."""
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer("Proceeding to confirmation...")
+    # Proceed to confirm step
+    await show_confirm_step(query, context, user_id)
+
+async def api_add_curl_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle CANCEL button after CURL parsing."""
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer("Cancelled.")
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    await query.edit_message_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
 
 # ==================== HANDLE API ADD TEXT INPUT ====================
 
@@ -3158,28 +3382,58 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             admin_temp_data[user_id] = data
             
             placeholders = parsed.get("placeholders", {})
-            placeholders_list = ", ".join([f"<code>{{{ph}}}</code>" for ph in placeholders.keys()]) if placeholders else "None"
+            ph_list = [sanitize_text(ph) for ph in placeholders.keys()]
+            placeholders_list = ", ".join([f"<code>{{{html.escape(ph)}}}</code>" for ph in ph_list]) if ph_list else "None"
+            
+            # Premium emoji replacements
+            check_icon = CUSTOM_EMOJIS.get("YES", "4956721670690702265")  # ✅
+            url_icon = CUSTOM_EMOJIS.get("API_FIELD_URL", "6285048454255220485")  # 🌐
+            method_icon = CUSTOM_EMOJIS.get("API_FIELD_METHOD", "5926860096008098405")  # 📌
+            headers_icon = CUSTOM_EMOJIS.get("API_FIELD_HEADERS", "5926860096008098405")  # 📋 (we don't have one, reuse)
+            data_icon = CUSTOM_EMOJIS.get("API_FIELD_MESSAGE", "5980911993140284450")  # 📦
+            token_icon = CUSTOM_EMOJIS.get("API_FIELD_TOKEN", "5821453562680448557")  # 🔑
+            
+            # Escape URL and other dynamic content
+            url_display = html.escape(sanitize_text(parsed.get('url', 'N/A')))
+            method_display = html.escape(sanitize_text(parsed.get('method', 'GET')))
+            headers_count = len(parsed.get('headers', {}))
+            data_present = 'Yes' if parsed.get('data') else 'No'
             
             info_text = f"""
-✅ <b>CURL Parsed Successfully</b>
+{emoji_tag(check_icon, '✅')} <b>CURL Parsed Successfully</b>
 
-🌐 <b>URL</b>: <code>{parsed.get('url', 'N/A')}</code>
-📌 <b>Method</b>: <code>{parsed.get('method', 'GET')}</code>
-📋 <b>Headers</b>: <code>{len(parsed.get('headers', {}))}</code>
-📦 <b>Data</b>: {'Yes' if parsed.get('data') else 'No'}
-🔑 <b>Placeholders</b>: {placeholders_list}
+{emoji_tag(url_icon, '🌐')} <b>URL</b>: <code>{url_display}</code>
+{emoji_tag(method_icon, '📌')} <b>Method</b>: <code>{method_display}</code>
+{emoji_tag(headers_icon, '📋')} <b>Headers</b>: <code>{headers_count}</code>
+{emoji_tag(data_icon, '📦')} <b>Data</b>: {data_present}
+{emoji_tag(token_icon, '🔑')} <b>Placeholders</b>: {placeholders_list}
 
-<blockquote>{emoji_tag('4956721670690702265', '✅')} Bot will use this exact format for polling</blockquote>
-
-Send <code>/continue</code> to proceed or send another CURL to update.
+<blockquote>✅ Bot will use this exact format for polling</blockquote>
 """
+            # Inline buttons: CONTINUE and CANCEL with premium emojis
+            kb = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "CONTINUE",
+                        callback_data="api_add_curl_continue",
+                        style=KBS.SUCCESS,
+                        icon_custom_emoji_id=safe_icon("6266818250818983044")  # Provided CONTINUE emoji
+                    ),
+                    InlineKeyboardButton(
+                        "CANCEL",
+                        callback_data="api_add_curl_cancel",
+                        style=KBS.DANGER,
+                        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", ""))
+                    )
+                ]
+            ])
             admin_panel_state[user_id] = "api_add_curl_confirm"
-            await update.message.reply_text(info_text, parse_mode='HTML')
+            await update.message.reply_text(info_text, reply_markup=kb, parse_mode='HTML')
             return True
             
         except Exception as e:
             await update.message.reply_text(
-                f"❌ <b>Error parsing CURL</b>\n\n<code>{str(e)}</code>\n\nPlease send a valid CURL command or <code>/skip</code>",
+                f"❌ <b>Error parsing CURL</b>\n\n<code>{html.escape(str(e))}</code>\n\nPlease send a valid CURL command or <code>/skip</code>",
                 parse_mode='HTML'
             )
             return True
@@ -3369,7 +3623,7 @@ async def api_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await api_add_step(update, context, user_id, "api_add_name")
 
-# ==================== CURL BASED POLLING (FIXED) ====================
+# ==================== CURL BASED POLLING (FIXED - DECODING) ====================
 
 async def poll_single_api_curl_based(api_id: int):
     """CURL based polling with automatic placeholder replacement for {API_BASE}, {TOKEN}, etc."""
@@ -3446,40 +3700,48 @@ async def poll_single_api_curl_based(api_id: int):
 
                 if method.upper() == 'GET':
                     async with session.get(url, headers=headers, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
                 elif method.upper() == 'POST':
                     async with session.post(url, headers=headers, json=data, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
                 elif method.upper() == 'PUT':
                     async with session.put(url, headers=headers, json=data, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
                 elif method.upper() == 'DELETE':
                     async with session.delete(url, headers=headers, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
                 else:
                     async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
-                        text = await response.text()
+                        raw_bytes = await response.read()
                         status = response.status
+                
+                # Decode with fallback
+                try:
+                    text = raw_bytes.decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        text = raw_bytes.decode('latin-1')
+                    except:
+                        text = raw_bytes.decode('utf-8', errors='ignore')
 
                 if status == 200:
                     # Pass otp_list_path to parser
                     config['otp_list_path'] = otp_list_path
                     otps = ResponseParser.parse_response(text, config)
                     if otps:
-                        for otp in otps:
-                            if not otp.get('country'):
-                                country = get_country_from_number(otp.get('number', ''))
-                                if country:
-                                    otp['country'] = country
-                        await process_otps(otps, bot=application.bot)
-                        db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
-                                (len(otps), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
+                        # process_otps returns new OTP count
+                        new_count = await process_otps(otps, bot=application.bot)
+                        if new_count > 0:
+                            db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
+                                    (new_count, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
+                    else:
+                        new_count = 0
                     db_exec("INSERT INTO api_logs (api_id, timestamp, status, message, otp_count) VALUES (?, ?, 'success', ?, ?)",
-                            (api_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "OK", len(otps) if otps else 0))
+                            (api_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "OK", new_count))
                     db_exec("UPDATE api_keys SET error_count = 0, last_poll_time = ? WHERE id = ?",
                             (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
                 else:
@@ -3849,16 +4111,25 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if method.upper() == 'GET':
                 async with session.get(url, headers=headers, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
             elif method.upper() == 'POST':
                 async with session.post(url, headers=headers, json=data, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
             else:
                 async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
+
+            # Decode with fallback
+            try:
+                text = raw_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    text = raw_bytes.decode('latin-1')
+                except:
+                    text = raw_bytes.decode('utf-8', errors='ignore')
 
             if status == 200:
                 config['otp_list_path'] = otp_list_path
@@ -4078,25 +4349,35 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if method.upper() == 'GET':
                 async with session.get(url, headers=headers, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
             elif method.upper() == 'POST':
                 async with session.post(url, headers=headers, json=data, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
             else:
                 async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
-                    text = await response.text()
+                    raw_bytes = await response.read()
                     status = response.status
+
+            # Decode with fallback
+            try:
+                text = raw_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    text = raw_bytes.decode('latin-1')
+                except:
+                    text = raw_bytes.decode('utf-8', errors='ignore')
 
             if status == 200:
                 config['otp_list_path'] = otp_list_path
                 otps = ResponseParser.parse_response(text, config)
                 if otps:
-                    await process_otps(otps, bot=context.bot)
-                    db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
-                            (len(otps), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
-                    result = f"✅ Found and processed <b>{len(otps)}</b> OTP(s)."
+                    new_count = await process_otps(otps, bot=context.bot)
+                    if new_count > 0:
+                        db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
+                                (new_count, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
+                    result = f"✅ Found and processed <b>{new_count}</b> new OTP(s)."
                 else:
                     result = "✅ API responded, but no OTPs found."
             else:
@@ -4189,185 +4470,238 @@ async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_
 
 # ==================== COUNTRY CODE MAP ====================
 
-COUNTRY_CODE_MAP = {
-    "1": ("US", "🇺🇸", "United States"),
-    "7": ("RU", "🇷🇺", "Russia"),
-    "20": ("EG", "🇪🇬", "Egypt"),
-    "27": ("ZA", "🇿🇦", "South Africa"),
-    "30": ("GR", "🇬🇷", "Greece"),
-    "31": ("NL", "🇳🇱", "Netherlands"),
-    "32": ("BE", "🇧🇪", "Belgium"),
-    "33": ("FR", "🇫🇷", "France"),
-    "34": ("ES", "🇪🇸", "Spain"),
-    "36": ("HU", "🇭🇺", "Hungary"),
-    "39": ("IT", "🇮🇹", "Italy"),
-    "40": ("RO", "🇷🇴", "Romania"),
-    "41": ("CH", "🇨🇭", "Switzerland"),
-    "43": ("AT", "🇦🇹", "Austria"),
-    "44": ("GB", "🇬🇧", "United Kingdom"),
-    "45": ("DK", "🇩🇰", "Denmark"),
-    "46": ("SE", "🇸🇪", "Sweden"),
-    "47": ("NO", "🇳🇴", "Norway"),
-    "48": ("PL", "🇵🇱", "Poland"),
-    "49": ("DE", "🇩🇪", "Germany"),
-    "51": ("PE", "🇵🇪", "Peru"),
-    "52": ("MX", "🇲🇽", "Mexico"),
-    "53": ("CU", "🇨🇺", "Cuba"),
-    "54": ("AR", "🇦🇷", "Argentina"),
-    "55": ("BR", "🇧🇷", "Brazil"),
-    "56": ("CL", "🇨🇱", "Chile"),
-    "57": ("CO", "🇨🇴", "Colombia"),
-    "58": ("VE", "🇻🇪", "Venezuela"),
-    "60": ("MY", "🇲🇾", "Malaysia"),
-    "61": ("AU", "🇦🇺", "Australia"),
-    "62": ("ID", "🇮🇩", "Indonesia"),
-    "63": ("PH", "🇵🇭", "Philippines"),
-    "64": ("NZ", "🇳🇿", "New Zealand"),
-    "65": ("SG", "🇸🇬", "Singapore"),
-    "66": ("TH", "🇹🇭", "Thailand"),
-    "81": ("JP", "🇯🇵", "Japan"),
-    "82": ("KR", "🇰🇷", "South Korea"),
-    "84": ("VN", "🇻🇳", "Vietnam"),
-    "86": ("CN", "🇨🇳", "China"),
-    "90": ("TR", "🇹🇷", "Turkey"),
-    "91": ("IN", "🇮🇳", "India"),
-    "92": ("PK", "🇵🇰", "Pakistan"),
+COUNTRY_CODE_MAP_BY_NAME = {
     "93": ("AF", "🇦🇫", "Afghanistan"),
-    "94": ("LK", "🇱🇰", "Sri Lanka"),
-    "95": ("MM", "🇲🇲", "Myanmar"),
-    "98": ("IR", "🇮🇷", "Iran"),
-    "211": ("SS", "🇸🇸", "South Sudan"),
-    "212": ("MA", "🇲🇦", "Morocco"),
-    "213": ("DZ", "🇩🇿", "Algeria"),
-    "216": ("TN", "🇹🇳", "Tunisia"),
-    "218": ("LY", "🇱🇾", "Libya"),
-    "220": ("GM", "🇬🇲", "Gambia"),
-    "221": ("SN", "🇸🇳", "Senegal"),
-    "222": ("MR", "🇲🇷", "Mauritania"),
-    "223": ("ML", "🇲🇱", "Mali"),
-    "224": ("GN", "🇬🇳", "Guinea"),
-    "225": ("CI", "🇨🇮", "Ivory Coast"),
-    "226": ("BF", "🇧🇫", "Burkina Faso"),
-    "227": ("NE", "🇳🇪", "Niger"),
-    "228": ("TG", "🇹🇬", "Togo"),
-    "229": ("BJ", "🇧🇯", "Benin"),
-    "230": ("MU", "🇲🇺", "Mauritius"),
-    "231": ("LR", "🇱🇷", "Liberia"),
-    "232": ("SL", "🇸🇱", "Sierra Leone"),
-    "233": ("GH", "🇬🇭", "Ghana"),
-    "234": ("NG", "🇳🇬", "Nigeria"),
-    "235": ("TD", "🇹🇩", "Chad"),
-    "236": ("CF", "🇨🇫", "Central African Republic"),
-    "237": ("CM", "🇨🇲", "Cameroon"),
-    "238": ("CV", "🇨🇻", "Cape Verde"),
-    "239": ("ST", "🇸🇹", "Sao Tome and Principe"),
-    "240": ("GQ", "🇬🇶", "Equatorial Guinea"),
-    "241": ("GA", "🇬🇦", "Gabon"),
-    "242": ("CG", "🇨🇬", "Congo"),
-    "243": ("CD", "🇨🇩", "DR Congo"),
-    "244": ("AO", "🇦🇴", "Angola"),
-    "245": ("GW", "🇬🇼", "Guinea-Bissau"),
-    "246": ("IO", "🇮🇴", "British Indian Ocean Territory"),
-    "248": ("SC", "🇸🇨", "Seychelles"),
-    "249": ("SD", "🇸🇩", "Sudan"),
-    "250": ("RW", "🇷🇼", "Rwanda"),
-    "251": ("ET", "🇪🇹", "Ethiopia"),
-    "252": ("SO", "🇸🇴", "Somalia"),
-    "253": ("DJ", "🇩🇯", "Djibouti"),
-    "254": ("KE", "🇰🇪", "Kenya"),
-    "255": ("TZ", "🇹🇿", "Tanzania"),
-    "256": ("UG", "🇺🇬", "Uganda"),
-    "257": ("BI", "🇧🇮", "Burundi"),
-    "258": ("MZ", "🇲🇿", "Mozambique"),
-    "260": ("ZM", "🇿🇲", "Zambia"),
-    "261": ("MG", "🇲🇬", "Madagascar"),
-    "262": ("RE", "🇷🇪", "Reunion"),
-    "263": ("ZW", "🇿🇼", "Zimbabwe"),
-    "264": ("NA", "🇳🇦", "Namibia"),
-    "265": ("MW", "🇲🇼", "Malawi"),
-    "266": ("LS", "🇱🇸", "Lesotho"),
-    "267": ("BW", "🇧🇼", "Botswana"),
-    "268": ("SZ", "🇸🇿", "Eswatini"),
-    "269": ("KM", "🇰🇲", "Comoros"),
-    "290": ("SH", "🇸🇭", "Saint Helena"),
-    "291": ("ER", "🇪🇷", "Eritrea"),
-    "297": ("AW", "🇦🇼", "Aruba"),
-    "298": ("FO", "🇫🇴", "Faroe Islands"),
-    "299": ("GL", "🇬🇱", "Greenland"),
-    "350": ("GI", "🇬🇮", "Gibraltar"),
-    "351": ("PT", "🇵🇹", "Portugal"),
-    "352": ("LU", "🇱🇺", "Luxembourg"),
-    "353": ("IE", "🇮🇪", "Ireland"),
-    "354": ("IS", "🇮🇸", "Iceland"),
     "355": ("AL", "🇦🇱", "Albania"),
-    "356": ("MT", "🇲🇹", "Malta"),
-    "357": ("CY", "🇨🇾", "Cyprus"),
-    "358": ("FI", "🇫🇮", "Finland"),
-    "359": ("BG", "🇧🇬", "Bulgaria"),
-    "370": ("LT", "🇱🇹", "Lithuania"),
-    "371": ("LV", "🇱🇻", "Latvia"),
-    "372": ("EE", "🇪🇪", "Estonia"),
-    "373": ("MD", "🇲🇩", "Moldova"),
-    "374": ("AM", "🇦🇲", "Armenia"),
-    "375": ("BY", "🇧🇾", "Belarus"),
+    "213": ("DZ", "🇩🇿", "Algeria"),
+    "1684": ("AS", "🇦🇸", "American Samoa"),
     "376": ("AD", "🇦🇩", "Andorra"),
-    "377": ("MC", "🇲🇨", "Monaco"),
-    "378": ("SM", "🇸🇲", "San Marino"),
-    "380": ("UA", "🇺🇦", "Ukraine"),
-    "381": ("RS", "🇷🇸", "Serbia"),
-    "382": ("ME", "🇲🇪", "Montenegro"),
-    "383": ("XK", "🇽🇰", "Kosovo"),
-    "385": ("HR", "🇭🇷", "Croatia"),
-    "386": ("SI", "🇸🇮", "Slovenia"),
-    "387": ("BA", "🇧🇦", "Bosnia and Herzegovina"),
-    "389": ("MK", "🇲🇰", "North Macedonia"),
-    "420": ("CZ", "🇨🇿", "Czech Republic"),
-    "421": ("SK", "🇸🇰", "Slovakia"),
-    "423": ("LI", "🇱🇮", "Liechtenstein"),
-    "500": ("FK", "🇫🇰", "Falkland Islands"),
-    "501": ("BZ", "🇧🇿", "Belize"),
-    "502": ("GT", "🇬🇹", "Guatemala"),
-    "503": ("SV", "🇸🇻", "El Salvador"),
-    "504": ("HN", "🇭🇳", "Honduras"),
-    "505": ("NI", "🇳🇮", "Nicaragua"),
-    "506": ("CR", "🇨🇷", "Costa Rica"),
-    "507": ("PA", "🇵🇦", "Panama"),
-    "509": ("HT", "🇭🇹", "Haiti"),
-    "590": ("GP", "🇬🇵", "Guadeloupe"),
-    "591": ("BO", "🇧🇴", "Bolivia"),
-    "592": ("GY", "🇬🇾", "Guyana"),
-    "593": ("EC", "🇪🇨", "Ecuador"),
-    "594": ("GF", "🇬🇫", "French Guiana"),
-    "595": ("PY", "🇵🇾", "Paraguay"),
-    "596": ("MQ", "🇲🇶", "Martinique"),
-    "597": ("SR", "🇸🇷", "Suriname"),
-    "598": ("UY", "🇺🇾", "Uruguay"),
-    "599": ("BQ", "🇧🇶", "Caribbean Netherlands"),
-    "880": ("BD", "🇧🇩", "Bangladesh"),
-    "960": ("MV", "🇲🇻", "Maldives"),
-    "961": ("LB", "🇱🇧", "Lebanon"),
-    "962": ("JO", "🇯🇴", "Jordan"),
-    "963": ("SY", "🇸🇾", "Syria"),
-    "964": ("IQ", "🇮🇶", "Iraq"),
-    "965": ("KW", "🇰🇼", "Kuwait"),
-    "966": ("SA", "🇸🇦", "Saudi Arabia"),
-    "967": ("YE", "🇾🇪", "Yemen"),
-    "968": ("OM", "🇴🇲", "Oman"),
-    "970": ("PS", "🇵🇸", "Palestine"),
-    "971": ("AE", "🇦🇪", "UAE"),
-    "972": ("IL", "🇮🇱", "Israel"),
-    "973": ("BH", "🇧🇭", "Bahrain"),
-    "974": ("QA", "🇶🇦", "Qatar"),
-    "975": ("BT", "🇧🇹", "Bhutan"),
-    "976": ("MN", "🇲🇳", "Mongolia"),
-    "977": ("NP", "🇳🇵", "Nepal"),
-    "992": ("TJ", "🇹🇯", "Tajikistan"),
-    "993": ("TM", "🇹🇲", "Turkmenistan"),
+    "244": ("AO", "🇦🇴", "Angola"),
+    "1264": ("AI", "🇦🇮", "Anguilla"),
+    "1268": ("AG", "🇦🇬", "Antigua and Barbuda"),
+    "54": ("AR", "🇦🇷", "Argentina"),
+    "374": ("AM", "🇦🇲", "Armenia"),
+    "297": ("AW", "🇦🇼", "Aruba"),
+    "61": ("AU", "🇦🇺", "Australia"),
+    "43": ("AT", "🇦🇹", "Austria"),
     "994": ("AZ", "🇦🇿", "Azerbaijan"),
+    "1242": ("BS", "🇧🇸", "Bahamas"),
+    "973": ("BH", "🇧🇭", "Bahrain"),
+    "880": ("BD", "🇧🇩", "Bangladesh"),
+    "1246": ("BB", "🇧🇧", "Barbados"),
+    "375": ("BY", "🇧🇾", "Belarus"),
+    "32": ("BE", "🇧🇪", "Belgium"),
+    "501": ("BZ", "🇧🇿", "Belize"),
+    "229": ("BJ", "🇧🇯", "Benin"),
+    "1441": ("BM", "🇧🇲", "Bermuda"),
+    "975": ("BT", "🇧🇹", "Bhutan"),
+    "591": ("BO", "🇧🇴", "Bolivia"),
+    "387": ("BA", "🇧🇦", "Bosnia and Herzegovina"),
+    "267": ("BW", "🇧🇼", "Botswana"),
+    "55": ("BR", "🇧🇷", "Brazil"),
+    "246": ("IO", "🇮🇴", "British Indian Ocean Territory"),
+    "1284": ("VG", "🇻🇬", "British Virgin Islands"),
+    "673": ("BN", "🇧🇳", "Brunei"),
+    "359": ("BG", "🇧🇬", "Bulgaria"),
+    "226": ("BF", "🇧🇫", "Burkina Faso"),
+    "257": ("BI", "🇧🇮", "Burundi"),
+    "855": ("KH", "🇰🇭", "Cambodia"),
+    "237": ("CM", "🇨🇲", "Cameroon"),
+    "1": ("CA", "🇨🇦", "Canada"),
+    "238": ("CV", "🇨🇻", "Cape Verde"),
+    "599": ("BQ", "🇧🇶", "Caribbean Netherlands"),
+    "1345": ("KY", "🇰🇾", "Cayman Islands"),
+    "236": ("CF", "🇨🇫", "Central African Republic"),
+    "235": ("TD", "🇹🇩", "Chad"),
+    "56": ("CL", "🇨🇱", "Chile"),
+    "86": ("CN", "🇨🇳", "China"),
+    "57": ("CO", "🇨🇴", "Colombia"),
+    "269": ("KM", "🇰🇲", "Comoros"),
+    "242": ("CG", "🇨🇬", "Congo"),
+    "682": ("CK", "🇨🇰", "Cook Islands"),
+    "506": ("CR", "🇨🇷", "Costa Rica"),
+    "385": ("HR", "🇭🇷", "Croatia"),
+    "53": ("CU", "🇨🇺", "Cuba"),
+    "357": ("CY", "🇨🇾", "Cyprus"),
+    "420": ("CZ", "🇨🇿", "Czech Republic"),
+    "243": ("CD", "🇨🇩", "DR Congo"),
+    "45": ("DK", "🇩🇰", "Denmark"),
+    "253": ("DJ", "🇩🇯", "Djibouti"),
+    "1767": ("DM", "🇩🇲", "Dominica"),
+    "1809": ("DO", "🇩🇴", "Dominican Republic"),
+    "670": ("TL", "🇹🇱", "East Timor"),
+    "593": ("EC", "🇪🇨", "Ecuador"),
+    "20": ("EG", "🇪🇬", "Egypt"),
+    "503": ("SV", "🇸🇻", "El Salvador"),
+    "240": ("GQ", "🇬🇶", "Equatorial Guinea"),
+    "291": ("ER", "🇪🇷", "Eritrea"),
+    "372": ("EE", "🇪🇪", "Estonia"),
+    "268": ("SZ", "🇸🇿", "Eswatini"),
+    "251": ("ET", "🇪🇹", "Ethiopia"),
+    "500": ("FK", "🇫🇰", "Falkland Islands"),
+    "298": ("FO", "🇫🇴", "Faroe Islands"),
+    "679": ("FJ", "🇫🇯", "Fiji"),
+    "358": ("FI", "🇫🇮", "Finland"),
+    "33": ("FR", "🇫🇷", "France"),
+    "594": ("GF", "🇬🇫", "French Guiana"),
+    "689": ("PF", "🇵🇫", "French Polynesia"),
+    "241": ("GA", "🇬🇦", "Gabon"),
+    "220": ("GM", "🇬🇲", "Gambia"),
     "995": ("GE", "🇬🇪", "Georgia"),
+    "49": ("DE", "🇩🇪", "Germany"),
+    "233": ("GH", "🇬🇭", "Ghana"),
+    "350": ("GI", "🇬🇮", "Gibraltar"),
+    "30": ("GR", "🇬🇷", "Greece"),
+    "299": ("GL", "🇬🇱", "Greenland"),
+    "1473": ("GD", "🇬🇩", "Grenada"),
+    "590": ("GP", "🇬🇵", "Guadeloupe"),
+    "1671": ("GU", "🇬🇺", "Guam"),
+    "502": ("GT", "🇬🇹", "Guatemala"),
+    "224": ("GN", "🇬🇳", "Guinea"),
+    "245": ("GW", "🇬🇼", "Guinea-Bissau"),
+    "592": ("GY", "🇬🇾", "Guyana"),
+    "509": ("HT", "🇭🇹", "Haiti"),
+    "504": ("HN", "🇭🇳", "Honduras"),
+    "852": ("HK", "🇭🇰", "Hong Kong"),
+    "36": ("HU", "🇭🇺", "Hungary"),
+    "354": ("IS", "🇮🇸", "Iceland"),
+    "91": ("IN", "🇮🇳", "India"),
+    "62": ("ID", "🇮🇩", "Indonesia"),
+    "98": ("IR", "🇮🇷", "Iran"),
+    "964": ("IQ", "🇮🇶", "Iraq"),
+    "353": ("IE", "🇮🇪", "Ireland"),
+    "972": ("IL", "🇮🇱", "Israel"),
+    "39": ("IT", "🇮🇹", "Italy"),
+    "225": ("CI", "🇨🇮", "Ivory Coast"),
+    "1876": ("JM", "🇯🇲", "Jamaica"),
+    "81": ("JP", "🇯🇵", "Japan"),
+    "962": ("JO", "🇯🇴", "Jordan"),
+    "254": ("KE", "🇰🇪", "Kenya"),
+    "686": ("KI", "🇰🇮", "Kiribati"),
+    "383": ("XK", "🇽🇰", "Kosovo"),
+    "965": ("KW", "🇰🇼", "Kuwait"),
     "996": ("KG", "🇰🇬", "Kyrgyzstan"),
+    "856": ("LA", "🇱🇦", "Laos"),
+    "371": ("LV", "🇱🇻", "Latvia"),
+    "961": ("LB", "🇱🇧", "Lebanon"),
+    "266": ("LS", "🇱🇸", "Lesotho"),
+    "231": ("LR", "🇱🇷", "Liberia"),
+    "218": ("LY", "🇱🇾", "Libya"),
+    "423": ("LI", "🇱🇮", "Liechtenstein"),
+    "370": ("LT", "🇱🇹", "Lithuania"),
+    "352": ("LU", "🇱🇺", "Luxembourg"),
+    "853": ("MO", "🇲🇴", "Macau"),
+    "261": ("MG", "🇲🇬", "Madagascar"),
+    "265": ("MW", "🇲🇼", "Malawi"),
+    "60": ("MY", "🇲🇾", "Malaysia"),
+    "960": ("MV", "🇲🇻", "Maldives"),
+    "223": ("ML", "🇲🇱", "Mali"),
+    "356": ("MT", "🇲🇹", "Malta"),
+    "692": ("MH", "🇲🇭", "Marshall Islands"),
+    "596": ("MQ", "🇲🇶", "Martinique"),
+    "222": ("MR", "🇲🇷", "Mauritania"),
+    "230": ("MU", "🇲🇺", "Mauritius"),
+    "52": ("MX", "🇲🇽", "Mexico"),
+    "691": ("FM", "🇫🇲", "Micronesia"),
+    "373": ("MD", "🇲🇩", "Moldova"),
+    "377": ("MC", "🇲🇨", "Monaco"),
+    "976": ("MN", "🇲🇳", "Mongolia"),
+    "382": ("ME", "🇲🇪", "Montenegro"),
+    "1664": ("MS", "🇲🇸", "Montserrat"),
+    "212": ("MA", "🇲🇦", "Morocco"),
+    "258": ("MZ", "🇲🇿", "Mozambique"),
+    "95": ("MM", "🇲🇲", "Myanmar"),
+    "264": ("NA", "🇳🇦", "Namibia"),
+    "674": ("NR", "🇳🇷", "Nauru"),
+    "977": ("NP", "🇳🇵", "Nepal"),
+    "31": ("NL", "🇳🇱", "Netherlands"),
+    "687": ("NC", "🇳🇨", "New Caledonia"),
+    "64": ("NZ", "🇳🇿", "New Zealand"),
+    "505": ("NI", "🇳🇮", "Nicaragua"),
+    "227": ("NE", "🇳🇪", "Niger"),
+    "234": ("NG", "🇳🇬", "Nigeria"),
+    "683": ("NU", "🇳🇺", "Niue"),
+    "672": ("NF", "🇳🇫", "Norfolk Island"),
+    "850": ("KP", "🇰🇵", "North Korea"),
+    "389": ("MK", "🇲🇰", "North Macedonia"),
+    "1670": ("MP", "🇲🇵", "Northern Mariana Islands"),
+    "47": ("NO", "🇳🇴", "Norway"),
+    "968": ("OM", "🇴🇲", "Oman"),
+    "92": ("PK", "🇵🇰", "Pakistan"),
+    "680": ("PW", "🇵🇼", "Palau"),
+    "970": ("PS", "🇵🇸", "Palestine"),
+    "507": ("PA", "🇵🇦", "Panama"),
+    "675": ("PG", "🇵🇬", "Papua New Guinea"),
+    "595": ("PY", "🇵🇾", "Paraguay"),
+    "51": ("PE", "🇵🇪", "Peru"),
+    "63": ("PH", "🇵🇭", "Philippines"),
+    "48": ("PL", "🇵🇱", "Poland"),
+    "351": ("PT", "🇵🇹", "Portugal"),
+    "1787": ("PR", "🇵🇷", "Puerto Rico"),
+    "974": ("QA", "🇶🇦", "Qatar"),
+    "262": ("RE", "🇷🇪", "Reunion"),
+    "40": ("RO", "🇷🇴", "Romania"),
+    "7": ("RU", "🇷🇺", "Russia"),
+    "250": ("RW", "🇷🇼", "Rwanda"),
+    "290": ("SH", "🇸🇭", "Saint Helena"),
+    "1869": ("KN", "🇰🇳", "Saint Kitts and Nevis"),
+    "1758": ("LC", "🇱🇨", "Saint Lucia"),
+    "508": ("PM", "🇵🇲", "Saint Pierre and Miquelon"),
+    "1784": ("VC", "🇻🇨", "Saint Vincent and the Grenadines"),
+    "685": ("WS", "🇼🇸", "Samoa"),
+    "378": ("SM", "🇸🇲", "San Marino"),
+    "239": ("ST", "🇸🇹", "Sao Tome and Principe"),
+    "966": ("SA", "🇸🇦", "Saudi Arabia"),
+    "221": ("SN", "🇸🇳", "Senegal"),
+    "381": ("RS", "🇷🇸", "Serbia"),
+    "248": ("SC", "🇸🇨", "Seychelles"),
+    "232": ("SL", "🇸🇱", "Sierra Leone"),
+    "65": ("SG", "🇸🇬", "Singapore"),
+    "1721": ("SX", "🇸🇽", "Sint Maarten"),
+    "421": ("SK", "🇸🇰", "Slovakia"),
+    "386": ("SI", "🇸🇮", "Slovenia"),
+    "677": ("SB", "🇸🇧", "Solomon Islands"),
+    "252": ("SO", "🇸🇴", "Somalia"),
+    "27": ("ZA", "🇿🇦", "South Africa"),
+    "82": ("KR", "🇰🇷", "South Korea"),
+    "211": ("SS", "🇸🇸", "South Sudan"),
+    "34": ("ES", "🇪🇸", "Spain"),
+    "94": ("LK", "🇱🇰", "Sri Lanka"),
+    "249": ("SD", "🇸🇩", "Sudan"),
+    "597": ("SR", "🇸🇷", "Suriname"),
+    "46": ("SE", "🇸🇪", "Sweden"),
+    "41": ("CH", "🇨🇭", "Switzerland"),
+    "963": ("SY", "🇸🇾", "Syria"),
+    "886": ("TW", "🇹🇼", "Taiwan"),
+    "992": ("TJ", "🇹🇯", "Tajikistan"),
+    "255": ("TZ", "🇹🇿", "Tanzania"),
+    "66": ("TH", "🇹🇭", "Thailand"),
+    "228": ("TG", "🇹🇬", "Togo"),
+    "690": ("TK", "🇹🇰", "Tokelau"),
+    "676": ("TO", "🇹🇴", "Tonga"),
+    "1868": ("TT", "🇹🇹", "Trinidad and Tobago"),
+    "216": ("TN", "🇹🇳", "Tunisia"),
+    "90": ("TR", "🇹🇷", "Turkey"),
+    "993": ("TM", "🇹🇲", "Turkmenistan"),
+    "1649": ("TC", "🇹🇨", "Turks and Caicos"),
+    "688": ("TV", "🇹🇻", "Tuvalu"),
+    "971": ("AE", "🇦🇪", "UAE"),
+    "1340": ("VI", "🇻🇮", "U.S. Virgin Islands"),
+    "256": ("UG", "🇺🇬", "Uganda"),
+    "380": ("UA", "🇺🇦", "Ukraine"),
+    "44": ("GB", "🇬🇧", "United Kingdom"),
+    "1": ("US", "🇺🇸", "United States"),
+    "598": ("UY", "🇺🇾", "Uruguay"),
     "998": ("UZ", "🇺🇿", "Uzbekistan"),
+    "678": ("VU", "🇻🇺", "Vanuatu"),
+    "58": ("VE", "🇻🇪", "Venezuela"),
+    "84": ("VN", "🇻🇳", "Vietnam"),
+    "681": ("WF", "🇼🇫", "Wallis and Futuna"),
+    "967": ("YE", "🇾🇪", "Yemen"),
+    "260": ("ZM", "🇿🇲", "Zambia"),
+    "263": ("ZW", "🇿🇼", "Zimbabwe"),
 }
+
 
 ISO_TO_INFO = {}
 for code, val in COUNTRY_CODE_MAP.items():
@@ -4386,7 +4720,7 @@ def get_country_code(country_name):
             return iso
     return country_name.upper()[:2]
 
-# ==================== RICH MESSAGE GROUP OTP ====================
+# ==================== RICH MESSAGE GROUP OTP (FIXED) ====================
 
 def format_group_otp_rich(entry):
     number = entry.get("number", "")
@@ -4397,13 +4731,29 @@ def format_group_otp_rich(entry):
     if not country_iso and country_raw:
         country_iso = get_country_code(country_raw) or "??"
     
+    # ---- COUNTRY EMOJI: priority: manual override (group_emojis) -> country data -> default ----
     country_emoji_id = None
+    # 1) Check group_emojis (manual override)
     if country_iso:
         row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.upper(),))
         if not row:
             row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='country' AND key=?", (country_iso.lower(),))
         if row and row[0]:
             country_emoji_id = row[0]
+    # 2) If not, get from country data (countries.json) via ISO or name
+    if not country_emoji_id:
+        # try to get country name from ISO
+        country_name_from_iso = get_country_name_by_iso(country_iso) if country_iso else None
+        if country_name_from_iso:
+            country_info = get_country_info(country_name_from_iso)
+            if country_info.get("emoji_id"):
+                country_emoji_id = country_info["emoji_id"]
+        elif country_raw and country_raw not in ["?", "??"]:
+            # if we have country name directly (maybe from entry)
+            country_info = get_country_info(country_raw)
+            if country_info.get("emoji_id"):
+                country_emoji_id = country_info["emoji_id"]
+    # 3) Fallback to DEFAULT_EMOJIS
     if not country_emoji_id and country_iso and country_iso.lower() in DEFAULT_EMOJIS["countries"]:
         country_emoji_id = DEFAULT_EMOJIS["countries"][country_iso.lower()]
     
@@ -4413,10 +4763,18 @@ def format_group_otp_rich(entry):
     else:
         country_display = f'{flag_fallback}<b>{country_iso}</b>'
     
+    # ---- SERVICE EMOJI: priority: group_emojis (manual override) -> services table -> default ----
     service_emoji_id = None
-    svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
+    # 1) Check group_emojis (manual override)
+    svc_row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='service' AND LOWER(key)=LOWER(?)", (service_name,))
     if svc_row and svc_row[0]:
         service_emoji_id = svc_row[0]
+    else:
+        # 2) Check services table
+        svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
+        if svc_row and svc_row[0]:
+            service_emoji_id = svc_row[0]
+    # 3) Default
     if not service_emoji_id:
         service_emoji_id = CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "6204108584381322968")
     
@@ -4478,7 +4836,24 @@ def format_group_otp_rich(entry):
     }
     return html, keyboard
 
-# ==================== OTP PROCESSING (FIXED) ====================
+# ==================== GLOBAL HELPER FOR INLINE KEYBOARD FROM DICT ====================
+def build_inline_keyboard(keyboard_dict):
+    rows = []
+    for row in keyboard_dict.get("inline_keyboard", []):
+        buttons = []
+        for btn in row:
+            kwargs = {"text": btn.get("text", "")}
+            if "url" in btn:
+                kwargs["url"] = btn["url"]
+            if "callback_data" in btn:
+                kwargs["callback_data"] = btn["callback_data"]
+            if "copy_text" in btn:
+                kwargs["copy_text"] = CopyTextButton(text=btn["copy_text"]["text"])
+            buttons.append(InlineKeyboardButton(**kwargs))
+        rows.append(buttons)
+    return InlineKeyboardMarkup(rows)
+
+# ==================== OTP PROCESSING (FIXED - MULTI-GROUP, SENDS TO ALL GROUPS VIA sendRichMessage) ====================
 
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
@@ -4497,7 +4872,8 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     return diff <= 0.5
 
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
-    """Process OTPs and send to group and matching users."""
+    """Process OTPs: send to multiple groups (using sendRichMessage) and to users.
+       Returns count of new OTPs processed."""
     if context:
         bot = context.bot
     if not bot:
@@ -4505,7 +4881,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
             bot = application.bot
         else:
             print("❌ process_otps: No bot instance!")
-            return
+            return 0
     
     now = datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -4513,14 +4889,16 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         "SELECT number, user_id, country, assigned_date FROM numbers WHERE status='active' AND expiry_time > ?",
         (now_str,))
     
-    # ===== FIX: Create map using numbers without '+' for matching =====
     num_map = {}
     for num, uid, country, assigned in active_rows:
         clean = num.replace('+', '')
         num_map.setdefault(clean, []).append((uid, country, assigned))
     
-    send_tasks = []
-    semaphore = asyncio.Semaphore(20)
+    # Use global GROUP_IDS list
+    group_ids = GROUP_IDS
+
+    semaphore = asyncio.Semaphore(50)  # concurrency increased
+    new_otp_count = 0
 
     async def safe_send_message(chat_id, text, reply_markup=None, parse_mode='HTML'):
         async with semaphore:
@@ -4529,7 +4907,8 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
             except Exception as e:
                 print(f"Failed to send to {chat_id}: {e}")
 
-    for otp_entry in otps_list:
+    async def process_single_otp(otp_entry):
+        nonlocal new_otp_count
         number = otp_entry.get("number", "")
         message = otp_entry.get("message", "")
         service_name = otp_entry.get("service", "Unknown")
@@ -4540,37 +4919,54 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
             if country:
                 otp_entry['country'] = country
         
-        otp_code = extract_otp_from_message(message)
-        if not otp_code:
+        # --- NEW: Extract OTP using the universal detector ---
+        otp_code = extract_otp_from_message(message)  # returns None if not found
+        if otp_code is None:
+            # If still no OTP, try to get from entry (maybe API gave explicit field)
             otp_code = otp_entry.get("otp", "")
+            if not otp_code:
+                # Final fallback: set to "N/A"
+                otp_code = "N/A"
+        else:
+            # OTP found, use it
+            pass
         
-        if not number or not otp_code:
-            continue
-        
-        # ===== Send to GROUP =====
-        if GROUP_ID:
-            already_sent = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=0", (number, otp_code))
-            if not already_sent:
-                db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
-                        (number, otp_code, message, otp_timestamp_str))
-                try:
-                    grp_html, grp_kb = format_group_otp_rich({
-                        "number": number,
-                        "otp": otp_code,
-                        "service": service_name,
-                        "country_code": otp_entry.get("country_code", ""),
-                        "country": otp_entry.get("country", ""),
-                        "message": message
-                    })
+        # If we got "N/A", we still proceed but with N/A.
+        if not number:
+            return 0  # skip if no number
+
+        existing = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND (user_id=0 OR user_id>0)", (number, otp_code))
+        is_new = existing is None
+
+        # Send to groups (if new) - using sendRichMessage
+        if is_new and group_ids:
+            # Only insert if OTP is not "N/A"? Actually we want to insert even if N/A? We'll insert with OTP = N/A
+            db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
+                    (number, otp_code, message, otp_timestamp_str))
+            try:
+                grp_html, grp_kb_dict = format_group_otp_rich({
+                    "number": number,
+                    "otp": otp_code,
+                    "service": service_name,
+                    "country_code": otp_entry.get("country_code", ""),
+                    "country": otp_entry.get("country", ""),
+                    "message": message
+                })
+                # Send to each group using sendRichMessage (custom endpoint)
+                for gid in group_ids:
                     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
-                    payload = {"chat_id": GROUP_ID, "rich_message": {"html": grp_html}, "reply_markup": grp_kb}
-                    async with aiohttp.ClientSession() as session:
-                        await session.post(url, json=payload, timeout=10)
-                except Exception as e:
-                    print(f"Group Rich message failed: {e}")
-        
-        # ===== Send to USER =====
+                    payload = {
+                        "chat_id": gid,
+                        "rich_message": {"html": grp_html},
+                        "reply_markup": grp_kb_dict
+                    }
+                    requests.post(url, json=payload, timeout=10)
+            except Exception as e:
+                print(f"Group Rich message failed: {e}")
+
+        # Send to users (via bot.send_message)
         clean_number = number.replace('+', '')
+        local_tasks = []
         if clean_number in num_map:
             try:
                 otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -4584,10 +4980,12 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     assigned_date = datetime.strptime(assigned_date_str, "%Y-%m-%d %H:%M:%S")
                 except:
                     assigned_date = now
-                # Timestamp check (if timestamp_path was skipped, this check might be redundant, but safe)
                 if otp_timestamp < assigned_date:
                     continue
                 if is_duplicate_otp_dm(number, otp_code, otp_timestamp_str):
+                    continue
+                user_otp_exists = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=?", (number, otp_code, uid))
+                if user_otp_exists:
                     continue
                 
                 country_data = get_country_info(country)
@@ -4619,19 +5017,27 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     InlineKeyboardButton(text=otp_code, copy_text=CopyTextButton(text=otp_code),
                                          style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon("5330115548900501467"))
                 ]])
-                send_tasks.append(safe_send_message(uid, header, button))
-    
-    if send_tasks:
-        await asyncio.gather(*send_tasks)
-    
+                local_tasks.append(safe_send_message(uid, header, button))
+        
+        if local_tasks:
+            await asyncio.gather(*local_tasks)
+        
+        return 1 if is_new else 0
+
+    # Process all OTPs in parallel
+    tasks = [process_single_otp(otp) for otp in otps_list]
+    results = await asyncio.gather(*tasks)
+    new_otp_count = sum(results)
+
     save_user_data_json()
+    return new_otp_count
 
 # ==================== RESPONSE PARSER (FIXED) ====================
 
 class ResponseParser:
     @staticmethod
     def _get_json_path(data, path, default=None):
-        if not path:  # If path is empty/None, return data itself
+        if not path:
             return data
         parts = path.split('.')
         current = data
@@ -4663,7 +5069,6 @@ class ResponseParser:
 
     @staticmethod
     def parse_json_response(content: dict, config: dict) -> list[dict]:
-        # Get path - if None/empty, use whole content
         otp_list_path = config.get('otp_list_path', 'data')
         if not otp_list_path:
             data = content
@@ -4671,7 +5076,6 @@ class ResponseParser:
             data = ResponseParser._get_json_path(content, otp_list_path)
         
         if data is None:
-            # Try to find any list in the response
             for key, value in content.items():
                 if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
                     data = value
@@ -4696,19 +5100,16 @@ class ResponseParser:
                 continue
             
             entry = {}
-            
-            # Only extract fields that have paths configured
             if number_path:
                 entry["number"] = ResponseParser._get_json_path(item, number_path, "")
             if message_path:
                 entry["message"] = ResponseParser._get_json_path(item, message_path, "")
             else:
-                # If message_path is not configured, try to find any text field
+                # If no message_path, try to find a long string field
                 for key, value in item.items():
                     if isinstance(value, str) and len(value) > 10:
                         entry["message"] = value
                         break
-            
             if service_path:
                 entry["service"] = ResponseParser._get_json_path(item, service_path, "")
             if timestamp_path:
@@ -4716,11 +5117,18 @@ class ResponseParser:
             if country_path:
                 entry["country"] = ResponseParser._get_json_path(item, country_path, "")
             
-            # Try to find OTP from message if no OTP field
+            # If we have a message but no explicit OTP, try to extract OTP
             if "message" in entry and entry["message"]:
                 otp = extract_otp_from_message(entry["message"])
                 if otp:
                     entry["otp"] = otp
+            # If we still don't have an OTP, we might get it from a field named "otp" or "code"
+            if "otp" not in entry:
+                # Try to find an OTP field in item
+                for key in ["otp", "code", "pin", "password"]:
+                    if key in item and item[key]:
+                        entry["otp"] = str(item[key])
+                        break
             
             entry = {k: v for k, v in entry.items() if v}
             if entry.get("number") or entry.get("otp"):
@@ -4730,14 +5138,17 @@ class ResponseParser:
 
     @staticmethod
     def parse_response(content, config: dict) -> list[dict]:
-        """Main entry point for parsing API response."""
         if isinstance(content, str):
             try:
                 content = json.loads(content)
             except:
-                # If not JSON, try to extract OTPs from plain text
+                # If not JSON, use the universal extractor on raw text
                 otps = extract_all_otps_from_message(content)
-                return [{"otp": otp, "message": content[:200]} for otp in otps]
+                # Build entries for each potential OTP
+                if otps:
+                    return [{"message": content[:200], "otp": otp} for otp in otps]
+                else:
+                    return [{"message": content[:200], "otp": "N/A"}]
         if isinstance(content, dict):
             return ResponseParser.parse_json_response(content, config)
         return []
@@ -4791,7 +5202,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == BTN_ADMIN: await send_admin_panel_msg(update, context)
 
 async def handle_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """API edit value text input handler"""
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
     if not state or not state.startswith("api_edit_value_"):
@@ -4946,6 +5356,9 @@ def main():
     application.add_handler(CallbackQueryHandler(api_delete_confirm, pattern=r"^api_delete_(yes|no)\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_force_poll, pattern=r"^api_force\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
+    # CURL confirmation buttons
+    application.add_handler(CallbackQueryHandler(api_add_curl_continue, pattern="^api_add_curl_continue$"))
+    application.add_handler(CallbackQueryHandler(api_add_curl_cancel, pattern="^api_add_curl_cancel$"))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
