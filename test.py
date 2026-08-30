@@ -682,7 +682,7 @@ def get_numbers_from_stock(country, service, count=3):
 
 # Universal regex for OTP-like tokens (provided)
 UNIVERSAL_OTP_REGEX = re.compile(
-    r'(?i)(?<![A-Z0-9])(?:\d{3,10}|[A-Z0-9]{3,10}|[A-Z0-9]{1,10}(?:\s*[-–—]\s*[A-Z0-9]{1,10})+)(?![A-Z0-9])'
+    r'(?i)(?<![A-Z0-9])(?:\d{3,10}|[A-Z0-9]{3,10}|[A-Z0-9]{1,10}(?:\s*[-–—\s]\s*[A-Z0-9]{1,10})+)(?![A-Z0-9])'
 )
 
 # Keywords that strongly indicate an OTP
