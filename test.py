@@ -34,7 +34,7 @@ MIN_WITHDRAW = 0.1
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
-ADMIN2_TELEGRAM = "t.me/ABU_SAID_0_9"
+ADMIN2_TELEGRAM = ""
 
 # Multiple group IDs – you can define them as:
 #   A) a tuple/list of strings: GROUP_ID = "-1003716770621","-1001234567890"
@@ -177,6 +177,9 @@ SKIP_EMOJI = "6267262260243076354"  # ⏭
 
 # Database emoji (premium)
 DATABASE_EMOJI = "5818955300463447293"
+
+# ===== FIX: Add missing placeholder emoji =====
+CUSTOM_EMOJIS["API_FIELD_PLACEHOLDERS"] = "6267264360482084046"   # you can replace with your own premium ID
 
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
@@ -677,140 +680,109 @@ def get_numbers_from_stock(country, service, count=3):
         return []
 
 # ============================================================
-# ==================== UPDATED OTP DETECTION ====================
+# ==================== FIXED OTP DETECTION ====================
 # ============================================================
-
-# Universal regex for OTP-like tokens (provided)
-UNIVERSAL_OTP_REGEX = re.compile(
-    r'(?i)(?<![A-Z0-9])(?:\d{3,10}|[A-Z0-9]{3,10}|[A-Z0-9]{1,10}(?:\s*[-–—\s]\s*[A-Z0-9]{1,10})+)(?![A-Z0-9])'
-)
-
-# Keywords that strongly indicate an OTP
-OTP_KEYWORDS = [
-    r'otp', r'code', r'pin', r'passcode', r'verification', r'auth',
-    r'confirm', r'security', r'two[- ]factor', r'sms',
-    r'ওটিপি', r'ভেরিফিকেশন', r'পিন', r'কোড',  # Bangla
-    r'ओटीपी', r'कोड', r'पिन', r'सत्यापन',    # Hindi
-    r'código', r'verificación', r'clave',      # Spanish
-    r'رمز', r'التحقق', r'كلمة المرور'         # Arabic
-]
-OTP_KEYWORD_PATTERN = re.compile(r'(?i)(?:' + '|'.join(OTP_KEYWORDS) + r')')
-
-# Patterns that commonly appear before the OTP value (e.g., "is:", ":", "=")
-OTP_SEPARATORS = r'[:=]\s*'
-
-def _clean_token(token: str) -> str:
-    """Remove common separators (space, dash, underscore, etc.) and return cleaned token."""
-    # Remove whitespace and common separators but keep dashes if they are part of format like AB-123
-    # We'll keep the original token for display, but for matching we may need to clean.
-    # Return token as is; we'll handle matching with original.
-    return token.strip()
-
-def _score_candidate(candidate: str, full_message: str) -> int:
-    """
-    Score a candidate OTP based on context and likelihood.
-    Higher score = more likely to be the actual OTP.
-    """
-    score = 0
-    # Prefer candidates that are near keywords
-    # Find all keyword matches
-    keyword_matches = list(OTP_KEYWORD_PATTERN.finditer(full_message))
-    if keyword_matches:
-        # Find distance from candidate to nearest keyword
-        candidate_start = full_message.find(candidate)
-        if candidate_start != -1:
-            nearest_distance = min(abs(m.start() - candidate_start) for m in keyword_matches)
-            # Closer = higher score
-            if nearest_distance < 20:
-                score += 50
-            elif nearest_distance < 50:
-                score += 30
-            elif nearest_distance < 100:
-                score += 10
-    # Prefer candidates that are preceded by separator (like ':', '=', 'is')
-    sep_match = re.search(OTP_SEPARATORS + re.escape(candidate), full_message)
-    if sep_match:
-        score += 40
-    # Prefer candidates that have 4-6 digits (common OTP length)
-    if re.match(r'^\d{4,6}$', candidate):
-        score += 20
-    elif re.match(r'^[A-Z0-9]{4,8}$', candidate):
-        score += 15
-    # Penalise very long or very short (but still allow)
-    if len(candidate) < 4:
-        score -= 10
-    if len(candidate) > 10:
-        score -= 5
-    # Penalise if candidate looks like a phone number (starts with + or has length >10 and all digits)
-    if re.match(r'^\+?\d{10,15}$', candidate):
-        score -= 50
-    # Penalise if candidate looks like a year (19xx or 20xx)
-    if re.match(r'^(19|20)\d{2}$', candidate):
-        score -= 30
-    # Penalise if candidate is purely numeric and appears as part of a longer number
-    # (e.g., "1234567890" might be phone; but we already penalised phone)
-    return score
+# শুধু numeric OTP – স্পেস, ড্যাশ, ডট, ব্র্যাকেট সব সাপোর্ট করে
+# OTP না পেলে None রিটার্ন করবে, যা process_otps-এ "N/A" তে রূপান্তরিত হবে
 
 def extract_otp_from_message(message: str) -> str | None:
     """
-    Intelligent OTP extractor using regex, scoring, and fallback.
-    Returns the most likely OTP string, or None if nothing suitable found.
+    Extract numeric OTP using multiple regex patterns.
+    Returns the most likely OTP as a string, or None.
     """
     if not message:
         return None
 
-    # 1. Use the universal regex to get all candidate tokens
-    candidates = UNIVERSAL_OTP_REGEX.findall(message)
-    if not candidates:
-        # No tokens found; try to extract any 4-6 digit sequence as last resort
-        fallback = re.findall(r'\b(\d{4,6})\b', message)
-        if fallback:
-            # Filter out obvious years
-            filtered = [num for num in fallback if not (len(num)==4 and num.startswith(('19','20')))]
-            if filtered:
-                # Take the first one that appears near an OTP keyword or at the end
-                candidates = filtered
+    # ===== Multiple patterns (ordered by specificity) =====
+    patterns = [
+        # 1. Explicit OTP keywords (OTP, code, PIN, verification, etc.)
+        r'(?:otp|code|pin|verification|passcode|auth|security)\s*[:=]?\s*(\d{4,8})',
+        r'(?:otp|code|pin|verification|passcode|auth|security)\s+is\s+(\d{4,8})',
+        r'(?:otp|code|pin|verification|passcode|auth|security)\s+(\d{4,8})',
+        # 2. Multilingual keywords
+        r'(?:ওটিপি|ভেরিফিকেশন|পিন|কোড)\s*[:=]?\s*(\d{4,8})',
+        r'(?:ओटीपी|कोड|पिन|सत्यापन)\s*[:=]?\s*(\d{4,8})',
+        r'(?:código|verificación|pin|clave)\s*[:=]?\s*(\d{4,8})',
+        r'(?:رمز|التحقق|كلمة المرور)\s*[:=]?\s*(\d{4,8})',
+        # 3. Separators (space, dash, dot) → এটাই '123-456' সাপোর্ট করে
+        r'\b(\d{3,4}[-.\s]\d{3,4})\b',
+        r'\b(\d{2,3}[-.\s]\d{2,3}[-.\s]\d{2,3})\b',
+        # 4. Brackets or parentheses
+        r'\[(\d{4,8})\]',
+        r'\((\d{4,8})\)',
+        # 5. Spaces between digits (e.g., 5 7 7 7 3 3)
+        r'\b(\d\s\d\s\d\s\d\s\d\s\d)\b',
+        r'\b(\d\s\d\s\d\s\d)\b',
+        # 6. Plain number (fallback)
+        r'\b(\d{4,8})\b',
+    ]
 
-    if not candidates:
+    all_matches = []
+
+    for pat in patterns:
+        matches = re.findall(pat, message, re.IGNORECASE)
+        for m in matches:
+            # Remove separators (spaces, dashes, dots) to get pure digits
+            cleaned = re.sub(r'[-\s.]', '', str(m))
+            # Only keep if length between 4 and 8 (standard OTP length)
+            if 4 <= len(cleaned) <= 8:
+                # Skip years (19xx, 20xx)
+                if len(cleaned) == 4 and cleaned.startswith(('19', '20')):
+                    continue
+                all_matches.append(cleaned)
+
+    if not all_matches:
         return None
 
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_candidates = []
-    for c in candidates:
-        if c not in seen:
-            seen.add(c)
-            unique_candidates.append(c)
-    candidates = unique_candidates
+    # ===== Score candidates =====
+    keywords = ['otp', 'code', 'pin', 'verification', 'instagram', 'whatsapp', 'telegram', 'facebook']
+    scored = []
 
-    # Score each candidate
-    scored = [(c, _score_candidate(c, message)) for c in candidates]
-    # Sort by score descending
+    for cand in all_matches:
+        score = 0
+        # Bonus for length 6 (most common)
+        if len(cand) == 6:
+            score += 10
+        elif len(cand) in (4, 5):
+            score += 5
+        # Position bonus – earlier in message = higher score
+        idx = message.find(cand)
+        if idx != -1:
+            score += max(0, 100 - idx // 10)
+            # Keyword proximity bonus
+            msg_lower = message.lower()
+            for kw in keywords:
+                kw_pos = msg_lower.find(kw)
+                if kw_pos != -1:
+                    dist = abs(idx - kw_pos)
+                    if dist < 20:
+                        score += 30
+                    elif dist < 50:
+                        score += 15
+        scored.append((cand, score))
+
+    # Sort by score (highest first)
     scored.sort(key=lambda x: x[1], reverse=True)
 
-    # Return the highest scoring candidate if score > 0, otherwise None
+    # Return the best candidate if score > 0, else the first match
     best = scored[0]
     if best[1] > 0:
         return best[0]
     else:
-        # If no positive score, but we have candidates, return the first one
-        # Only if it's reasonably OTP-like (len between 3 and 10)
-        for c, s in scored:
-            if 3 <= len(c) <= 10:
-                return c
-    return None
+        return all_matches[0]
 
 def extract_all_otps_from_message(message: str) -> list[str]:
     """
-    Return a list of all potential OTP tokens found in the message.
-    This is used for debugging or other purposes, but main extraction uses the above.
+    Return a list of all numeric OTP candidates found in the message.
+    Used for fallback or debugging.
     """
     if not message:
         return []
-    candidates = UNIVERSAL_OTP_REGEX.findall(message)
-    # Filter out obvious non-OTP patterns (phone numbers, years) but keep for now
-    # We'll just return unique tokens
-    return list(set(candidates))
+    # Simple extraction of 4-8 digit sequences
+    nums = re.findall(r'\b(\d{4,8})\b', message)
+    # Remove years
+    filtered = [n for n in nums if not (len(n)==4 and n.startswith(('19','20')))]
+    return list(set(filtered))
 
 # ============================================================
 # ==================== END OF OTP DETECTION ====================
@@ -4468,241 +4440,187 @@ async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_
     user_id = update.effective_user.id
     await manage_api_menu(update, context, user_id)
 
-# ==================== COUNTRY CODE MAP ====================
-
+# ==================== COUNTRY CODE MAP (ONLY 2 COUNTRIES) ====================
+# You can add your full country map here later
 COUNTRY_CODE_MAP = {
-    "93": ("AF", "🇦🇫", "Afghanistan"),
-    "355": ("AL", "🇦🇱", "Albania"),
-    "213": ("DZ", "🇩🇿", "Algeria"),
-    "1684": ("AS", "🇦🇸", "American Samoa"),
-    "376": ("AD", "🇦🇩", "Andorra"),
-    "244": ("AO", "🇦🇴", "Angola"),
-    "1264": ("AI", "🇦🇮", "Anguilla"),
-    "1268": ("AG", "🇦🇬", "Antigua and Barbuda"),
-    "54": ("AR", "🇦🇷", "Argentina"),
-    "374": ("AM", "🇦🇲", "Armenia"),
-    "297": ("AW", "🇦🇼", "Aruba"),
-    "61": ("AU", "🇦🇺", "Australia"),
-    "43": ("AT", "🇦🇹", "Austria"),
-    "994": ("AZ", "🇦🇿", "Azerbaijan"),
-    "1242": ("BS", "🇧🇸", "Bahamas"),
-    "973": ("BH", "🇧🇭", "Bahrain"),
-    "880": ("BD", "🇧🇩", "Bangladesh"),
-    "1246": ("BB", "🇧🇧", "Barbados"),
-    "375": ("BY", "🇧🇾", "Belarus"),
-    "32": ("BE", "🇧🇪", "Belgium"),
-    "501": ("BZ", "🇧🇿", "Belize"),
-    "229": ("BJ", "🇧🇯", "Benin"),
-    "1441": ("BM", "🇧🇲", "Bermuda"),
-    "975": ("BT", "🇧🇹", "Bhutan"),
-    "591": ("BO", "🇧🇴", "Bolivia"),
-    "387": ("BA", "🇧🇦", "Bosnia and Herzegovina"),
-    "267": ("BW", "🇧🇼", "Botswana"),
-    "55": ("BR", "🇧🇷", "Brazil"),
-    "246": ("IO", "🇮🇴", "British Indian Ocean Territory"),
-    "1284": ("VG", "🇻🇬", "British Virgin Islands"),
-    "673": ("BN", "🇧🇳", "Brunei"),
-    "359": ("BG", "🇧🇬", "Bulgaria"),
-    "226": ("BF", "🇧🇫", "Burkina Faso"),
-    "257": ("BI", "🇧🇮", "Burundi"),
-    "855": ("KH", "🇰🇭", "Cambodia"),
-    "237": ("CM", "🇨🇲", "Cameroon"),
-    "1": ("CA", "🇨🇦", "Canada"),
-    "238": ("CV", "🇨🇻", "Cape Verde"),
-    "599": ("BQ", "🇧🇶", "Caribbean Netherlands"),
-    "1345": ("KY", "🇰🇾", "Cayman Islands"),
-    "236": ("CF", "🇨🇫", "Central African Republic"),
-    "235": ("TD", "🇹🇩", "Chad"),
-    "56": ("CL", "🇨🇱", "Chile"),
-    "86": ("CN", "🇨🇳", "China"),
-    "57": ("CO", "🇨🇴", "Colombia"),
-    "269": ("KM", "🇰🇲", "Comoros"),
-    "242": ("CG", "🇨🇬", "Congo"),
-    "682": ("CK", "🇨🇰", "Cook Islands"),
-    "506": ("CR", "🇨🇷", "Costa Rica"),
-    "385": ("HR", "🇭🇷", "Croatia"),
-    "53": ("CU", "🇨🇺", "Cuba"),
-    "357": ("CY", "🇨🇾", "Cyprus"),
-    "420": ("CZ", "🇨🇿", "Czech Republic"),
-    "243": ("CD", "🇨🇩", "DR Congo"),
-    "45": ("DK", "🇩🇰", "Denmark"),
-    "253": ("DJ", "🇩🇯", "Djibouti"),
-    "1767": ("DM", "🇩🇲", "Dominica"),
-    "1809": ("DO", "🇩🇴", "Dominican Republic"),
-    "670": ("TL", "🇹🇱", "East Timor"),
-    "593": ("EC", "🇪🇨", "Ecuador"),
-    "20": ("EG", "🇪🇬", "Egypt"),
-    "503": ("SV", "🇸🇻", "El Salvador"),
-    "240": ("GQ", "🇬🇶", "Equatorial Guinea"),
-    "291": ("ER", "🇪🇷", "Eritrea"),
-    "372": ("EE", "🇪🇪", "Estonia"),
-    "268": ("SZ", "🇸🇿", "Eswatini"),
-    "251": ("ET", "🇪🇹", "Ethiopia"),
-    "500": ("FK", "🇫🇰", "Falkland Islands"),
-    "298": ("FO", "🇫🇴", "Faroe Islands"),
-    "679": ("FJ", "🇫🇯", "Fiji"),
-    "358": ("FI", "🇫🇮", "Finland"),
-    "33": ("FR", "🇫🇷", "France"),
-    "594": ("GF", "🇬🇫", "French Guiana"),
-    "689": ("PF", "🇵🇫", "French Polynesia"),
-    "241": ("GA", "🇬🇦", "Gabon"),
-    "220": ("GM", "🇬🇲", "Gambia"),
-    "995": ("GE", "🇬🇪", "Georgia"),
-    "49": ("DE", "🇩🇪", "Germany"),
-    "233": ("GH", "🇬🇭", "Ghana"),
-    "350": ("GI", "🇬🇮", "Gibraltar"),
-    "30": ("GR", "🇬🇷", "Greece"),
-    "299": ("GL", "🇬🇱", "Greenland"),
-    "1473": ("GD", "🇬🇩", "Grenada"),
-    "590": ("GP", "🇬🇵", "Guadeloupe"),
-    "1671": ("GU", "🇬🇺", "Guam"),
-    "502": ("GT", "🇬🇹", "Guatemala"),
-    "224": ("GN", "🇬🇳", "Guinea"),
-    "245": ("GW", "🇬🇼", "Guinea-Bissau"),
-    "592": ("GY", "🇬🇾", "Guyana"),
-    "509": ("HT", "🇭🇹", "Haiti"),
-    "504": ("HN", "🇭🇳", "Honduras"),
-    "852": ("HK", "🇭🇰", "Hong Kong"),
-    "36": ("HU", "🇭🇺", "Hungary"),
-    "354": ("IS", "🇮🇸", "Iceland"),
-    "91": ("IN", "🇮🇳", "India"),
-    "62": ("ID", "🇮🇩", "Indonesia"),
-    "98": ("IR", "🇮🇷", "Iran"),
-    "964": ("IQ", "🇮🇶", "Iraq"),
-    "353": ("IE", "🇮🇪", "Ireland"),
-    "972": ("IL", "🇮🇱", "Israel"),
-    "39": ("IT", "🇮🇹", "Italy"),
-    "225": ("CI", "🇨🇮", "Ivory Coast"),
-    "1876": ("JM", "🇯🇲", "Jamaica"),
-    "81": ("JP", "🇯🇵", "Japan"),
-    "962": ("JO", "🇯🇴", "Jordan"),
-    "254": ("KE", "🇰🇪", "Kenya"),
-    "686": ("KI", "🇰🇮", "Kiribati"),
-    "383": ("XK", "🇽🇰", "Kosovo"),
-    "965": ("KW", "🇰🇼", "Kuwait"),
-    "996": ("KG", "🇰🇬", "Kyrgyzstan"),
-    "856": ("LA", "🇱🇦", "Laos"),
-    "371": ("LV", "🇱🇻", "Latvia"),
-    "961": ("LB", "🇱🇧", "Lebanon"),
-    "266": ("LS", "🇱🇸", "Lesotho"),
-    "231": ("LR", "🇱🇷", "Liberia"),
-    "218": ("LY", "🇱🇾", "Libya"),
-    "423": ("LI", "🇱🇮", "Liechtenstein"),
-    "370": ("LT", "🇱🇹", "Lithuania"),
-    "352": ("LU", "🇱🇺", "Luxembourg"),
-    "853": ("MO", "🇲🇴", "Macau"),
-    "261": ("MG", "🇲🇬", "Madagascar"),
-    "265": ("MW", "🇲🇼", "Malawi"),
-    "60": ("MY", "🇲🇾", "Malaysia"),
-    "960": ("MV", "🇲🇻", "Maldives"),
-    "223": ("ML", "🇲🇱", "Mali"),
-    "356": ("MT", "🇲🇹", "Malta"),
-    "692": ("MH", "🇲🇭", "Marshall Islands"),
-    "596": ("MQ", "🇲🇶", "Martinique"),
-    "222": ("MR", "🇲🇷", "Mauritania"),
-    "230": ("MU", "🇲🇺", "Mauritius"),
-    "52": ("MX", "🇲🇽", "Mexico"),
-    "691": ("FM", "🇫🇲", "Micronesia"),
-    "373": ("MD", "🇲🇩", "Moldova"),
-    "377": ("MC", "🇲🇨", "Monaco"),
-    "976": ("MN", "🇲🇳", "Mongolia"),
-    "382": ("ME", "🇲🇪", "Montenegro"),
-    "1664": ("MS", "🇲🇸", "Montserrat"),
-    "212": ("MA", "🇲🇦", "Morocco"),
-    "258": ("MZ", "🇲🇿", "Mozambique"),
-    "95": ("MM", "🇲🇲", "Myanmar"),
-    "264": ("NA", "🇳🇦", "Namibia"),
-    "674": ("NR", "🇳🇷", "Nauru"),
-    "977": ("NP", "🇳🇵", "Nepal"),
-    "31": ("NL", "🇳🇱", "Netherlands"),
-    "687": ("NC", "🇳🇨", "New Caledonia"),
-    "64": ("NZ", "🇳🇿", "New Zealand"),
-    "505": ("NI", "🇳🇮", "Nicaragua"),
-    "227": ("NE", "🇳🇪", "Niger"),
-    "234": ("NG", "🇳🇬", "Nigeria"),
-    "683": ("NU", "🇳🇺", "Niue"),
-    "672": ("NF", "🇳🇫", "Norfolk Island"),
-    "850": ("KP", "🇰🇵", "North Korea"),
-    "389": ("MK", "🇲🇰", "North Macedonia"),
-    "1670": ("MP", "🇲🇵", "Northern Mariana Islands"),
-    "47": ("NO", "🇳🇴", "Norway"),
-    "968": ("OM", "🇴🇲", "Oman"),
-    "92": ("PK", "🇵🇰", "Pakistan"),
-    "680": ("PW", "🇵🇼", "Palau"),
-    "970": ("PS", "🇵🇸", "Palestine"),
-    "507": ("PA", "🇵🇦", "Panama"),
-    "675": ("PG", "🇵🇬", "Papua New Guinea"),
-    "595": ("PY", "🇵🇾", "Paraguay"),
-    "51": ("PE", "🇵🇪", "Peru"),
-    "63": ("PH", "🇵🇭", "Philippines"),
-    "48": ("PL", "🇵🇱", "Poland"),
-    "351": ("PT", "🇵🇹", "Portugal"),
-    "1787": ("PR", "🇵🇷", "Puerto Rico"),
-    "974": ("QA", "🇶🇦", "Qatar"),
-    "262": ("RE", "🇷🇪", "Reunion"),
-    "40": ("RO", "🇷🇴", "Romania"),
-    "7": ("RU", "🇷🇺", "Russia"),
-    "250": ("RW", "🇷🇼", "Rwanda"),
-    "290": ("SH", "🇸🇭", "Saint Helena"),
-    "1869": ("KN", "🇰🇳", "Saint Kitts and Nevis"),
-    "1758": ("LC", "🇱🇨", "Saint Lucia"),
-    "508": ("PM", "🇵🇲", "Saint Pierre and Miquelon"),
-    "1784": ("VC", "🇻🇨", "Saint Vincent and the Grenadines"),
-    "685": ("WS", "🇼🇸", "Samoa"),
-    "378": ("SM", "🇸🇲", "San Marino"),
-    "239": ("ST", "🇸🇹", "Sao Tome and Principe"),
-    "966": ("SA", "🇸🇦", "Saudi Arabia"),
-    "221": ("SN", "🇸🇳", "Senegal"),
-    "381": ("RS", "🇷🇸", "Serbia"),
-    "248": ("SC", "🇸🇨", "Seychelles"),
-    "232": ("SL", "🇸🇱", "Sierra Leone"),
-    "65": ("SG", "🇸🇬", "Singapore"),
-    "1721": ("SX", "🇸🇽", "Sint Maarten"),
-    "421": ("SK", "🇸🇰", "Slovakia"),
-    "386": ("SI", "🇸🇮", "Slovenia"),
-    "677": ("SB", "🇸🇧", "Solomon Islands"),
-    "252": ("SO", "🇸🇴", "Somalia"),
-    "27": ("ZA", "🇿🇦", "South Africa"),
-    "82": ("KR", "🇰🇷", "South Korea"),
-    "211": ("SS", "🇸🇸", "South Sudan"),
-    "34": ("ES", "🇪🇸", "Spain"),
-    "94": ("LK", "🇱🇰", "Sri Lanka"),
-    "249": ("SD", "🇸🇩", "Sudan"),
-    "597": ("SR", "🇸🇷", "Suriname"),
-    "46": ("SE", "🇸🇪", "Sweden"),
-    "41": ("CH", "🇨🇭", "Switzerland"),
-    "963": ("SY", "🇸🇾", "Syria"),
-    "886": ("TW", "🇹🇼", "Taiwan"),
-    "992": ("TJ", "🇹🇯", "Tajikistan"),
-    "255": ("TZ", "🇹🇿", "Tanzania"),
-    "66": ("TH", "🇹🇭", "Thailand"),
-    "228": ("TG", "🇹🇬", "Togo"),
-    "690": ("TK", "🇹🇰", "Tokelau"),
-    "676": ("TO", "🇹🇴", "Tonga"),
-    "1868": ("TT", "🇹🇹", "Trinidad and Tobago"),
-    "216": ("TN", "🇹🇳", "Tunisia"),
-    "90": ("TR", "🇹🇷", "Turkey"),
-    "993": ("TM", "🇹🇲", "Turkmenistan"),
-    "1649": ("TC", "🇹🇨", "Turks and Caicos"),
-    "688": ("TV", "🇹🇻", "Tuvalu"),
-    "971": ("AE", "🇦🇪", "UAE"),
-    "1340": ("VI", "🇻🇮", "U.S. Virgin Islands"),
-    "256": ("UG", "🇺🇬", "Uganda"),
-    "380": ("UA", "🇺🇦", "Ukraine"),
-    "44": ("GB", "🇬🇧", "United Kingdom"),
     "1": ("US", "🇺🇸", "United States"),
-    "598": ("UY", "🇺🇾", "Uruguay"),
-    "998": ("UZ", "🇺🇿", "Uzbekistan"),
-    "678": ("VU", "🇻🇺", "Vanuatu"),
+    "7": ("RU", "🇷🇺", "Russia"),
+    "20": ("EG", "🇪🇬", "Egypt"),
+    "27": ("ZA", "🇿🇦", "South Africa"),
+    "30": ("GR", "🇬🇷", "Greece"),
+    "31": ("NL", "🇳🇱", "Netherlands"),
+    "32": ("BE", "🇧🇪", "Belgium"),
+    "33": ("FR", "🇫🇷", "France"),
+    "34": ("ES", "🇪🇸", "Spain"),
+    "36": ("HU", "🇭🇺", "Hungary"),
+    "39": ("IT", "🇮🇹", "Italy"),
+    "40": ("RO", "🇷🇴", "Romania"),
+    "41": ("CH", "🇨🇭", "Switzerland"),
+    "43": ("AT", "🇦🇹", "Austria"),
+    "44": ("GB", "🇬🇧", "United Kingdom"),
+    "45": ("DK", "🇩🇰", "Denmark"),
+    "46": ("SE", "🇸🇪", "Sweden"),
+    "47": ("NO", "🇳🇴", "Norway"),
+    "48": ("PL", "🇵🇱", "Poland"),
+    "49": ("DE", "🇩🇪", "Germany"),
+    "51": ("PE", "🇵🇪", "Peru"),
+    "52": ("MX", "🇲🇽", "Mexico"),
+    "53": ("CU", "🇨🇺", "Cuba"),
+    "54": ("AR", "🇦🇷", "Argentina"),
+    "55": ("BR", "🇧🇷", "Brazil"),
+    "56": ("CL", "🇨🇱", "Chile"),
+    "57": ("CO", "🇨🇴", "Colombia"),
     "58": ("VE", "🇻🇪", "Venezuela"),
+    "60": ("MY", "🇲🇾", "Malaysia"),
+    "61": ("AU", "🇦🇺", "Australia"),
+    "62": ("ID", "🇮🇩", "Indonesia"),
+    "63": ("PH", "🇵🇭", "Philippines"),
+    "64": ("NZ", "🇳🇿", "New Zealand"),
+    "65": ("SG", "🇸🇬", "Singapore"),
+    "66": ("TH", "🇹🇭", "Thailand"),
+    "81": ("JP", "🇯🇵", "Japan"),
+    "82": ("KR", "🇰🇷", "South Korea"),
     "84": ("VN", "🇻🇳", "Vietnam"),
-    "681": ("WF", "🇼🇫", "Wallis and Futuna"),
-    "967": ("YE", "🇾🇪", "Yemen"),
+    "86": ("CN", "🇨🇳", "China"),
+    "90": ("TR", "🇹🇷", "Turkey"),
+    "91": ("IN", "🇮🇳", "India"),
+    "92": ("PK", "🇵🇰", "Pakistan"),
+    "93": ("AF", "🇦🇫", "Afghanistan"),
+    "94": ("LK", "🇱🇰", "Sri Lanka"),
+    "95": ("MM", "🇲🇲", "Myanmar"),
+    "98": ("IR", "🇮🇷", "Iran"),
+    "211": ("SS", "🇸🇸", "South Sudan"),
+    "212": ("MA", "🇲🇦", "Morocco"),
+    "213": ("DZ", "🇩🇿", "Algeria"),
+    "216": ("TN", "🇹🇳", "Tunisia"),
+    "218": ("LY", "🇱🇾", "Libya"),
+    "220": ("GM", "🇬🇲", "Gambia"),
+    "221": ("SN", "🇸🇳", "Senegal"),
+    "222": ("MR", "🇲🇷", "Mauritania"),
+    "223": ("ML", "🇲🇱", "Mali"),
+    "224": ("GN", "🇬🇳", "Guinea"),
+    "225": ("CI", "🇨🇮", "Ivory Coast"),
+    "226": ("BF", "🇧🇫", "Burkina Faso"),
+    "227": ("NE", "🇳🇪", "Niger"),
+    "228": ("TG", "🇹🇬", "Togo"),
+    "229": ("BJ", "🇧🇯", "Benin"),
+    "230": ("MU", "🇲🇺", "Mauritius"),
+    "231": ("LR", "🇱🇷", "Liberia"),
+    "232": ("SL", "🇸🇱", "Sierra Leone"),
+    "233": ("GH", "🇬🇭", "Ghana"),
+    "234": ("NG", "🇳🇬", "Nigeria"),
+    "235": ("TD", "🇹🇩", "Chad"),
+    "236": ("CF", "🇨🇫", "Central African Republic"),
+    "237": ("CM", "🇨🇲", "Cameroon"),
+    "238": ("CV", "🇨🇻", "Cape Verde"),
+    "239": ("ST", "🇸🇹", "Sao Tome and Principe"),
+    "240": ("GQ", "🇬🇶", "Equatorial Guinea"),
+    "241": ("GA", "🇬🇦", "Gabon"),
+    "242": ("CG", "🇨🇬", "Congo"),
+    "243": ("CD", "🇨🇩", "DR Congo"),
+    "244": ("AO", "🇦🇴", "Angola"),
+    "245": ("GW", "🇬🇼", "Guinea-Bissau"),
+    "246": ("IO", "🇮🇴", "British Indian Ocean Territory"),
+    "248": ("SC", "🇸🇨", "Seychelles"),
+    "249": ("SD", "🇸🇩", "Sudan"),
+    "250": ("RW", "🇷🇼", "Rwanda"),
+    "251": ("ET", "🇪🇹", "Ethiopia"),
+    "252": ("SO", "🇸🇴", "Somalia"),
+    "253": ("DJ", "🇩🇯", "Djibouti"),
+    "254": ("KE", "🇰🇪", "Kenya"),
+    "255": ("TZ", "🇹🇿", "Tanzania"),
+    "256": ("UG", "🇺🇬", "Uganda"),
+    "257": ("BI", "🇧🇮", "Burundi"),
+    "258": ("MZ", "🇲🇿", "Mozambique"),
     "260": ("ZM", "🇿🇲", "Zambia"),
+    "261": ("MG", "🇲🇬", "Madagascar"),
+    "262": ("RE", "🇷🇪", "Reunion"),
     "263": ("ZW", "🇿🇼", "Zimbabwe"),
+    "264": ("NA", "🇳🇦", "Namibia"),
+    "265": ("MW", "🇲🇼", "Malawi"),
+    "266": ("LS", "🇱🇸", "Lesotho"),
+    "267": ("BW", "🇧🇼", "Botswana"),
+    "268": ("SZ", "🇸🇿", "Eswatini"),
+    "269": ("KM", "🇰🇲", "Comoros"),
+    "290": ("SH", "🇸🇭", "Saint Helena"),
+    "291": ("ER", "🇪🇷", "Eritrea"),
+    "297": ("AW", "🇦🇼", "Aruba"),
+    "298": ("FO", "🇫🇴", "Faroe Islands"),
+    "299": ("GL", "🇬🇱", "Greenland"),
+    "350": ("GI", "🇬🇮", "Gibraltar"),
+    "351": ("PT", "🇵🇹", "Portugal"),
+    "352": ("LU", "🇱🇺", "Luxembourg"),
+    "353": ("IE", "🇮🇪", "Ireland"),
+    "354": ("IS", "🇮🇸", "Iceland"),
+    "355": ("AL", "🇦🇱", "Albania"),
+    "356": ("MT", "🇲🇹", "Malta"),
+    "357": ("CY", "🇨🇾", "Cyprus"),
+    "358": ("FI", "🇫🇮", "Finland"),
+    "359": ("BG", "🇧🇬", "Bulgaria"),
+    "370": ("LT", "🇱🇹", "Lithuania"),
+    "371": ("LV", "🇱🇻", "Latvia"),
+    "372": ("EE", "🇪🇪", "Estonia"),
+    "373": ("MD", "🇲🇩", "Moldova"),
+    "374": ("AM", "🇦🇲", "Armenia"),
+    "375": ("BY", "🇧🇾", "Belarus"),
+    "376": ("AD", "🇦🇩", "Andorra"),
+    "377": ("MC", "🇲🇨", "Monaco"),
+    "378": ("SM", "🇸🇲", "San Marino"),
+    "380": ("UA", "🇺🇦", "Ukraine"),
+    "381": ("RS", "🇷🇸", "Serbia"),
+    "382": ("ME", "🇲🇪", "Montenegro"),
+    "383": ("XK", "🇽🇰", "Kosovo"),
+    "385": ("HR", "🇭🇷", "Croatia"),
+    "386": ("SI", "🇸🇮", "Slovenia"),
+    "387": ("BA", "🇧🇦", "Bosnia and Herzegovina"),
+    "389": ("MK", "🇲🇰", "North Macedonia"),
+    "420": ("CZ", "🇨🇿", "Czech Republic"),
+    "421": ("SK", "🇸🇰", "Slovakia"),
+    "423": ("LI", "🇱🇮", "Liechtenstein"),
+    "500": ("FK", "🇫🇰", "Falkland Islands"),
+    "501": ("BZ", "🇧🇿", "Belize"),
+    "502": ("GT", "🇬🇹", "Guatemala"),
+    "503": ("SV", "🇸🇻", "El Salvador"),
+    "504": ("HN", "🇭🇳", "Honduras"),
+    "505": ("NI", "🇳🇮", "Nicaragua"),
+    "506": ("CR", "🇨🇷", "Costa Rica"),
+    "507": ("PA", "🇵🇦", "Panama"),
+    "509": ("HT", "🇭🇹", "Haiti"),
+    "590": ("GP", "🇬🇵", "Guadeloupe"),
+    "591": ("BO", "🇧🇴", "Bolivia"),
+    "592": ("GY", "🇬🇾", "Guyana"),
+    "593": ("EC", "🇪🇨", "Ecuador"),
+    "594": ("GF", "🇬🇫", "French Guiana"),
+    "595": ("PY", "🇵🇾", "Paraguay"),
+    "596": ("MQ", "🇲🇶", "Martinique"),
+    "597": ("SR", "🇸🇷", "Suriname"),
+    "598": ("UY", "🇺🇾", "Uruguay"),
+    "599": ("BQ", "🇧🇶", "Caribbean Netherlands"),
+    "880": ("BD", "🇧🇩", "Bangladesh"),
+    "960": ("MV", "🇲🇻", "Maldives"),
+    "961": ("LB", "🇱🇧", "Lebanon"),
+    "962": ("JO", "🇯🇴", "Jordan"),
+    "963": ("SY", "🇸🇾", "Syria"),
+    "964": ("IQ", "🇮🇶", "Iraq"),
+    "965": ("KW", "🇰🇼", "Kuwait"),
+    "966": ("SA", "🇸🇦", "Saudi Arabia"),
+    "967": ("YE", "🇾🇪", "Yemen"),
+    "968": ("OM", "🇴🇲", "Oman"),
+    "970": ("PS", "🇵🇸", "Palestine"),
+    "971": ("AE", "🇦🇪", "UAE"),
+    "972": ("IL", "🇮🇱", "Israel"),
+    "973": ("BH", "🇧🇭", "Bahrain"),
+    "974": ("QA", "🇶🇦", "Qatar"),
+    "975": ("BT", "🇧🇹", "Bhutan"),
+    "976": ("MN", "🇲🇳", "Mongolia"),
+    "977": ("NP", "🇳🇵", "Nepal"),
+    "992": ("TJ", "🇹🇯", "Tajikistan"),
+    "993": ("TM", "🇹🇲", "Turkmenistan"),
+    "994": ("AZ", "🇦🇿", "Azerbaijan"),
+    "995": ("GE", "🇬🇪", "Georgia"),
+    "996": ("KG", "🇰🇬", "Kyrgyzstan"),
+    "998": ("UZ", "🇺🇿", "Uzbekistan"),
 }
-
-
 ISO_TO_INFO = {}
 for code, val in COUNTRY_CODE_MAP.items():
     if isinstance(val, tuple) and len(val) >= 3:
@@ -4714,9 +4632,6 @@ def get_country_code(country_name):
     lower = country_name.lower()
     for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
         if lower == name.lower() or lower == iso.lower() or lower == code:
-            return iso
-    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
-        if lower in name.lower() or name.lower() in lower:
             return iso
     return country_name.upper()[:2]
 
@@ -4919,7 +4834,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
             if country:
                 otp_entry['country'] = country
         
-        # --- NEW: Extract OTP using the universal detector ---
+        # --- Extract OTP using the fixed function ---
         otp_code = extract_otp_from_message(message)  # returns None if not found
         if otp_code is None:
             # If still no OTP, try to get from entry (maybe API gave explicit field)
@@ -4931,7 +4846,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
             # OTP found, use it
             pass
         
-        # If we got "N/A", we still proceed but with N/A.
+        # If we got "N/A", we still proceed with N/A.
         if not number:
             return 0  # skip if no number
 
@@ -4940,7 +4855,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
 
         # Send to groups (if new) - using sendRichMessage
         if is_new and group_ids:
-            # Only insert if OTP is not "N/A"? Actually we want to insert even if N/A? We'll insert with OTP = N/A
+            # Insert into DB even if N/A
             db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
                     (number, otp_code, message, otp_timestamp_str))
             try:
