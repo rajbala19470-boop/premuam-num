@@ -4470,7 +4470,7 @@ async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_
 
 # ==================== COUNTRY CODE MAP ====================
 
-COUNTRY_CODE_MAP_BY_NAME = {
+COUNTRY_CODE_MAP = {
     "93": ("AF", "🇦🇫", "Afghanistan"),
     "355": ("AL", "🇦🇱", "Albania"),
     "213": ("DZ", "🇩🇿", "Algeria"),
