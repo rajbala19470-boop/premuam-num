@@ -22,7 +22,15 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 # ================= LOGGING SETUP =================
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
+logging.getLogger("telegram").setLevel(logging.INFO)
+logging.getLogger("apscheduler").setLevel(logging.ERROR)
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # ================= CONFIGURATION =================
@@ -545,6 +553,27 @@ admin_temp_data = {}
 last_activation_data = {}
 polling_tasks = {}
 cdr_polling_tasks = {}
+
+# ================= WATCHDOG =================
+last_success_time = datetime.now()
+RESTART_TIMEOUT = 120  # ২ মিনিট inactivity
+
+def restart_script():
+    logger.info("🔄 Script restarting due to inactivity...")
+    python = sys.executable
+    os.execl(python, python, *sys.argv)
+
+async def watchdog_task():
+    global last_success_time
+    while True:
+        await asyncio.sleep(30)
+        if (datetime.now() - last_success_time).total_seconds() > RESTART_TIMEOUT:
+            logger.error(f"❌ No activity for {RESTART_TIMEOUT} seconds! Restarting...")
+            restart_script()
+
+def update_last_success():
+    global last_success_time
+    last_success_time = datetime.now()
 
 # ================= HELPERS =================
 def safe_url(url: str) -> str | None:
@@ -1207,6 +1236,7 @@ async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, c
 
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if await ban_check(update, context):
         return
@@ -1254,6 +1284,7 @@ async def show_main_menu(update: Update, user_id, first_name, context: ContextTy
     await send_main_menu(update, context, user_id)
 
 async def show_get_number(update: Update, context, user_id, first_name):
+    update_last_success()
     ensure_user(user_id, update.effective_user.username, first_name)
     db_exec("UPDATE users SET last_active = ? WHERE user_id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
     text = (
@@ -1266,6 +1297,7 @@ async def show_get_number(update: Update, context, user_id, first_name):
         await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML', auto_delete=False)
 
 async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
+    update_last_success()
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
     if not user:
@@ -1301,6 +1333,7 @@ async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TY
             await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
+    update_last_success()
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     balance = db_fetch_one("SELECT balance FROM users WHERE user_id=?", (user_id,))
     if not balance:
@@ -1342,6 +1375,7 @@ async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_T
             await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
+    update_last_success()
     text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓"
     if isinstance(update, CallbackQuery):
         user_id = update.effective_user.id
@@ -1352,6 +1386,7 @@ async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE = None
 
 # ================= ADMIN COMMANDS =================
 async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if is_admin(user_id):
         admin_mode[user_id] = True
@@ -1361,6 +1396,7 @@ async def enter_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Unauthorized access!")
 
 async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if user_id in admin_mode:
         admin_mode.pop(user_id, None)
@@ -1370,6 +1406,7 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("You're not in admin mode!")
 
 async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if not is_super_admin(user_id):
         await update.message.reply_text("⛔ Only super admins can add new admins.")
@@ -1386,6 +1423,7 @@ async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ User {target_uid} has been added as an admin.")
 
 async def remove_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if not is_super_admin(user_id):
         await update.message.reply_text("⛔ Only super admins can remove admins.")
@@ -1407,6 +1445,7 @@ async def remove_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(f"❌ User {target_uid} has been removed from admin list.")
 
 async def admin_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("Unauthorized.")
@@ -1423,6 +1462,7 @@ async def admin_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ================= ADMIN PANEL MENU =================
 async def admin_panel_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
+    update_last_success()
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
             await update.answer("Unauthorized!", show_alert=True)
@@ -1479,6 +1519,7 @@ def generate_user_list_text():
     return '\n'.join(lines)
 
 async def send_user_list_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     text = generate_user_list_text()
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
         f.write(text)
@@ -1507,6 +1548,7 @@ async def _um_search_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await um_search_prompt(update, context, update.callback_query.from_user.id)
 
 async def user_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    update_last_success()
     if not is_admin(user_id):
         await update.callback_query.answer("Admin mode required!", show_alert=True)
         return
@@ -1524,10 +1566,12 @@ async def user_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await reply_or_edit(update, "USER MANAGER\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
 
 async def um_search_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    update_last_success()
     admin_panel_state[user_id] = "um_searching"
     await reply_or_edit(update, "Send the user ID or username to search.", reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def show_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, user_data):
+    update_last_success()
     uid, first_name, username, balance, withdrawn, total_otp, banned, joined, last_active = user_data
     balance = balance or 0.0
     withdrawn = withdrawn or 0.0
@@ -1561,6 +1605,7 @@ async def show_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False)
 
 async def um_edit_balance_prompt(query, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     target_uid = query.data.split('|')[1]
     admin_panel_state[user_id] = "um_editbal"
     admin_temp_data[user_id] = {"target_uid": target_uid}
@@ -1568,6 +1613,7 @@ async def um_edit_balance_prompt(query, user_id, context: ContextTypes.DEFAULT_T
                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def um_ban_toggle(query, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     target_uid = query.data.split('|')[1]
     if not is_admin(user_id): return
     user = db_fetch_one("SELECT banned FROM users WHERE user_id=?", (target_uid,))
@@ -1601,6 +1647,7 @@ async def um_ban_toggle(query, user_id, context: ContextTypes.DEFAULT_TYPE):
         await show_user_detail(query, context, user_data)
 
 async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     total = db_fetch_one("SELECT COUNT(*) FROM users")[0]
     banned = db_fetch_one("SELECT COUNT(*) FROM users WHERE banned=1")[0]
     active = total - banned
@@ -1617,6 +1664,7 @@ async def um_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= DATABASE DOWNLOAD/UPLOAD =================
 async def database_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    update_last_success()
     if not is_admin(user_id): await update.callback_query.answer("Admin mode required!", show_alert=True); return
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("DOWNLOAD", callback_data="db_download", style=KBS.PRIMARY,
@@ -1629,6 +1677,7 @@ async def database_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     await reply_or_edit(update, "DATABASE MANAGEMENT\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
 
 async def db_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id): return
@@ -1657,6 +1706,7 @@ async def db_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 async def db_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id): return
@@ -1666,6 +1716,7 @@ async def db_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= SINGLE DOCUMENT HANDLER =================
 async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not update.message or not update.message.document:
         return
     user_id = update.effective_user.id
@@ -1756,6 +1807,7 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ================= FORCE UPLOAD CALLBACKS =================
 async def fu_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
@@ -1770,6 +1822,7 @@ async def fu_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     admin_panel_state[user_id] = "waiting_fu_service"
 
 async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
@@ -1802,6 +1855,7 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ================= ADMIN TEXT HANDLER =================
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
     if not is_admin(user_id):
@@ -1947,6 +2001,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= STOCK GET NUMBER CALLBACK =================
 async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if await ban_check(update, context):
@@ -1983,6 +2038,7 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
 
 # ================= /testgroup COMMAND =================
 async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("⛔ Unauthorized. Admin only.")
@@ -2048,6 +2104,7 @@ async def testgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= CALLBACK HANDLERS =================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if await ban_check(update, context):
@@ -2066,6 +2123,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_panel_menu(update, user_id, context)
 
 async def balance_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     if await ban_check(update, context):
         return
@@ -2073,6 +2131,7 @@ async def balance_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await show_balance(update, query.from_user.id, context)
 
 async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     if await ban_check(update, context):
         return
@@ -2083,6 +2142,7 @@ async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
 
 async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     if await ban_check(update, context):
         return
@@ -2092,6 +2152,7 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await send_main_menu(query, context, user_id)
 
 async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     if await ban_check(update, context):
         return
@@ -2112,6 +2173,7 @@ async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await edit_or_send(query, msg, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def service_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     if await ban_check(update, context):
         return
@@ -2123,6 +2185,7 @@ async def service_selection_callback(update: Update, context: ContextTypes.DEFAU
     await edit_or_send(query, text, reply_markup=countries_for_service_keyboard(service), parse_mode='HTML', context=context, auto_delete=False)
 
 async def country_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     if await ban_check(update, context):
         return
@@ -2166,6 +2229,7 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
         pass
 
 async def back_to_services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     if await ban_check(update, context):
         return
@@ -2176,6 +2240,7 @@ async def back_to_services_callback(update: Update, context: ContextTypes.DEFAUL
     await edit_or_send(query, text, reply_markup=services_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
 
 async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     if await ban_check(update, context):
         return
@@ -2226,6 +2291,7 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ================= ADMIN CALLBACKS =================
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -2284,6 +2350,7 @@ async def stock_management_menu(update: Update, context: ContextTypes.DEFAULT_TY
     await send_stock_management_menu(update, context, user_id)
 
 async def stock_upload_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
@@ -2292,6 +2359,7 @@ async def stock_upload_callback(update: Update, context: ContextTypes.DEFAULT_TY
                        reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def stock_remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -2312,6 +2380,7 @@ async def stock_remove_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await edit_or_send(query, "Select stock to remove:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_remove_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -2327,6 +2396,7 @@ async def stock_remove_confirm_callback(update: Update, context: ContextTypes.DE
     await edit_or_send(query, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_remove_yes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -2340,12 +2410,14 @@ async def stock_remove_yes_callback(update: Update, context: ContextTypes.DEFAUL
     await stock_remove_callback(update, context)
 
 async def stock_remove_no_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer("Cancelled.")
     await send_stock_management_menu(query, context, user_id)
 
 async def stock_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -2366,6 +2438,7 @@ async def stock_status_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await edit_or_send(query, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -2387,6 +2460,7 @@ async def stock_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await edit_or_send(query, "Select stock to toggle active status:", reply_markup=InlineKeyboardMarkup(kb_buttons), parse_mode='HTML', context=context, auto_delete=False)
 
 async def stock_toggle_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -2404,6 +2478,7 @@ async def stock_toggle_do_callback(update: Update, context: ContextTypes.DEFAULT
 
 # ================= ADMIN STATS =================
 async def show_admin_stats(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     total_users = db_fetch_one("SELECT COUNT(*) FROM users")[0]
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     active_users = db_fetch_one("SELECT COUNT(*) FROM users WHERE last_active > ?", (yesterday,))[0]
@@ -2433,6 +2508,7 @@ async def show_admin_stats(update: Update, user_id, context: ContextTypes.DEFAUL
     await reply_or_edit(update, text, reply_markup=admin_back_button(), parse_mode='HTML', context=context, auto_delete=False)
 
 async def show_delete_options(query, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     countries = db_fetch_all("SELECT name, service, stock FROM countries WHERE active = 1 ORDER BY name")
     if not countries:
         await edit_or_send(query, "No countries to delete!", reply_markup=admin_back_button(), context=context, auto_delete=False)
@@ -2449,16 +2525,19 @@ async def show_delete_options(query, user_id, context: ContextTypes.DEFAULT_TYPE
                        reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def request_upload(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     admin_panel_state[user_id] = "waiting_file"
     await reply_or_edit(update, "UPLOAD STOCK\n\nSend a .txt file with phone numbers.\nFilename must contain country & service name.\nOne number per line.",
                         reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def request_broadcast(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     admin_panel_state[user_id] = "waiting_broadcast"
     await reply_or_edit(update, "BROADCAST MESSAGE\n\nSend the message you want to broadcast to ALL users (any media or text).",
                         reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def request_giveaway(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     admin_panel_state[user_id] = "waiting_giveaway"
     await reply_or_edit(update, "GIVE FREE ACCOUNT\n\nSend: user_id count\nExample: 123456789 5",
                         reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
@@ -2473,6 +2552,7 @@ async def exit_admin_callback_query(query, user_id, bot):
 
 # ================= COUNTRY & SERVICE CALLBACKS =================
 async def country_manager_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not is_admin(user_id):
         await update.callback_query.answer("Admin mode required!", show_alert=True)
         return
@@ -2492,6 +2572,7 @@ async def country_manager_menu(update: Update, user_id, context: ContextTypes.DE
     await reply_or_edit(update, "COUNTRY MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -2513,6 +2594,7 @@ async def country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await country_delete_direct(query, user_id, data.split('|', 1)[1], context)
 
 async def country_add_start(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     admin_panel_state[user_id] = "waiting_country_add"
     await reply_or_edit(update,
         "ADD NEW COUNTRY\n\nFormat: CountryName | Code | ISO | payout | emoji_id\n"
@@ -2520,6 +2602,7 @@ async def country_add_start(update: Update, user_id, context: ContextTypes.DEFAU
         reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def country_list_show(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     lines = [f'ALL COUNTRIES {emoji_tag(CUSTOM_EMOJIS["CHANGE_COUNTRY"], "🌍")}', '']
     for name, info in COUNTRIES_DATA.items():
         lines.append(f'• {country_flag_emoji(name)} {name}')
@@ -2528,6 +2611,7 @@ async def country_list_show(update: Update, user_id, context: ContextTypes.DEFAU
     await reply_or_edit(update, '\n'.join(lines), reply_markup=admin_back_button(), parse_mode='HTML', context=context, auto_delete=False)
 
 async def country_edit_select(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     rows = []
     for name, info in COUNTRIES_DATA.items():
         icon = info.get("emoji_id") or CUSTOM_EMOJIS.get("DEFAULT_FLAG", "")
@@ -2540,6 +2624,7 @@ async def country_edit_select(update: Update, user_id, context: ContextTypes.DEF
     await reply_or_edit(update, "Select country to edit:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def country_edit_start(update: Update, user_id, country_name, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     admin_temp_data[user_id] = {"edit_country": country_name}
     admin_panel_state[user_id] = "waiting_country_edit"
     info = COUNTRIES_DATA[country_name]
@@ -2548,6 +2633,7 @@ async def country_edit_start(update: Update, user_id, country_name, context: Con
         reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def country_delete_select(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     rows = []
     for name in COUNTRIES_DATA:
         rows.append([InlineKeyboardButton(f"Delete {name}", callback_data=f"country_delete|{name}",
@@ -2558,6 +2644,7 @@ async def country_delete_select(update: Update, user_id, context: ContextTypes.D
     await reply_or_edit(update, "Select country to delete:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def country_delete_direct(query, user_id, country_name, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not is_admin(user_id):
         await query.answer("Admin mode required!", show_alert=True)
         return
@@ -2572,6 +2659,7 @@ async def country_delete_direct(query, user_id, country_name, context: ContextTy
     await country_delete_select(query, user_id, context)
 
 async def country_add_service_selection(update: Update, user_id, country_name, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     services = db_fetch_all("SELECT name, display_name, emoji_id FROM services WHERE active = 1 ORDER BY name")
     rows = []
     for s in services:
@@ -2584,6 +2672,7 @@ async def country_add_service_selection(update: Update, user_id, country_name, c
     await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False)
 
 async def country_add_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     parts = query.data.split('|')
@@ -2599,6 +2688,7 @@ async def country_add_service_callback(update: Update, context: ContextTypes.DEF
 
 # ================= SERVICE MANAGER =================
 async def service_manager_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not is_admin(user_id):
         await update.callback_query.answer("Admin mode required!", show_alert=True)
         return
@@ -2618,6 +2708,7 @@ async def service_manager_menu(update: Update, user_id, context: ContextTypes.DE
     await reply_or_edit(update, "SERVICE MANAGER\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -2641,10 +2732,12 @@ async def service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await service_set_emoji_start(update, user_id, data.split('|', 1)[1], context)
 
 async def service_add_start(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     admin_panel_state[user_id] = "waiting_service_name"
     await reply_or_edit(update, "Send the service name.", reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def service_remove_select(target, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     services = db_fetch_all("SELECT name, display_name FROM services ORDER BY name")
     rows = []
     for s in services:
@@ -2655,12 +2748,14 @@ async def service_remove_select(target, user_id, context: ContextTypes.DEFAULT_T
     await reply_or_edit(target, "Select service to remove:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def service_remove_execute(query, service_name, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     db_exec("DELETE FROM services WHERE name = ?", (service_name,))
     db_exec("DELETE FROM countries WHERE service = ?", (service_name,))
     await query.answer(f"Service '{service_name}' removed!")
     await service_remove_select(query, query.from_user.id, context)
 
 async def service_toggle_select(target, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     services = db_fetch_all("SELECT name, display_name, active FROM services ORDER BY name")
     rows = []
     for s in services:
@@ -2673,6 +2768,7 @@ async def service_toggle_select(target, user_id, context: ContextTypes.DEFAULT_T
     await reply_or_edit(target, "Select service to toggle:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def service_toggle_execute(query, service_name, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     result = db_fetch_one("SELECT active FROM services WHERE name = ?", (service_name,))
     if result:
         new_status = 0 if result[0] else 1
@@ -2681,6 +2777,7 @@ async def service_toggle_execute(query, service_name, context: ContextTypes.DEFA
     await service_toggle_select(query, query.from_user.id, context)
 
 async def service_set_emoji_select(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not is_admin(user_id):
         await update.callback_query.answer("Admin mode required!", show_alert=True)
         return
@@ -2694,11 +2791,13 @@ async def service_set_emoji_select(update: Update, user_id, context: ContextType
     await reply_or_edit(update, "Select service to set emoji:", reply_markup=InlineKeyboardMarkup(rows), context=context, auto_delete=False)
 
 async def service_set_emoji_start(update: Update, user_id, service_name, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     admin_temp_data[user_id] = {"set_emoji_service": service_name}
     admin_panel_state[user_id] = "waiting_service_emoji"
     await reply_or_edit(update, f"Send custom emoji ID for '{service_name}'.\nSend /skip to keep.", reply_markup=admin_cancel_keyboard(), context=context, auto_delete=False)
 
 async def handle_service_emoji_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     text = update.message.text.strip()
     service_name = admin_temp_data.get(user_id, {}).get("set_emoji_service")
@@ -2715,6 +2814,7 @@ async def handle_service_emoji_set(update: Update, context: ContextTypes.DEFAULT
 
 # ================= /setcountry & /setservice =================
 async def set_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔ Admin only.")
         return
@@ -2732,6 +2832,7 @@ async def set_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(f"✅ Country emoji for {iso} set to <code>{eid}</code>", parse_mode="HTML")
 
 async def set_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔ Admin only.")
         return
@@ -2750,6 +2851,7 @@ async def set_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ================= /country & /service (legacy) =================
 async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Admin only.")
         return
@@ -2767,6 +2869,7 @@ async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text(f"✅ Group country emoji for {iso} set to <code>{eid}</code>", parse_mode="HTML")
 
 async def group_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Admin only.")
         return
@@ -2785,6 +2888,7 @@ async def group_service_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ================= BOTTOM MENU TEXT ROUTERS =================
 async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if await ban_check(update, context):
         return
@@ -2794,6 +2898,7 @@ async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TY
     await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML', auto_delete=False)
 
 async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if await ban_check(update, context):
         return
@@ -2826,12 +2931,14 @@ async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     text = "CONTACT SUPPORT\n\n━━━━━━━━━━━━━━━━━━━━\nFor any issues, contact admin directly.\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓"
     sent_inline = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=support_keyboard())
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent_inline.message_id, user_id))
 
 async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     if not is_admin(user_id):
         await update.message.reply_text("Unauthorized!")
@@ -3192,6 +3299,7 @@ async def api_add_curl_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
 
 async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
     if not state or not state.startswith("api_add_"):
@@ -3276,6 +3384,7 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     return True
 
 async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     data = admin_temp_data.get(user_id, {})
@@ -3378,6 +3487,7 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text(success_text, reply_markup=admin_panel_keyboard(), parse_mode='HTML')
 
 async def api_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     admin_temp_data.pop(user_id, None)
@@ -3385,6 +3495,7 @@ async def api_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
 
 async def api_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     data = admin_temp_data.get(user_id, {})
@@ -3399,6 +3510,7 @@ async def api_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def poll_single_api_curl_based(api_id: int):
     async with aiohttp.ClientSession() as session:
         while True:
+            update_last_success()
             config = get_api_config(api_id)
             if not config or not config.get('active'):
                 break
@@ -3531,6 +3643,7 @@ async def start_all_polling():
 
 # ================= API SYSTEM GRID =================
 async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    update_last_success()
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
             await update.answer("Admin only!", show_alert=True)
@@ -3569,6 +3682,7 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 
 # ================= API ADD CHOICE =================
 async def api_add_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -3586,6 +3700,7 @@ async def api_add_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Select Panel Type</b>\n\nChoose the type of panel you want to add:", reply_markup=kb, parse_mode='HTML')
 
 async def api_choice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -3600,9 +3715,7 @@ async def api_choice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ================= CDR PANEL MANAGEMENT (IMPROVED) =================
 
-# ক্যাপচা সমাধান (যোগ/বিয়োগ)
 async def _solve_captcha(page) -> str | None:
-    """পেজের টেক্সট থেকে গাণিতিক এক্সপ্রেশন বের করে উত্তর দেয়"""
     body_text = await page.locator("body").inner_text()
     match = re.search(r"(\d+)\s*([\+\-])\s*(\d+)", body_text)
     if not match:
@@ -3646,6 +3759,7 @@ def cdr_get_step_keyboard(step: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([buttons])
 
 async def cdr_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    update_last_success()
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
@@ -3654,6 +3768,7 @@ async def cdr_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     await cdr_add_step(update, context, user_id, "cdr_add_name")
 
 async def cdr_add_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, step: str):
+    update_last_success()
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
@@ -3690,6 +3805,7 @@ Send the value or press SKIP:"""
     await reply_or_edit(update, text, reply_markup=cdr_get_step_keyboard(step), parse_mode='HTML', context=context, auto_delete=False)
 
 async def cdr_handle_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer("⏭ Step skipped!")
@@ -3708,6 +3824,7 @@ async def cdr_handle_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE
         await cdr_show_confirm_step(query, context, user_id)
 
 async def cdr_handle_add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer("❌ Cancelled!")
@@ -3716,6 +3833,7 @@ async def cdr_handle_add_cancel(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text("❌ Panel addition cancelled.", reply_markup=admin_panel_keyboard())
 
 async def cdr_show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    update_last_success()
     data = admin_temp_data.get(user_id, {})
     text = f"{emoji_tag(CUSTOM_EMOJIS['CDR_PANEL'], '📦')} <b>Confirm NON API Panel Details</b>\n\n"
     fields = [
@@ -3754,6 +3872,7 @@ async def cdr_show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TY
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def cdr_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     data = admin_temp_data.get(user_id, {})
@@ -3808,6 +3927,7 @@ async def cdr_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text(success_text, reply_markup=admin_panel_keyboard(), parse_mode='HTML')
 
 async def cdr_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     admin_temp_data.pop(user_id, None)
@@ -3815,6 +3935,7 @@ async def cdr_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text("❌ Panel addition cancelled.", reply_markup=admin_panel_keyboard())
 
 async def cdr_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     data = admin_temp_data.get(user_id, {})
@@ -3826,6 +3947,7 @@ async def cdr_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await cdr_add_step(update, context, user_id, "cdr_add_name")
 
 async def cdr_handle_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
     if not state or not state.startswith("cdr_add_"):
@@ -3861,6 +3983,7 @@ async def cdr_handle_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ================= CDR PANEL DETAIL (IMPROVED LOGIN & FETCH) =================
 
 async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4086,6 +4209,7 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
 async def cdr_poll_loop(panel_id: int):
     while True:
         try:
+            update_last_success()
             panel = get_cdr_panel(panel_id)
             if not panel or not panel['active']:
                 break
@@ -4111,23 +4235,6 @@ async def cdr_poll_loop(panel_id: int):
                     (err_msg, panel_id))
             await asyncio.sleep(10)
         await asyncio.sleep(interval)
-
-# ================= AUTO RESTART SYSTEM (watchdog) =================
-last_success_time = datetime.now()
-RESTART_TIMEOUT = 60  # 60 সেকেন্ড inactivity
-
-def restart_script():
-    logger.info("🔄 Script restarting due to inactivity...")
-    python = sys.executable
-    os.execl(python, python, *sys.argv)
-
-async def watchdog_task():
-    global last_success_time
-    while True:
-        await asyncio.sleep(10)
-        if (datetime.now() - last_success_time).total_seconds() > RESTART_TIMEOUT:
-            logger.error(f"❌ No activity for {RESTART_TIMEOUT} seconds! Restarting...")
-            restart_script()
 
 # ================= CDR HELPER FUNCTIONS =================
 def get_cdr_panel(panel_id: int) -> dict | None:
@@ -4155,6 +4262,7 @@ def parse_field_row(field_str: str) -> tuple:
     return field_str.strip(), 1
 
 async def cdr_panel_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, panel_id: int, user_id: int):
+    update_last_success()
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
@@ -4200,6 +4308,7 @@ async def cdr_panel_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, p
 
 # ================= CDR TOGGLE, EDIT, DELETE, TEST, STATS, LOGS =================
 async def cdr_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4221,6 +4330,7 @@ async def cdr_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await cdr_panel_detail(update, context, panel_id, user_id)
 
 async def cdr_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4259,6 +4369,7 @@ async def cdr_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
 async def cdr_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4283,6 +4394,7 @@ async def cdr_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TY
                                   parse_mode='HTML')
 
 async def cdr_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
     if not state or not state.startswith("cdr_edit_value_"):
@@ -4315,6 +4427,7 @@ async def cdr_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     return True
 
 async def cdr_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4335,6 +4448,7 @@ async def cdr_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def cdr_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4354,6 +4468,7 @@ async def cdr_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await cdr_panel_detail(update, context, panel_id, user_id)
 
 async def cdr_test_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4380,6 +4495,7 @@ async def cdr_test_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['CDR_TEST_FETCH'], '📥')} <b>Test Fetch Result: {panel['panel_name']}</b>\n\n{msg}", reply_markup=kb, parse_mode='HTML')
 
 async def cdr_force(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4407,6 +4523,7 @@ async def cdr_force(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['CDR_FORCE_POLL'], '🔄')} <b>Force Poll Result: {panel['panel_name']}</b>\n\n{result}", reply_markup=kb, parse_mode='HTML')
 
 async def cdr_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4436,6 +4553,7 @@ async def cdr_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def cdr_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4466,6 +4584,7 @@ async def cdr_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= CDR LIST =================
 async def cdr_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    update_last_success()
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
@@ -4512,21 +4631,25 @@ async def start_all_cdr_panels():
 
 # ================= CDR WRAPPERS =================
 async def cdr_detail_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     panel_id = int(query.data.split('|')[1])
     await cdr_panel_detail(update, context, panel_id, user_id)
 
 async def cdr_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     await cdr_list(update, context, user_id)
 
 async def cdr_add_choice_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     await cdr_add_start(update, context, user_id)
 
 # ================= MANAGE API MENU =================
 async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    update_last_success()
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
             await update.answer("Admin mode required!", show_alert=True)
@@ -4546,6 +4669,7 @@ async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 
 # ================= API LIST (UNIFIED) =================
 async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    update_last_success()
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
@@ -4569,16 +4693,19 @@ async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def api_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     await api_list(update, context, user_id)
 
 # ================= API SYSTEM GRID WRAPPER =================
 async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     await api_system_grid(update, context, user_id)
 
 # ================= API DETAIL PAGE =================
 async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
+    update_last_success()
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
@@ -4612,6 +4739,7 @@ async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, ap
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
 async def api_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4632,6 +4760,7 @@ async def api_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await api_detail_page(update, context, api_id, user_id)
 
 async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
+    update_last_success()
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
@@ -4677,6 +4806,7 @@ async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
 async def api_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4705,6 +4835,7 @@ async def api_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TY
                                   parse_mode='HTML')
 
 async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4805,6 +4936,7 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} <b>Test Result: {config['panel_name']}</b>\n\n{result}", reply_markup=kb, parse_mode='HTML')
 
 async def api_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4834,6 +4966,7 @@ async def api_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4861,6 +4994,7 @@ async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def api_delete_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4879,6 +5013,7 @@ async def api_delete_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 async def api_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -4900,6 +5035,7 @@ async def api_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await api_detail_page(update, context, api_id, user_id)
 
 async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
@@ -5003,22 +5139,26 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= WRAPPERS =================
 async def api_detail_page_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     api_id = int(query.data.split('|')[1])
     await api_detail_page(update, context, api_id, user_id)
 
 async def api_edit_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     query = update.callback_query
     user_id = query.from_user.id
     api_id = int(query.data.split('|')[1])
     await api_edit_menu(update, context, api_id, user_id)
 
 async def api_add_start_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     await api_add_start(update, context, user_id)
 
 async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     await manage_api_menu(update, context, user_id)
 
@@ -5367,6 +5507,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
 
 # ================= GENERIC TEXT HANDLER =================
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     if not update.message or not update.message.text:
         return
     if await handle_admin_text(update, context):
@@ -5393,6 +5534,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_admin_panel_msg(update, context)
 
 async def handle_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_success()
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
     if not state or not state.startswith("api_edit_value_"):
@@ -5460,7 +5602,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 application = None
 
 def main():
+    os.system('cls' if os.name == 'nt' else 'clear')
     global application, last_success_time
+    last_success_time = datetime.now()
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_all_documents), group=0)
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
@@ -5569,12 +5713,22 @@ def main():
         application.job_queue.run_repeating(periodic_json_save, interval=60, first=10)
 
     async def start_api_tasks(app):
-        print("🚀 Starting added API polling tasks...")
-        await start_all_polling()
-        print("🚀 Starting CDR panel polling tasks...")
-        await start_all_cdr_panels()
-        # Start watchdog
-        asyncio.create_task(watchdog_task())
+        update_last_success()
+        print("🚀 Checking for configured API/CDR panels...")
+        
+        apis = db_fetch_all("SELECT id FROM api_keys WHERE active = 1")
+        cdrs = db_fetch_all("SELECT id FROM cdr_panels WHERE active = 1")
+        
+        if not apis and not cdrs:
+            print("ℹ️ No active API or CDR panels found. Polling not started.")
+            return
+        
+        if apis:
+            print(f"🚀 Starting {len(apis)} API polling tasks...")
+            await start_all_polling()
+        if cdrs:
+            print(f"🚀 Starting {len(cdrs)} CDR panel polling tasks...")
+            await start_all_cdr_panels()
 
     application.post_init = start_api_tasks
 
@@ -5582,7 +5736,7 @@ def main():
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
     print("✅ Full bot started with Multi-API System, Country Map, and NON API CDR Panel support.")
     print("🔄 Starting polling...")
-    last_success_time = datetime.now()
+    asyncio.create_task(watchdog_task())
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
