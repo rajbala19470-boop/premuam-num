@@ -553,7 +553,7 @@ admin_temp_data = {}
 last_activation_data = {}
 polling_tasks = {}
 cdr_polling_tasks = {}
-polling_cycle_counts = {}  # track cycle per panel
+polling_cycle_counts = {}
 
 # ================= WATCHDOG =================
 last_success_time = datetime.now()
@@ -4067,7 +4067,6 @@ async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=kb, parse_mode='HTML'
     )
 
-
 async def cdr_fetch_once(panel: dict) -> list[dict]:
     """Fetch OTPs from SMSCDR page using stored cookies; auto-login if needed."""
     max_retries = 2
@@ -4205,7 +4204,6 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
 
                     otp = extract_otp_from_message(message)
                     if not otp:
-                        # store as N/A
                         otp = "N/A"
 
                     country = get_country_from_number(number)
@@ -5402,7 +5400,7 @@ def format_group_otp_rich(entry):
     }
     return html, keyboard
 
-# ================= OTP PROCESSING =================
+# ================= OTP PROCESSING (1 SECOND DEDUPLICATION) =================
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
         current_ts = datetime.strptime(current_ts_str, "%Y-%m-%d %H:%M:%S")
@@ -5417,7 +5415,7 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     except:
         return False
     diff = abs((current_ts - last_ts).total_seconds())
-    return diff <= 5.0  # 5 seconds window
+    return diff <= 1.0  # 1 second window
 
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
     if context:
@@ -5466,8 +5464,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         if not number:
             return 0
 
-        # ---------- DEDUPLICATION ----------
-        # 1. Check if this exact OTP for this number already exists in the last 5 minutes
+        # DEDUPLICATION: 1 second window
         existing = db_fetch_one(
             "SELECT id, timestamp FROM otps WHERE number=? AND otp=? AND (user_id=0 OR user_id>0) ORDER BY timestamp DESC LIMIT 1",
             (number, otp_code)
@@ -5475,43 +5472,32 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         if existing:
             try:
                 last_ts = datetime.strptime(existing[1], "%Y-%m-%d %H:%M:%S")
-                if (now - last_ts).total_seconds() < 1:  # 5 minutes
-                    return 0  # duplicate, skip
+                if (now - last_ts).total_seconds() < 1:
+                    return 0
             except:
                 pass
 
-        # 2. Check if user already received this OTP for this number
-        user_exists = db_fetch_one(
-            "SELECT id FROM otps WHERE number=? AND otp=? AND user_id>0",
-            (number, otp_code)
-        )
-        if user_exists:
-            # already sent to some user, but we still might want to send to others? 
-            # Actually we only send to assigned users, so if any user got it, we skip for all? 
-            # Better: we check per user later.
-
-        # Insert into global OTPs if new
         if not existing:
             db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
                     (number, otp_code, message, otp_timestamp_str))
-
-        # Also send to group if new
-        if not existing and group_ids:
-            try:
-                grp_html, grp_kb_dict = format_group_otp_rich({
-                    "number": number,
-                    "otp": otp_code,
-                    "service": service_name,
-                    "country_code": otp_entry.get("country_code", ""),
-                    "country": otp_entry.get("country", ""),
-                    "message": message
-                })
-                for gid in group_ids:
-                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
-                    payload = {"chat_id": gid, "rich_message": {"html": grp_html}, "reply_markup": grp_kb_dict}
-                    requests.post(url, json=payload, timeout=10)
-            except Exception as e:
-                print(f"Group Rich message failed: {e}")
+            
+            # Send to group only if new globally
+            if group_ids:
+                try:
+                    grp_html, grp_kb_dict = format_group_otp_rich({
+                        "number": number,
+                        "otp": otp_code,
+                        "service": service_name,
+                        "country_code": otp_entry.get("country_code", ""),
+                        "country": otp_entry.get("country", ""),
+                        "message": message
+                    })
+                    for gid in group_ids:
+                        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
+                        payload = {"chat_id": gid, "rich_message": {"html": grp_html}, "reply_markup": grp_kb_dict}
+                        requests.post(url, json=payload, timeout=10)
+                except Exception as e:
+                    print(f"Group Rich message failed: {e}")
 
         clean_number = number.replace('+', '')
         local_tasks = []
@@ -5533,7 +5519,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 user_otp_exists = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=?", (number, otp_code, uid))
                 if user_otp_exists:
                     continue
-                # Also check if same OTP was sent to this user within last 5 minutes
                 user_recent = db_fetch_one(
                     "SELECT timestamp FROM otps WHERE number=? AND otp=? AND user_id=? ORDER BY timestamp DESC LIMIT 1",
                     (number, otp_code, uid)
@@ -5546,7 +5531,7 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     except:
                         pass
 
-                # All checks passed – send to user
+                # Send to user
                 country_data = get_country_info(country)
                 payout_str = country_data.get("payout", "0.001$")
                 try:
@@ -5571,16 +5556,14 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 )
                 button = InlineKeyboardMarkup([[InlineKeyboardButton(text=otp_code, copy_text=CopyTextButton(text=otp_code), style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon("5330115548900501467"))]])
                 local_tasks.append(safe_send_message(uid, header, button))
-                new_otp_count += 1  # count only if we actually send to a user
+                new_otp_count += 1
 
         if local_tasks:
             await asyncio.gather(*local_tasks)
-        return 1 if existing is None else 0  # global new count (for logging)
+        return 1 if existing is None else 0
 
     tasks = [process_single_otp(otp) for otp in otps_list]
     results = await asyncio.gather(*tasks)
-    # new_otp_count already incremented per user, but we need to count globally new OTPs
-    # Let's just return sum of results (global new)
     total_global_new = sum(results)
     save_user_data_json()
     return total_global_new
@@ -5795,8 +5778,6 @@ def main():
     async def start_api_tasks(app):
         update_last_success()
         print("🚀 Checking for configured API/CDR panels...")
-        
-        # ✅ Start watchdog here (event loop is running)
         asyncio.create_task(watchdog_task())
         
         apis = db_fetch_all("SELECT id FROM api_keys WHERE active = 1")
@@ -5819,7 +5800,6 @@ def main():
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
     print("✅ Full bot started with Multi-API System, Country Map, and NON API CDR Panel support.")
     print("🔄 Starting polling...")
-    # ❌ Removed asyncio.create_task(watchdog_task()) from here
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
