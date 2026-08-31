@@ -5051,13 +5051,574 @@ async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_
     user_id = update.effective_user.id
     await api_system_grid(update, context, user_id)
 
-# ==================== API DETAIL WRAPPER (unchanged) ====================
+# ==================== API DETAIL PAGE ====================
 
-async def api_detail_page_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
+    if not is_admin(user_id):
+        await update.answer("Admin only!", show_alert=True)
+        return
+    config = get_api_config(api_id)
+    if not config:
+        await update.answer("API not found!", show_alert=True)
+        return
+
+    admin_panel_state[user_id] = f"api_detail_{api_id}"
+
+    header = f"{emoji_tag(CUSTOM_EMOJIS['MANAGE_API'], '🔧')} <b>Manage: {config['panel_name']}</b>"
+    info = (
+        f"{emoji_tag(CUSTOM_EMOJIS['API_STATUS_ACTIVE'] if config['active'] else CUSTOM_EMOJIS['API_STATUS_INACTIVE'], '🟢' if config['active'] else '🔴')} Status: <b>{'ACTIVE' if config['active'] else 'INACTIVE'}</b>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_TODAY_OTP'], '📈')} Today's OTP: <code>{config.get('total_otps', 0)}</code>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_LAST_POLL'], '⏰')} Last Poll: <code>{config.get('last_poll_time', 'Never')}</code>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_ERROR_COUNT'], '❌')} Errors: <code>{config.get('error_count', 0)}</code>"
+    )
+
+    btns = []
+    if config['active']:
+        btns.append(InlineKeyboardButton(
+            "STOP POLLING",
+            callback_data=f"api_toggle|{api_id}",
+            style=KBS.DANGER,
+            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_STOP_POLL", ""))
+        ))
+    else:
+        btns.append(InlineKeyboardButton(
+            "START POLLING",
+            callback_data=f"api_toggle|{api_id}",
+            style=KBS.SUCCESS,
+            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_START_POLL", ""))
+        ))
+
+    btns.append(InlineKeyboardButton(
+        "EDIT",
+        callback_data=f"api_edit|{api_id}",
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", ""))
+    ))
+    btns.append(InlineKeyboardButton(
+        "TEST",
+        callback_data=f"api_test|{api_id}",
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_TEST", ""))
+    ))
+    btns.append(InlineKeyboardButton(
+        "STATS",
+        callback_data=f"api_stats|{api_id}",
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_STATS", ""))
+    ))
+    btns.append(InlineKeyboardButton(
+        "LOGS",
+        callback_data=f"api_logs|{api_id}",
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_LOGS", ""))
+    ))
+    btns.append(InlineKeyboardButton(
+        "DELETE",
+        callback_data=f"api_delete|{api_id}",
+        style=KBS.DANGER,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", ""))
+    ))
+    btns.append(InlineKeyboardButton(
+        "FORCE POLL",
+        callback_data=f"api_force|{api_id}",
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_FORCE_POLL", ""))
+    ))
+    btns.append(InlineKeyboardButton(
+        "BACK TO LIST",
+        callback_data="api_system",
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))
+    ))
+
+    rows = [[btn] for btn in btns]
+    sep = emoji_tag(CUSTOM_EMOJIS["API_SEPARATOR"], "➖") * 20
+    text = f"{header}\n\n{info}\n\n{sep}\n\n"
+    await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
+
+# ==================== API TOGGLE ====================
+async def api_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
     api_id = int(query.data.split('|')[1])
+    config = get_api_config(api_id)
+    if not config:
+        await query.answer("API not found!", show_alert=True)
+        return
+
+    if config['active']:
+        await stop_polling_for_api(api_id)
+        await query.answer("Polling stopped.")
+    else:
+        db_exec("UPDATE api_keys SET active = 1 WHERE id = ?", (api_id,))
+        await start_polling_for_api(api_id)
+        await query.answer("Polling started.")
+
     await api_detail_page(update, context, api_id, user_id)
+
+# ==================== API EDIT MENU ====================
+
+async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
+    if not is_admin(user_id):
+        await update.answer("Admin only!", show_alert=True)
+        return
+    config = get_api_config(api_id)
+    if not config:
+        await update.answer("API not found!", show_alert=True)
+        return
+
+    admin_panel_state[user_id] = f"api_edit_{api_id}"
+
+    fields = [
+        ("NAME", "API_FIELD_NAME", "panel_name", KBS.SUCCESS),
+        ("BASE URL", "API_FIELD_URL", "base_url", KBS.SUCCESS),
+        ("ENDPOINT", "API_FIELD_ENDPOINT", "endpoint", KBS.SUCCESS),
+        ("TOKEN", "API_FIELD_TOKEN", "token", KBS.SUCCESS),
+        ("METHOD", "API_FIELD_METHOD", "method", KBS.SUCCESS),
+        ("INTERVAL", "API_FIELD_INTERVAL", "interval_sec", KBS.SUCCESS),
+        ("MAX RECORDS", "API_FIELD_RECORDS", "max_records", KBS.PRIMARY),
+        ("RETRY COUNT", "API_FIELD_RETRY", "retry_count", KBS.PRIMARY),
+        ("OTP LIST PATH", "API_FIELD_OTP_PATH", "otp_list_path", KBS.PRIMARY),
+        ("NUMBER PATH", "API_FIELD_NUMBER", "number_path", KBS.PRIMARY),
+        ("MESSAGE PATH", "API_FIELD_MESSAGE", "message_path", KBS.PRIMARY),
+        ("COUNTRY PATH", "API_FIELD_COUNTRY", "country_path", KBS.PRIMARY),
+        ("SERVICE PATH", "API_FIELD_SERVICE", "service_path", KBS.PRIMARY),
+        ("TIMESTAMP PATH", "API_FIELD_TIMESTAMP", "timestamp_path", KBS.PRIMARY),
+        ("SUCCESS PATH", "API_FIELD_SUCCESS_PATH", "success_path", KBS.PRIMARY),
+        ("SUCCESS VALUE", "API_FIELD_SUCCESS_VALUE", "success_value", KBS.PRIMARY),
+        ("PLACEHOLDERS", "API_FIELD_PLACEHOLDERS", "placeholder_config", KBS.PRIMARY),
+    ]
+
+    rows = []
+    for label, emoji_key, field, style in fields:
+        value = config.get(field, "")
+        if field == "placeholder_config":
+            try:
+                value = json.loads(value) if value else {}
+                display_value = ", ".join([f"{k}={v}" for k, v in value.items()]) if value else "None"
+            except:
+                display_value = str(value)[:20]
+        else:
+            display_value = str(value)[:30] + "..." if len(str(value)) > 30 else value
+        rows.append([InlineKeyboardButton(
+            f"{label}: {display_value}",
+            callback_data=f"api_edit_field|{api_id}|{field}",
+            style=style,
+            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get(emoji_key, ""))
+        )])
+
+    rows.append([
+        InlineKeyboardButton(
+            "BACK TO DETAIL",
+            callback_data=f"api_detail|{api_id}",
+            style=KBS.DANGER,
+            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))
+        )
+    ])
+
+    text = f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} <b>Edit Configuration: {config['panel_name']}</b>\n\nSelect a field to edit:"
+    await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
+
+# ==================== API EDIT FIELD PROMPT ====================
+
+async def api_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    data = query.data.split('|')
+    api_id = int(data[1])
+    field = data[2]
+    config = get_api_config(api_id)
+    if not config:
+        await query.answer("API not found!", show_alert=True)
+        return
+
+    admin_temp_data[user_id] = {"api_id": api_id, "field": field, "current": config.get(field)}
+    admin_panel_state[user_id] = f"api_edit_value_{api_id}"
+
+    current_val = config.get(field, "")
+    if field == "placeholder_config":
+        try:
+            current_val = json.loads(current_val) if current_val else {}
+            display_val = "\n".join([f"{k}: {v}" for k, v in current_val.items()]) if current_val else "None"
+        except:
+            display_val = str(current_val)
+    else:
+        display_val = str(current_val)
+
+    await query.edit_message_text(
+        f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} Edit <b>{field}</b>\n\nCurrent value:\n<code>{display_val}</code>\n\nSend new value (or /cancel):",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Cancel", callback_data=f"api_edit|{api_id}", style=KBS.DANGER,
+                                  icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
+        ]),
+        parse_mode='HTML'
+    )
+
+# ==================== API TEST ====================
+
+async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    api_id = int(query.data.split('|')[1])
+    config = get_api_config(api_id)
+    if not config:
+        await query.answer("API not found!", show_alert=True)
+        return
+
+    await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} Testing <b>{config['panel_name']}</b> ...", parse_mode='HTML')
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            method = config.get('method', 'GET')
+            base_url = config.get('base_url', '')
+            endpoint = config.get('endpoint', '/')
+            headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
+            body_template = config.get('body_template')
+            token = config.get('token', '')
+            curl_command = config.get('curl_command')
+            otp_list_path = config.get('otp_list_path', 'data')
+            
+            placeholders = {}
+            user_placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
+            placeholders.update(user_placeholders)
+            if base_url:
+                placeholders["API_BASE"] = base_url
+                placeholders["BASE_URL"] = base_url
+                placeholders["API_URL"] = base_url
+                placeholders["API"] = base_url
+                placeholders["URL"] = base_url
+            if token:
+                placeholders["TOKEN"] = token
+                placeholders["YOUR_TOKEN"] = token
+                placeholders["API_TOKEN"] = token
+                placeholders["AUTH_TOKEN"] = token
+            placeholders["RECORDS"] = str(config.get('max_records', 200))
+            
+            if curl_command:
+                parsed = parse_curl_complete(curl_command)
+                parsed["placeholders"].update(placeholders)
+                request = build_request_from_curl(parsed, placeholders)
+                url = request["url"]
+                method = request["method"]
+                headers = request["headers"]
+                data = request["data"]
+            else:
+                url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
+                for key, value in placeholders.items():
+                    url = url.replace(f"{{{key}}}", str(value))
+                for key, value in headers.items():
+                    if isinstance(value, str):
+                        for ph_key, ph_value in placeholders.items():
+                            value = value.replace(f"{{{ph_key}}}", str(ph_value))
+                        headers[key] = value
+                data = None
+                if body_template:
+                    try:
+                        data = json.loads(body_template)
+                        if data:
+                            data_str = json.dumps(data)
+                            for ph_key, ph_value in placeholders.items():
+                                data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
+                            data = json.loads(data_str)
+                    except:
+                        data = body_template
+
+            if method.upper() == 'GET':
+                async with session.get(url, headers=headers, timeout=30) as response:
+                    raw_bytes = await response.read()
+                    status = response.status
+            elif method.upper() == 'POST':
+                async with session.post(url, headers=headers, json=data, timeout=30) as response:
+                    raw_bytes = await response.read()
+                    status = response.status
+            else:
+                async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
+                    raw_bytes = await response.read()
+                    status = response.status
+
+            # Decode with fallback
+            try:
+                text = raw_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    text = raw_bytes.decode('latin-1')
+                except:
+                    text = raw_bytes.decode('utf-8', errors='ignore')
+
+            if status == 200:
+                config['otp_list_path'] = otp_list_path
+                otps = ResponseParser.parse_response(text, config)
+                if otps:
+                    sample = "\n".join([
+                        f"{emoji_tag(CUSTOM_EMOJIS['API_OTP_COUNT'], '📨')} {i+1}. {otp.get('number', 'N/A')} – OTP: {otp.get('otp', '?')}"
+                        for i, otp in enumerate(otps[:5])
+                    ])
+                    more = f"\n... and {len(otps)-5} more" if len(otps) > 5 else ""
+                    result = f"✅ Found <b>{len(otps)}</b> OTP(s)\n\n{sample}{more}"
+                else:
+                    result = "✅ API responded but no OTPs found.\n\nRaw response (first 300 chars):\n<code>" + text[:300] + "</code>"
+            else:
+                result = f"❌ Error: HTTP {status}\n\nResponse:\n<code>{text[:500]}</code>"
+    except Exception as e:
+        result = f"❌ Exception: {str(e)}"
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Back", callback_data=f"api_detail|{api_id}", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
+    ])
+    await query.edit_message_text(
+        f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} <b>Test Result: {config['panel_name']}</b>\n\n{result}",
+        reply_markup=kb,
+        parse_mode='HTML'
+    )
+
+# ==================== API STATS ====================
+
+async def api_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    api_id = int(query.data.split('|')[1])
+    config = get_api_config(api_id)
+    if not config:
+        await query.answer("API not found!", show_alert=True)
+        return
+
+    total_otps = config.get('total_otps', 0)
+    last_otp_time = config.get('last_otp_time', 'Never')
+    today = datetime.now().strftime("%Y-%m-%d")
+    today_otps = db_fetch_one("SELECT SUM(otp_count) FROM api_logs WHERE api_id = ? AND timestamp LIKE ? AND status = 'success'",
+                              (api_id, f"{today}%"))[0] or 0
+    logs = db_fetch_all("SELECT status FROM api_logs WHERE api_id = ? ORDER BY timestamp DESC LIMIT 50", (api_id,))
+    success = sum(1 for log in logs if log[0] == 'success')
+    rate = (success / len(logs) * 100) if logs else 0
+
+    text = (
+        f"{emoji_tag(CUSTOM_EMOJIS['API_STATS'], '📊')} <b>Statistics: {config['panel_name']}</b>\n\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_TOTAL_OTP'], '📊')} Total OTP: <code>{total_otps}</code>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_TODAY_OTP'], '📈')} Today's OTP: <code>{today_otps}</code>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_SUCCESS_RATE'], '🏆')} Success Rate (last 50): <code>{rate:.1f}%</code>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_LAST_POLL'], '⏰')} Last OTP: <code>{last_otp_time}</code>"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Back", callback_data=f"api_detail|{api_id}", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
+    ])
+    await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+
+# ==================== API LOGS ====================
+
+async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    api_id = int(query.data.split('|')[1])
+    config = get_api_config(api_id)
+    if not config:
+        await query.answer("API not found!", show_alert=True)
+        return
+
+    logs = db_fetch_all("SELECT timestamp, status, message, otp_count FROM api_logs WHERE api_id = ? ORDER BY timestamp DESC LIMIT 10", (api_id,))
+    if not logs:
+        lines = ["No logs yet."]
+    else:
+        lines = []
+        for ts, status, msg, count in logs:
+            emoji = "✅" if status == "success" else "❌"
+            count_str = f"{count} OTPs" if status == "success" else ""
+            lines.append(f"{emoji} <code>{ts}</code> – {msg} {count_str}")
+    text = f"{emoji_tag(CUSTOM_EMOJIS['API_LOGS'], '📜')} <b>Polling Logs: {config['panel_name']}</b>\n\n" + "\n".join(lines[:10])
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Refresh", callback_data=f"api_logs|{api_id}", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_FORCE_POLL", "")))],
+        [InlineKeyboardButton("Back", callback_data=f"api_detail|{api_id}", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
+    ])
+    await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+
+# ==================== API DELETE ====================
+
+async def api_delete_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    api_id = int(query.data.split('|')[1])
+    config = get_api_config(api_id)
+    if not config:
+        await query.answer("API not found!", show_alert=True)
+        return
+
+    text = (
+        f"{emoji_tag(CUSTOM_EMOJIS['DELETE'], '🗑️')} <b>Confirm Delete</b>\n\n"
+        f"Are you sure you want to delete API <b>{config['panel_name']}</b>?\n"
+        f"This will remove all configuration and stop polling."
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("YES, DELETE", callback_data=f"api_delete_yes|{api_id}", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "")))],
+        [InlineKeyboardButton("NO, CANCEL", callback_data=f"api_delete_no|{api_id}", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "")))]
+    ])
+    await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+
+async def api_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    data = query.data.split('|')
+    api_id = int(data[1])
+    action = data[0]
+
+    if action == "api_delete_yes":
+        if api_id in polling_tasks:
+            polling_tasks[api_id].cancel()
+            del polling_tasks[api_id]
+        db_exec("DELETE FROM api_keys WHERE id = ?", (api_id,))
+        db_exec("DELETE FROM api_logs WHERE api_id = ?", (api_id,))
+        await query.answer("API deleted.")
+        await api_system_grid(update, context, user_id)
+    else:
+        await query.answer("Cancelled.")
+        await api_detail_page(update, context, api_id, user_id)
+
+# ==================== API FORCE POLL ====================
+
+async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    api_id = int(query.data.split('|')[1])
+    config = get_api_config(api_id)
+    if not config:
+        await query.answer("API not found!", show_alert=True)
+        return
+
+    await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_FORCE_POLL'], '🔄')} Force polling <b>{config['panel_name']}</b> ...", parse_mode='HTML')
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            method = config.get('method', 'GET')
+            base_url = config.get('base_url', '')
+            endpoint = config.get('endpoint', '/')
+            headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
+            body_template = config.get('body_template')
+            token = config.get('token', '')
+            curl_command = config.get('curl_command')
+            otp_list_path = config.get('otp_list_path', 'data')
+            
+            placeholders = {}
+            user_placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
+            placeholders.update(user_placeholders)
+            if base_url:
+                placeholders["API_BASE"] = base_url
+                placeholders["BASE_URL"] = base_url
+                placeholders["API_URL"] = base_url
+                placeholders["API"] = base_url
+                placeholders["URL"] = base_url
+            if token:
+                placeholders["TOKEN"] = token
+                placeholders["YOUR_TOKEN"] = token
+                placeholders["API_TOKEN"] = token
+                placeholders["AUTH_TOKEN"] = token
+            placeholders["RECORDS"] = str(config.get('max_records', 200))
+            
+            if curl_command:
+                parsed = parse_curl_complete(curl_command)
+                parsed["placeholders"].update(placeholders)
+                request = build_request_from_curl(parsed, placeholders)
+                url = request["url"]
+                method = request["method"]
+                headers = request["headers"]
+                data = request["data"]
+            else:
+                url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
+                for key, value in placeholders.items():
+                    url = url.replace(f"{{{key}}}", str(value))
+                for key, value in headers.items():
+                    if isinstance(value, str):
+                        for ph_key, ph_value in placeholders.items():
+                            value = value.replace(f"{{{ph_key}}}", str(ph_value))
+                        headers[key] = value
+                data = None
+                if body_template:
+                    try:
+                        data = json.loads(body_template)
+                        if data:
+                            data_str = json.dumps(data)
+                            for ph_key, ph_value in placeholders.items():
+                                data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
+                            data = json.loads(data_str)
+                    except:
+                        data = body_template
+
+            if method.upper() == 'GET':
+                async with session.get(url, headers=headers, timeout=30) as response:
+                    raw_bytes = await response.read()
+                    status = response.status
+            elif method.upper() == 'POST':
+                async with session.post(url, headers=headers, json=data, timeout=30) as response:
+                    raw_bytes = await response.read()
+                    status = response.status
+            else:
+                async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
+                    raw_bytes = await response.read()
+                    status = response.status
+
+            # Decode with fallback
+            try:
+                text = raw_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    text = raw_bytes.decode('latin-1')
+                except:
+                    text = raw_bytes.decode('utf-8', errors='ignore')
+
+            if status == 200:
+                config['otp_list_path'] = otp_list_path
+                otps = ResponseParser.parse_response(text, config)
+                if otps:
+                    new_count = await process_otps(otps, bot=context.bot)
+                    if new_count > 0:
+                        db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
+                                (new_count, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
+                    result = f"✅ Found and processed <b>{new_count}</b> new OTP(s)."
+                else:
+                    result = "✅ API responded, but no OTPs found."
+            else:
+                result = f"❌ Error: HTTP {status}"
+    except Exception as e:
+        result = f"❌ Exception: {str(e)}"
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Back", callback_data=f"api_detail|{api_id}", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
+    ])
+    await query.edit_message_text(
+        f"{emoji_tag(CUSTOM_EMOJIS['API_FORCE_POLL'], '🔄')} <b>Force Poll Result: {config['panel_name']}</b>\n\n{result}",
+        reply_markup=kb,
+        parse_mode='HTML'
+    )
+
+# ==================== API EDIT MENU WRAPPER ====================
 
 async def api_edit_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -5073,8 +5634,165 @@ async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_
     user_id = update.effective_user.id
     await manage_api_menu(update, context, user_id)
 
-# ==================== COUNTRY CODE MAP (ONLY 2 COUNTRIES) ====================
-# You can add your full country map here later
+# ==================== API DETAIL WRAPPER ====================
+
+async def api_detail_page_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    api_id = int(query.data.split('|')[1])
+    await api_detail_page(update, context, api_id, user_id)
+
+# ==================== API ADD START WRAPPER ====================
+
+async def api_add_start_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await api_add_start(update, context, user_id)
+
+# ==================== RESPONSE PARSER ====================
+
+class ResponseParser:
+    @staticmethod
+    def _get_json_path(data, path, default=None):
+        if not path:
+            return data
+        parts = path.split('.')
+        current = data
+        for part in parts:
+            if part.isdigit():
+                try:
+                    idx = int(part)
+                    if isinstance(current, list) and idx < len(current):
+                        current = current[idx]
+                    else:
+                        return default
+                except:
+                    return default
+            elif isinstance(current, dict):
+                if part in current:
+                    current = current[part]
+                else:
+                    found = False
+                    for key in current:
+                        if key.lower() == part.lower():
+                            current = current[key]
+                            found = True
+                            break
+                    if not found:
+                        return default
+            else:
+                return default
+        return current if current is not None else default
+
+    @staticmethod
+    def parse_json_response(content: dict, config: dict) -> list[dict]:
+        otp_list_path = config.get('otp_list_path', 'data')
+        if not otp_list_path:
+            data = content
+        else:
+            data = ResponseParser._get_json_path(content, otp_list_path)
+        
+        if data is None:
+            for key, value in content.items():
+                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                    data = value
+                    break
+            if data is None:
+                return []
+        
+        if isinstance(data, dict):
+            data = [data]
+        if not isinstance(data, list):
+            return []
+        
+        result = []
+        number_path = config.get('number_path')
+        message_path = config.get('message_path')
+        service_path = config.get('service_path')
+        timestamp_path = config.get('timestamp_path')
+        country_path = config.get('country_path')
+        
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            
+            entry = {}
+            if number_path:
+                entry["number"] = ResponseParser._get_json_path(item, number_path, "")
+            if message_path:
+                entry["message"] = ResponseParser._get_json_path(item, message_path, "")
+            else:
+                # If no message_path, try to find a long string field
+                for key, value in item.items():
+                    if isinstance(value, str) and len(value) > 10:
+                        entry["message"] = value
+                        break
+            if service_path:
+                entry["service"] = ResponseParser._get_json_path(item, service_path, "")
+            if timestamp_path:
+                entry["timestamp"] = ResponseParser._get_json_path(item, timestamp_path, "")
+            if country_path:
+                entry["country"] = ResponseParser._get_json_path(item, country_path, "")
+            
+            # If we have a message but no explicit OTP, try to extract OTP
+            if "message" in entry and entry["message"]:
+                otp = extract_otp_from_message(entry["message"])
+                if otp:
+                    entry["otp"] = otp
+            # If we still don't have an OTP, we might get it from a field named "otp" or "code"
+            if "otp" not in entry:
+                # Try to find an OTP field in item
+                for key in ["otp", "code", "pin", "password"]:
+                    if key in item and item[key]:
+                        entry["otp"] = str(item[key])
+                        break
+            
+            entry = {k: v for k, v in entry.items() if v}
+            if entry.get("number") or entry.get("otp"):
+                result.append(entry)
+        
+        return result
+
+    @staticmethod
+    def parse_response(content, config: dict) -> list[dict]:
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except:
+                # If not JSON, use the universal extractor on raw text
+                otps = extract_all_otps_from_message(content)
+                # Build entries for each potential OTP
+                if otps:
+                    return [{"message": content[:200], "otp": otp} for otp in otps]
+                else:
+                    return [{"message": content[:200], "otp": "N/A"}]
+        if isinstance(content, dict):
+            return ResponseParser.parse_json_response(content, config)
+        return []
+
+# ==================== GET API CONFIG ====================
+
+def get_api_config(api_id: int) -> dict | None:
+    row = db_fetch_one("""
+        SELECT id, panel_name, base_url, token, interval_sec, active,
+               endpoint, method, headers, body_template, response_type,
+               otp_list_path, number_path, message_path, country_path,
+               service_path, timestamp_path, success_path, success_value,
+               max_records, retry_count, retry_delay, error_count, last_poll_time,
+               total_otps, last_otp_time, placeholder_config, curl_command
+        FROM api_keys WHERE id = ?
+    """, (api_id,))
+    if not row:
+        return None
+    cols = ['id','panel_name','base_url','token','interval_sec','active',
+            'endpoint','method','headers','body_template','response_type',
+            'otp_list_path','number_path','message_path','country_path',
+            'service_path','timestamp_path','success_path','success_value',
+            'max_records','retry_count','retry_delay','error_count','last_poll_time',
+            'total_otps','last_otp_time','placeholder_config','curl_command']
+    return dict(zip(cols, row))
+
+# ==================== COUNTRY CODE MAP ====================
+# You can add your full country map here later (only two countries shown as minimal)
 COUNTRY_CODE_MAP = {
     "93": ("AF", "🇦🇫", "Afghanistan"),
     "355": ("AL", "🇦🇱", "Albania"),
@@ -5321,7 +6039,7 @@ def get_country_code(country_name):
             return iso
     return country_name.upper()[:2]
 
-# ==================== RICH MESSAGE GROUP OTP (FIXED) ====================
+# ==================== RICH MESSAGE GROUP OTP ====================
 
 def format_group_otp_rich(entry):
     number = entry.get("number", "")
@@ -5343,14 +6061,12 @@ def format_group_otp_rich(entry):
             country_emoji_id = row[0]
     # 2) If not, get from country data (countries.json) via ISO or name
     if not country_emoji_id:
-        # try to get country name from ISO
         country_name_from_iso = get_country_name_by_iso(country_iso) if country_iso else None
         if country_name_from_iso:
             country_info = get_country_info(country_name_from_iso)
             if country_info.get("emoji_id"):
                 country_emoji_id = country_info["emoji_id"]
         elif country_raw and country_raw not in ["?", "??"]:
-            # if we have country name directly (maybe from entry)
             country_info = get_country_info(country_raw)
             if country_info.get("emoji_id"):
                 country_emoji_id = country_info["emoji_id"]
@@ -5366,16 +6082,13 @@ def format_group_otp_rich(entry):
     
     # ---- SERVICE EMOJI: priority: group_emojis (manual override) -> services table -> default ----
     service_emoji_id = None
-    # 1) Check group_emojis (manual override)
     svc_row = db_fetch_one("SELECT emoji_id FROM group_emojis WHERE type='service' AND LOWER(key)=LOWER(?)", (service_name,))
     if svc_row and svc_row[0]:
         service_emoji_id = svc_row[0]
     else:
-        # 2) Check services table
         svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
         if svc_row and svc_row[0]:
             service_emoji_id = svc_row[0]
-    # 3) Default
     if not service_emoji_id:
         service_emoji_id = CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "6204108584381322968")
     
@@ -5437,24 +6150,7 @@ def format_group_otp_rich(entry):
     }
     return html, keyboard
 
-# ==================== GLOBAL HELPER FOR INLINE KEYBOARD FROM DICT ====================
-def build_inline_keyboard(keyboard_dict):
-    rows = []
-    for row in keyboard_dict.get("inline_keyboard", []):
-        buttons = []
-        for btn in row:
-            kwargs = {"text": btn.get("text", "")}
-            if "url" in btn:
-                kwargs["url"] = btn["url"]
-            if "callback_data" in btn:
-                kwargs["callback_data"] = btn["callback_data"]
-            if "copy_text" in btn:
-                kwargs["copy_text"] = CopyTextButton(text=btn["copy_text"]["text"])
-            buttons.append(InlineKeyboardButton(**kwargs))
-        rows.append(buttons)
-    return InlineKeyboardMarkup(rows)
-
-# ==================== OTP PROCESSING (FIXED - MULTI-GROUP, SENDS TO ALL GROUPS VIA sendRichMessage) ====================
+# ==================== OTP PROCESSING ====================
 
 def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     try:
@@ -5473,8 +6169,6 @@ def is_duplicate_otp_dm(number, otp_code, current_ts_str):
     return diff <= 0.5
 
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
-    """Process OTPs: send to multiple groups (using sendRichMessage) and to users.
-       Returns count of new OTPs processed."""
     if context:
         bot = context.bot
     if not bot:
@@ -5495,10 +6189,8 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         clean = num.replace('+', '')
         num_map.setdefault(clean, []).append((uid, country, assigned))
     
-    # Use global GROUP_IDS list
     group_ids = GROUP_IDS
-
-    semaphore = asyncio.Semaphore(50)  # concurrency increased
+    semaphore = asyncio.Semaphore(50)
     new_otp_count = 0
 
     async def safe_send_message(chat_id, text, reply_markup=None, parse_mode='HTML'):
@@ -5520,28 +6212,19 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
             if country:
                 otp_entry['country'] = country
         
-        # --- Extract OTP using the fixed function ---
-        otp_code = extract_otp_from_message(message)  # returns None if not found
+        otp_code = extract_otp_from_message(message)
         if otp_code is None:
-            # If still no OTP, try to get from entry (maybe API gave explicit field)
             otp_code = otp_entry.get("otp", "")
             if not otp_code:
-                # Final fallback: set to "N/A"
                 otp_code = "N/A"
-        else:
-            # OTP found, use it
-            pass
         
-        # If we got "N/A", we still proceed with N/A.
         if not number:
-            return 0  # skip if no number
+            return 0
 
         existing = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND (user_id=0 OR user_id>0)", (number, otp_code))
         is_new = existing is None
 
-        # Send to groups (if new) - using sendRichMessage
         if is_new and group_ids:
-            # Insert into DB even if N/A
             db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
                     (number, otp_code, message, otp_timestamp_str))
             try:
@@ -5553,7 +6236,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     "country": otp_entry.get("country", ""),
                     "message": message
                 })
-                # Send to each group using sendRichMessage (custom endpoint)
                 for gid in group_ids:
                     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendRichMessage"
                     payload = {
@@ -5565,7 +6247,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
             except Exception as e:
                 print(f"Group Rich message failed: {e}")
 
-        # Send to users (via bot.send_message)
         clean_number = number.replace('+', '')
         local_tasks = []
         if clean_number in num_map:
@@ -5625,165 +6306,12 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         
         return 1 if is_new else 0
 
-    # Process all OTPs in parallel
     tasks = [process_single_otp(otp) for otp in otps_list]
     results = await asyncio.gather(*tasks)
     new_otp_count = sum(results)
 
     save_user_data_json()
     return new_otp_count
-
-# ==================== RESPONSE PARSER (FIXED) ====================
-
-class ResponseParser:
-    @staticmethod
-    def _get_json_path(data, path, default=None):
-        if not path:
-            return data
-        parts = path.split('.')
-        current = data
-        for part in parts:
-            if part.isdigit():
-                try:
-                    idx = int(part)
-                    if isinstance(current, list) and idx < len(current):
-                        current = current[idx]
-                    else:
-                        return default
-                except:
-                    return default
-            elif isinstance(current, dict):
-                if part in current:
-                    current = current[part]
-                else:
-                    found = False
-                    for key in current:
-                        if key.lower() == part.lower():
-                            current = current[key]
-                            found = True
-                            break
-                    if not found:
-                        return default
-            else:
-                return default
-        return current if current is not None else default
-
-    @staticmethod
-    def parse_json_response(content: dict, config: dict) -> list[dict]:
-        otp_list_path = config.get('otp_list_path', 'data')
-        if not otp_list_path:
-            data = content
-        else:
-            data = ResponseParser._get_json_path(content, otp_list_path)
-        
-        if data is None:
-            for key, value in content.items():
-                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                    data = value
-                    break
-            if data is None:
-                return []
-        
-        if isinstance(data, dict):
-            data = [data]
-        if not isinstance(data, list):
-            return []
-        
-        result = []
-        number_path = config.get('number_path')
-        message_path = config.get('message_path')
-        service_path = config.get('service_path')
-        timestamp_path = config.get('timestamp_path')
-        country_path = config.get('country_path')
-        
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            
-            entry = {}
-            if number_path:
-                entry["number"] = ResponseParser._get_json_path(item, number_path, "")
-            if message_path:
-                entry["message"] = ResponseParser._get_json_path(item, message_path, "")
-            else:
-                # If no message_path, try to find a long string field
-                for key, value in item.items():
-                    if isinstance(value, str) and len(value) > 10:
-                        entry["message"] = value
-                        break
-            if service_path:
-                entry["service"] = ResponseParser._get_json_path(item, service_path, "")
-            if timestamp_path:
-                entry["timestamp"] = ResponseParser._get_json_path(item, timestamp_path, "")
-            if country_path:
-                entry["country"] = ResponseParser._get_json_path(item, country_path, "")
-            
-            # If we have a message but no explicit OTP, try to extract OTP
-            if "message" in entry and entry["message"]:
-                otp = extract_otp_from_message(entry["message"])
-                if otp:
-                    entry["otp"] = otp
-            # If we still don't have an OTP, we might get it from a field named "otp" or "code"
-            if "otp" not in entry:
-                # Try to find an OTP field in item
-                for key in ["otp", "code", "pin", "password"]:
-                    if key in item and item[key]:
-                        entry["otp"] = str(item[key])
-                        break
-            
-            entry = {k: v for k, v in entry.items() if v}
-            if entry.get("number") or entry.get("otp"):
-                result.append(entry)
-        
-        return result
-
-    @staticmethod
-    def parse_response(content, config: dict) -> list[dict]:
-        if isinstance(content, str):
-            try:
-                content = json.loads(content)
-            except:
-                # If not JSON, use the universal extractor on raw text
-                otps = extract_all_otps_from_message(content)
-                # Build entries for each potential OTP
-                if otps:
-                    return [{"message": content[:200], "otp": otp} for otp in otps]
-                else:
-                    return [{"message": content[:200], "otp": "N/A"}]
-        if isinstance(content, dict):
-            return ResponseParser.parse_json_response(content, config)
-        return []
-
-# ==================== GET API CONFIG ====================
-
-def get_country_from_number(number: str) -> str | None:
-    if not number:
-        return None
-    clean = number.replace('+', '').replace(' ', '').strip()
-    for code in sorted(COUNTRY_CODE_MAP.keys(), key=len, reverse=True):
-        if clean.startswith(code):
-            return COUNTRY_CODE_MAP[code][2]
-    return None
-
-def get_api_config(api_id: int) -> dict | None:
-    row = db_fetch_one("""
-        SELECT id, panel_name, base_url, token, interval_sec, active,
-               endpoint, method, headers, body_template, response_type,
-               otp_list_path, number_path, message_path, country_path,
-               service_path, timestamp_path, success_path, success_value,
-               max_records, retry_count, retry_delay, error_count, last_poll_time,
-               total_otps, last_otp_time, placeholder_config, curl_command
-        FROM api_keys WHERE id = ?
-    """, (api_id,))
-    if not row:
-        return None
-    cols = ['id','panel_name','base_url','token','interval_sec','active',
-            'endpoint','method','headers','body_template','response_type',
-            'otp_list_path','number_path','message_path','country_path',
-            'service_path','timestamp_path','success_path','success_value',
-            'max_records','retry_count','retry_delay','error_count','last_poll_time',
-            'total_otps','last_otp_time','placeholder_config','curl_command']
-    return dict(zip(cols, row))
 
 # ==================== GENERIC TEXT HANDLER ====================
 
@@ -5939,11 +6467,11 @@ def main():
     application.add_handler(CallbackQueryHandler(stock_toggle_do_callback, pattern=r"^stock_toggle_do\|"))
     application.add_handler(CallbackQueryHandler(stock_get_number_callback, pattern=r"^stock_get_number\|"))
 
-    # API Management
+    # API & CDR Management
     application.add_handler(CallbackQueryHandler(manage_api_menu_wrapper, pattern="^admin_manage_api$"))
     application.add_handler(CallbackQueryHandler(api_add_choice, pattern="^api_add_choice$"))
     application.add_handler(CallbackQueryHandler(api_choice_handler, pattern="^api_choice_(api|cdr)$"))
-    application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))  # kept for backward
+    application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))
     application.add_handler(CallbackQueryHandler(handle_api_add_skip, pattern="^api_add_skip$"))
     application.add_handler(CallbackQueryHandler(handle_api_add_cancel, pattern="^api_add_cancel$"))
     application.add_handler(CallbackQueryHandler(api_add_confirm_yes, pattern=r"^api_add_confirm_yes\|"))
@@ -5961,7 +6489,6 @@ def main():
     application.add_handler(CallbackQueryHandler(api_delete_confirm, pattern=r"^api_delete_(yes|no)\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_force_poll, pattern=r"^api_force\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
-    # CURL confirmation buttons
     application.add_handler(CallbackQueryHandler(api_add_curl_continue, pattern="^api_add_curl_continue$"))
     application.add_handler(CallbackQueryHandler(api_add_curl_cancel, pattern="^api_add_curl_cancel$"))
 
