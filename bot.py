@@ -4068,15 +4068,19 @@ async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def cdr_fetch_once(panel: dict) -> list[dict]:
-    """Fetch OTPs from SMSCDR page using stored cookies; auto-login if needed."""
+    """Fetch OTPs from SMSCDR page using stored cookies; auto-login only when needed."""
     max_retries = 2
     last_exception = None
     for attempt in range(max_retries):
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=["--disable-blink-features=AutomationControlled"]
+                )
                 context = await browser.new_context()
 
+                # Load saved cookies if available
                 cookie_data = panel.get('cookie_data')
                 if cookie_data:
                     try:
@@ -4087,12 +4091,13 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
 
                 page = await context.new_page()
 
-                # Go to login page first
+                # Step 1: Go to login page to check session
                 await page.goto(panel['login_url'], wait_until="domcontentloaded", timeout=60000)
                 await page.wait_for_timeout(2000)
 
+                # If still on login page, perform login
                 if "login" in page.url.lower():
-                    print(f"Panel {panel['id']}: Login required...")
+                    print(f"Panel {panel['id']}: Session expired, logging in...")
                     await page.locator("input[type='text']").first.fill(panel['username'])
                     await page.locator("input[type='password']").fill(panel['password'])
 
@@ -4115,34 +4120,42 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
                     if "login" in page.url.lower():
                         raise Exception("Login failed – still on login page")
 
+                    # Save fresh cookies
                     storage = await context.storage_state()
                     db_exec("UPDATE cdr_panels SET cookie_data = ? WHERE id = ?",
                             (json.dumps(storage), panel['id']))
-                    print(f"Panel {panel['id']}: Login successful.")
+                    print(f"Panel {panel['id']}: Login successful, cookies saved.")
+                else:
+                    print(f"Panel {panel['id']}: Session active, proceeding.")
 
-                # Now go to SMSCDR page
-                await page.goto(panel['smscdr_url'], wait_until="networkidle", timeout=60000)
+                # Step 2: Navigate to SMSCDR page (use domcontentloaded to avoid timeout)
+                try:
+                    await page.goto(panel['smscdr_url'], wait_until="domcontentloaded", timeout=60000)
+                except Exception as e:
+                    print(f"Panel {panel['id']}: Page.goto failed: {e}")
+                    await browser.close()
+                    raise Exception("Page crashed on goto")
+
                 await page.wait_for_timeout(3000)
 
-                # ---------- IMPROVED SHOW REPORT CLICK ----------
+                # Click "Show Report" if needed
                 show_btn = page.locator("button:has-text('Show Report'), input[value='Show Report']").first
                 try:
-                    await show_btn.wait_for(state="visible", timeout=10000)
-                    is_disabled = await show_btn.get_attribute("disabled")
-                    if is_disabled is None or is_disabled.lower() != "disabled":
-                        await show_btn.click(force=True, timeout=10000)
-                        print(f"Panel {panel['id']}: Show Report clicked")
-                        await page.wait_for_timeout(5000)
-                        try:
-                            await page.wait_for_load_state("networkidle", timeout=10000)
-                        except:
-                            pass
-                    else:
-                        print(f"Panel {panel['id']}: Show Report button is disabled")
+                    if await show_btn.count() > 0:
+                        await show_btn.wait_for(state="visible", timeout=10000)
+                        is_disabled = await show_btn.get_attribute("disabled")
+                        if is_disabled is None or is_disabled.lower() != "disabled":
+                            await show_btn.click(force=True, timeout=10000)
+                            print(f"Panel {panel['id']}: Show Report clicked")
+                            await page.wait_for_timeout(5000)
+                            try:
+                                await page.wait_for_load_state("networkidle", timeout=10000)
+                            except:
+                                pass
                 except Exception as e:
-                    print(f"Panel {panel['id']}: Show Report click failed - {e}, trying without click...")
+                    print(f"Panel {panel['id']}: Show Report click failed - {e}")
 
-                # Try to find table with retry
+                # Wait for table to appear (with retry)
                 table_found = False
                 for retry in range(3):
                     try:
@@ -4155,16 +4168,16 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
                     await page.wait_for_timeout(1000)
 
                 if not table_found:
-                    tables = await page.locator('table').count()
-                    if tables == 0:
-                        no_data = await page.locator("text='No data available'").count()
-                        if no_data > 0:
-                            await browser.close()
-                            return []
-                        await page.screenshot(path="no_table_found.png")
-                        print(f"Panel {panel['id']}: No table found")
+                    # Check if "No data" message
+                    no_data = await page.locator("text='No data available'").count()
+                    if no_data > 0:
                         await browser.close()
                         return []
+                    # If no table and no data, it might be an error – take screenshot
+                    await page.screenshot(path=f"panel_{panel['id']}_no_table.png")
+                    print(f"Panel {panel['id']}: No table found")
+                    await browser.close()
+                    return []
 
                 html = await page.content()
                 soup = BeautifulSoup(html, 'html.parser')
@@ -4228,6 +4241,7 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
             if attempt < max_retries - 1:
                 await asyncio.sleep(2)
             else:
+                # Last attempt: raise to let caller handle
                 raise last_exception
 
     return []
@@ -4235,6 +4249,7 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
 async def cdr_poll_loop(panel_id: int):
     if panel_id not in polling_cycle_counts:
         polling_cycle_counts[f"cdr_{panel_id}"] = 0
+    consecutive_failures = 0
     while True:
         try:
             update_last_success()
@@ -4246,26 +4261,40 @@ async def cdr_poll_loop(panel_id: int):
             cycle = polling_cycle_counts[f"cdr_{panel_id}"]
 
             otps = await cdr_fetch_once(panel)
-            if otps:
-                new_count = await process_otps(otps, bot=application.bot)
+            if otps is not None:
+                consecutive_failures = 0
+                new_count = len(otps)
                 if new_count > 0:
-                    db_exec("UPDATE cdr_panels SET total_otps = total_otps + ?, last_poll_time = ? WHERE id = ?",
-                            (new_count, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), panel_id))
+                    processed = await process_otps(otps, bot=application.bot)
+                    if processed > 0:
+                        db_exec("UPDATE cdr_panels SET total_otps = total_otps + ?, last_poll_time = ? WHERE id = ?",
+                                (processed, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), panel_id))
+                        logger.info(f"[CDR: {panel.get('panel_name', panel_id)}] 🔄 Polling cycle #{cycle} – ✅ Success ({processed} new OTPs)")
+                    else:
+                        logger.info(f"[CDR: {panel.get('panel_name', panel_id)}] 🔄 Polling cycle #{cycle} – ℹ️ Found {new_count} OTP(s), but no new ones")
+                else:
+                    logger.info(f"[CDR: {panel.get('panel_name', panel_id)}] 🔄 Polling cycle #{cycle} – ℹ️ No OTPs found")
                 db_exec("INSERT INTO cdr_logs (panel_id, timestamp, status, message, otp_count) VALUES (?, ?, 'success', ?, ?)",
                         (panel_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "OK", new_count))
                 db_exec("UPDATE cdr_panels SET error_count = 0 WHERE id = ?", (panel_id,))
-                logger.info(f"[CDR: {panel.get('panel_name', panel_id)}] 🔄 Polling cycle #{cycle} – ✅ Success ({new_count} OTPs)")
             else:
-                db_exec("INSERT INTO cdr_logs (panel_id, timestamp, status, message, otp_count) VALUES (?, ?, 'info', ?, 0)",
-                        (panel_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "No new OTPs", 0))
-                logger.info(f"[CDR: {panel.get('panel_name', panel_id)}] 🔄 Polling cycle #{cycle} – ℹ️ No new OTPs")
+                # fetch_once returned None (should not happen, but just in case)
+                pass
+
         except Exception as e:
             err_msg = str(e)[:200]
+            consecutive_failures += 1
             db_exec("INSERT INTO cdr_logs (panel_id, timestamp, status, message, otp_count) VALUES (?, ?, 'error', ?, 0)",
                     (panel_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), err_msg, 0))
             db_exec("UPDATE cdr_panels SET error_count = error_count + 1, last_error = ? WHERE id = ?",
                     (err_msg, panel_id))
             logger.error(f"[CDR: {panel.get('panel_name', panel_id)}] 🔄 Polling cycle #{cycle} – ❌ {err_msg}")
+            
+            # যদি ৩ বার কনসিকিউটিভ ব্যর্থ হয়, তাহলে কুকি রিসেট করে দেই (লগইন ফোর্স করি)
+            if consecutive_failures >= 3:
+                logger.warning(f"[CDR: {panel.get('panel_name', panel_id)}] ⚠️ 3 consecutive failures, clearing cookies...")
+                db_exec("UPDATE cdr_panels SET cookie_data = NULL WHERE id = ?", (panel_id,))
+                consecutive_failures = 0
             await asyncio.sleep(10)
         await asyncio.sleep(interval)
 
