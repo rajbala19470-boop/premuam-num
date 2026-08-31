@@ -21,6 +21,11 @@ from telegram.error import BadRequest
 
 from emoji import CUSTOM_EMOJIS
 
+# ---------- NEW IMPORTS FOR CDR PANELS ----------
+import aiohttp
+from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
+
 # ==================== CONFIGURATION ====================
 BOT_TOKEN = "8769374062:AAHTIxugF2XHffjlg6p2Xrd4Br-OUezroro"
 SUPER_ADMIN_IDS = [8744359777]
@@ -28,13 +33,13 @@ SUPER_ADMIN_IDS = [8744359777]
 AUTO_DELETE_DELAY = 2          # seconds (for normal messages)
 MAIN_MENU_DELETE = 120         # 2 minutes
 
-OTP_GROUP_URL = "https://t.me/NumberFlexOTP"
+OTP_GROUP_URL = "https://t.me/AIR_OTP"
 MIN_WITHDRAW = 0.1
 
 ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
-ADMIN2_TELEGRAM = "t.me/ABU_SAID_0_9"
+ADMIN2_TELEGRAM = ""
 
 # Multiple group IDs – you can define them as:
 #   A) a tuple/list of strings: GROUP_ID = "-1003716770621","-1001234567890"
@@ -178,6 +183,36 @@ SKIP_EMOJI = "6267262260243076354"  # ⏭
 # Database emoji (premium)
 DATABASE_EMOJI = "5818955300463447293"
 
+# ===== FIX: Add missing placeholder emoji =====
+CUSTOM_EMOJIS["API_FIELD_PLACEHOLDERS"] = "6267264360482084046"   # you can replace with your own premium ID
+
+# ============= NEW EMOJIS FOR CDR PANELS =============
+CUSTOM_EMOJIS["CDR_PANEL"] = "6206236607532504295"
+CUSTOM_EMOJIS["CDR_LOGIN_URL"] = "6285048454255220485"
+CUSTOM_EMOJIS["CDR_SMSCDR_URL"] = "6267172559851099903"
+CUSTOM_EMOJIS["CDR_USERNAME"] = "5818775306974006843"
+CUSTOM_EMOJIS["CDR_PASSWORD"] = "5821453562680448557"
+CUSTOM_EMOJIS["CDR_CAPTCHA"] = "5926860096008098405"
+CUSTOM_EMOJIS["CDR_SHOW_REPORT"] = "6206046503690048595"
+CUSTOM_EMOJIS["CDR_AJAX_LOAD"] = "6267264360482084046"
+CUSTOM_EMOJIS["CDR_SESSION_ACTIVE"] = "5339112148175959615"
+CUSTOM_EMOJIS["CDR_SESSION_EXPIRED"] = "5337017423906226569"
+CUSTOM_EMOJIS["CDR_FIELD_NUMBER"] = "5877410604225924969"
+CUSTOM_EMOJIS["CDR_FIELD_MESSAGE"] = "5980911993140284450"
+CUSTOM_EMOJIS["CDR_FIELD_TIMESTAMP"] = "6285240160120477644"
+CUSTOM_EMOJIS["CDR_FIELD_SERVICE"] = "5818967150278218011"
+CUSTOM_EMOJIS["CDR_FIELD_ROW"] = "4958506272551863292"
+CUSTOM_EMOJIS["CDR_STATS"] = "6266936886405633043"
+CUSTOM_EMOJIS["CDR_LOGS"] = "5818774589714468177"
+CUSTOM_EMOJIS["CDR_TEST_LOGIN"] = "5978568938156461643"
+CUSTOM_EMOJIS["CDR_TEST_FETCH"] = "6204108584381322968"
+CUSTOM_EMOJIS["CDR_FORCE_POLL"] = "6282893896796082998"
+CUSTOM_EMOJIS["CDR_ACTIVE"] = "5339112148175959615"
+CUSTOM_EMOJIS["CDR_INACTIVE"] = "5337017423906226569"
+CUSTOM_EMOJIS["CDR_DELETE"] = "6206108815075579644"
+CUSTOM_EMOJIS["CDR_EDIT"] = "6204162490515855272"
+CUSTOM_EMOJIS["CDR_BACK"] = "6118297066247558366"
+
 # ==================== DATABASE FOLDER ====================
 DB_DIR = "NUMBER-PANEL-DATA"
 os.makedirs(DB_DIR, exist_ok=True)
@@ -279,6 +314,39 @@ c.execute('''CREATE TABLE IF NOT EXISTS api_logs
               message TEXT,
               otp_count INTEGER)''')
 
+# ============= NEW TABLES FOR CDR PANELS =============
+c.execute('''CREATE TABLE IF NOT EXISTS cdr_panels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    panel_name TEXT,
+    login_url TEXT,
+    smscdr_url TEXT,
+    username TEXT,
+    password TEXT,
+    number_field TEXT,      -- format: "field|row" e.g., "num|1"
+    message_field TEXT,
+    timestamp_field TEXT,
+    service_field TEXT,
+    interval_sec INTEGER DEFAULT 30,
+    active INTEGER DEFAULT 1,
+    last_poll_time TEXT,
+    total_otps INTEGER DEFAULT 0,
+    error_count INTEGER DEFAULT 0,
+    last_error TEXT,
+    created_by INTEGER,
+    created_at TEXT,
+    updated_at TEXT,
+    cookie_data TEXT        -- store session cookie JSON (optional)
+)''')
+
+c.execute('''CREATE TABLE IF NOT EXISTS cdr_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    panel_id INTEGER,
+    timestamp TEXT,
+    status TEXT,          -- 'success' or 'error'
+    message TEXT,
+    otp_count INTEGER
+)''')
+
 # ---- Add missing columns for older DB ----
 for col in ['balance', 'withdrawn', 'total_otp', 'remove_cc', 'banned', 'last_bot_message_id', 'keyboard_message_id', 'persistent_message_id']:
     try:
@@ -304,6 +372,7 @@ admin_panel_state = {}
 admin_temp_data = {}
 last_activation_data = {}
 polling_tasks = {}
+cdr_polling_tasks = {}  # for CDR panels
 
 # ==================== HELPER FUNCTIONS ====================
 def safe_url(url: str) -> str | None:
@@ -676,60 +745,114 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-# -------------------- OTP EXTRACTION --------------------
+# ============================================================
+# ==================== FIXED OTP DETECTION ====================
+# ============================================================
+# শুধু numeric OTP – স্পেস, ড্যাশ, ডট, ব্র্যাকেট সব সাপোর্ট করে
+# OTP না পেলে None রিটার্ন করবে, যা process_otps-এ "N/A" তে রূপান্তরিত হবে
+
 def extract_otp_from_message(message: str) -> str | None:
+    """
+    Extract numeric OTP using multiple regex patterns.
+    Returns the most likely OTP as a string, or None.
+    """
     if not message:
         return None
+
+    # ===== Multiple patterns (ordered by specificity) =====
     patterns = [
-        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+is\s+(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:otp|code|verification|pin|passcode|auth|security|two[- ]factor|sms)\s+(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:ওটিপি|ভেরিফিকেশন|পিন|কোড)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:ओटीपी|कोड|पिन|सत्यापन)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:código|verificación|pin|clave)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:رمز|التحقق|كلمة المرور|OTP)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:code|vérification|pin|mot de passe)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'(?:Code|Bestätigung|PIN|Sicherheit)\s*[:=]?\s*(\d{3,4}[-.\s]?\d{3,4})',
-        r'\b(\d{3,4}[-.\s]?\d{3,4})\b',
-        r'\[(\d{4,6})\]',
-        r'\((\d{4,6})\)',
+        # 1. Explicit OTP keywords (OTP, code, PIN, verification, etc.)
+        r'(?:otp|code|pin|verification|passcode|auth|security)\s*[:=]?\s*(\d{4,8})',
+        r'(?:otp|code|pin|verification|passcode|auth|security)\s+is\s+(\d{4,8})',
+        r'(?:otp|code|pin|verification|passcode|auth|security)\s+(\d{4,8})',
+        # 2. Multilingual keywords
+        r'(?:ওটিপি|ভেরিফিকেশন|পিন|কোড)\s*[:=]?\s*(\d{4,8})',
+        r'(?:ओटीपी|कोड|पिन|सत्यापन)\s*[:=]?\s*(\d{4,8})',
+        r'(?:código|verificación|pin|clave)\s*[:=]?\s*(\d{4,8})',
+        r'(?:رمز|التحقق|كلمة المرور)\s*[:=]?\s*(\d{4,8})',
+        # 3. Separators (space, dash, dot) → এটাই '123-456' সাপোর্ট করে
+        r'\b(\d{3,4}[-.\s]\d{3,4})\b',
+        r'\b(\d{2,3}[-.\s]\d{2,3}[-.\s]\d{2,3})\b',
+        # 4. Brackets or parentheses
+        r'\[(\d{4,8})\]',
+        r'\((\d{4,8})\)',
+        # 5. Spaces between digits (e.g., 5 7 7 7 3 3)
         r'\b(\d\s\d\s\d\s\d\s\d\s\d)\b',
         r'\b(\d\s\d\s\d\s\d)\b',
-        r'\b(\d{4,6})\b',
-        r'\b([A-Z0-9]{4,8})\b',
+        # 6. Plain number (fallback)
+        r'\b(\d{4,8})\b',
     ]
-    for pattern in patterns:
-        match = re.search(pattern, message, re.IGNORECASE)
-        if match:
-            otp = match.group(1)
-            otp_clean = re.sub(r'[-\s.]', '', otp)
-            if 4 <= len(otp_clean) <= 8:
-                if len(otp_clean) == 4 and otp_clean.startswith(('19', '20')):
+
+    all_matches = []
+
+    for pat in patterns:
+        matches = re.findall(pat, message, re.IGNORECASE)
+        for m in matches:
+            # Remove separators (spaces, dashes, dots) to get pure digits
+            cleaned = re.sub(r'[-\s.]', '', str(m))
+            # Only keep if length between 4 and 8 (standard OTP length)
+            if 4 <= len(cleaned) <= 8:
+                # Skip years (19xx, 20xx)
+                if len(cleaned) == 4 and cleaned.startswith(('19', '20')):
                     continue
-                return otp_clean
-    numbers = re.findall(r'\b(\d{4,6})\b', message)
-    for num in numbers:
-        if num.startswith(('19', '20')) and len(num) == 4:
-            continue
-        return num
-    return None
+                all_matches.append(cleaned)
+
+    if not all_matches:
+        return None
+
+    # ===== Score candidates =====
+    keywords = ['otp', 'code', 'pin', 'verification', 'instagram', 'whatsapp', 'telegram', 'facebook']
+    scored = []
+
+    for cand in all_matches:
+        score = 0
+        # Bonus for length 6 (most common)
+        if len(cand) == 6:
+            score += 10
+        elif len(cand) in (4, 5):
+            score += 5
+        # Position bonus – earlier in message = higher score
+        idx = message.find(cand)
+        if idx != -1:
+            score += max(0, 100 - idx // 10)
+            # Keyword proximity bonus
+            msg_lower = message.lower()
+            for kw in keywords:
+                kw_pos = msg_lower.find(kw)
+                if kw_pos != -1:
+                    dist = abs(idx - kw_pos)
+                    if dist < 20:
+                        score += 30
+                    elif dist < 50:
+                        score += 15
+        scored.append((cand, score))
+
+    # Sort by score (highest first)
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Return the best candidate if score > 0, else the first match
+    best = scored[0]
+    if best[1] > 0:
+        return best[0]
+    else:
+        return all_matches[0]
 
 def extract_all_otps_from_message(message: str) -> list[str]:
+    """
+    Return a list of all numeric OTP candidates found in the message.
+    Used for fallback or debugging.
+    """
     if not message:
         return []
-    otps = []
-    numbers = re.findall(r'\b(\d{4,6})\b', message)
-    for num in numbers:
-        if num.startswith(('19', '20')) and len(num) == 4:
-            continue
-        if num not in otps:
-            otps.append(num)
-    hyphen = re.findall(r'\b(\d{3,4}-\d{3,4})\b', message)
-    for h in hyphen:
-        clean = h.replace('-', '')
-        if 4 <= len(clean) <= 6 and clean not in otps:
-            otps.append(clean)
-    return otps
+    # Simple extraction of 4-8 digit sequences
+    nums = re.findall(r'\b(\d{4,8})\b', message)
+    # Remove years
+    filtered = [n for n in nums if not (len(n)==4 and n.startswith(('19','20')))]
+    return list(set(filtered))
+
+# ============================================================
+# ==================== END OF OTP DETECTION ====================
+# ============================================================
 
 # ==================== NUMBERS MESSAGE FORMATTER ====================
 def format_numbers_message(country, service, numbers, user_id=None, first_name=None):
@@ -3704,7 +3827,7 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     if not apis:
         text = f"{emoji_tag(CUSTOM_EMOJIS['API_SYSTEM'], '🖥️')} No APIs configured yet."
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Add API", callback_data="api_add", style=KBS.SUCCESS,
+            [InlineKeyboardButton("Add API", callback_data="api_add_choice", style=KBS.SUCCESS,
                                   icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))],
             [InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
                                   icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
@@ -3731,7 +3854,7 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
         rows.append(row)
 
     rows.append([
-        InlineKeyboardButton("Add API", callback_data="api_add", style=KBS.SUCCESS,
+        InlineKeyboardButton("Add API", callback_data="api_add_choice", style=KBS.SUCCESS,
                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))
     ])
     rows.append([
@@ -3742,388 +3865,876 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     text = f"{emoji_tag(CUSTOM_EMOJIS['API_SYSTEM'], '🖥️')} <b>API SYSTEM</b> ({len(apis)} configured)"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
-# ==================== API DETAIL PAGE ====================
+# ==================== API ADD CHOICE ====================
+async def api_add_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    await query.answer()
+    
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("API PANEL", callback_data="api_choice_api", style=KBS.PRIMARY,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_SYSTEM", ""))),
+            InlineKeyboardButton("NON API PANEL", callback_data="api_choice_cdr", style=KBS.SUCCESS,
+                                 icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CDR_PANEL", "")))
+        ],
+        [InlineKeyboardButton("Cancel", callback_data="admin_manage_api", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", "")))]
+    ])
+    await query.edit_message_text(
+        f"{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>Select Panel Type</b>\n\n"
+        "Choose the type of panel you want to add:",
+        reply_markup=kb, parse_mode='HTML'
+    )
 
-async def api_detail_page(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
+async def api_choice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    choice = query.data  # "api_choice_api" or "api_choice_cdr"
+    await query.answer()
+    
+    if choice == "api_choice_api":
+        # Existing API flow
+        await api_add_start(update, context, user_id)
+    else:
+        # CDR Panel flow
+        await cdr_add_start(update, context, user_id)
+
+# ==================== CDR PANEL MANAGEMENT ====================
+
+# CDR Add Steps
+CDR_STEP_ORDER = [
+    "cdr_add_name",
+    "cdr_add_login_url",
+    "cdr_add_smscdr_url",
+    "cdr_add_username",
+    "cdr_add_password",
+    "cdr_add_number_field",
+    "cdr_add_message_field",
+    "cdr_add_timestamp_field",
+    "cdr_add_service_field",
+    "cdr_add_interval",
+    "cdr_add_confirm"
+]
+
+CDR_STEP_MESSAGES = {
+    "cdr_add_name": ("Panel Name", "panel_name", "cdr_add_login_url"),
+    "cdr_add_login_url": ("Login URL", "login_url", "cdr_add_smscdr_url"),
+    "cdr_add_smscdr_url": ("SMSCDR URL", "smscdr_url", "cdr_add_username"),
+    "cdr_add_username": ("Username", "username", "cdr_add_password"),
+    "cdr_add_password": ("Password", "password", "cdr_add_number_field"),
+    "cdr_add_number_field": ("Number Field (field|row)", "number_field", "cdr_add_message_field"),
+    "cdr_add_message_field": ("Message Field (field|row)", "message_field", "cdr_add_timestamp_field"),
+    "cdr_add_timestamp_field": ("Timestamp Field (field|row, optional)", "timestamp_field", "cdr_add_service_field"),
+    "cdr_add_service_field": ("Service Field (field|row, optional)", "service_field", "cdr_add_interval"),
+    "cdr_add_interval": ("Interval (seconds)", "interval_sec", "cdr_add_confirm"),
+    "cdr_add_confirm": ("", "", ""),
+}
+
+CDR_SKIPPABLE_STEPS = [
+    "cdr_add_timestamp_field",
+    "cdr_add_service_field",
+]
+
+CDR_NON_SKIPPABLE_STEPS = [
+    "cdr_add_name",
+    "cdr_add_login_url",
+    "cdr_add_smscdr_url",
+    "cdr_add_username",
+    "cdr_add_password",
+    "cdr_add_number_field",
+    "cdr_add_message_field",
+    "cdr_add_interval",
+    "cdr_add_confirm"
+]
+
+def cdr_get_step_keyboard(step: str) -> InlineKeyboardMarkup:
+    buttons = []
+    if step in CDR_SKIPPABLE_STEPS:
+        buttons.append(InlineKeyboardButton(
+            "SKIP",
+            callback_data="cdr_add_skip",
+            style=KBS.PRIMARY,
+            icon_custom_emoji_id=safe_icon(SKIP_EMOJI)
+        ))
+    buttons.append(InlineKeyboardButton(
+        "CANCEL",
+        callback_data="cdr_add_cancel",
+        style=KBS.DANGER,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CANCEL", ""))
+    ))
+    return InlineKeyboardMarkup([buttons])
+
+async def cdr_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
         await update.answer("Admin only!", show_alert=True)
         return
-    config = get_api_config(api_id)
-    if not config:
-        await update.answer("API not found!", show_alert=True)
+    admin_temp_data[user_id] = {}
+    admin_panel_state[user_id] = "cdr_add_name"
+    await cdr_add_step(update, context, user_id, "cdr_add_name")
+
+async def cdr_add_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, step: str):
+    if not is_admin(user_id):
+        await update.answer("Admin only!", show_alert=True)
         return
+    admin_panel_state[user_id] = step
+    
+    step_num = CDR_STEP_ORDER.index(step) + 1
+    total_steps = len(CDR_STEP_ORDER)
+    
+    label, field, next_step = CDR_STEP_MESSAGES.get(step, ("", "", ""))
+    
+    if step == "cdr_add_confirm":
+        await cdr_show_confirm_step(update, context, user_id)
+        return
+    
+    data = admin_temp_data.get(user_id, {})
+    current_value = data.get(field, "")
+    
+    # Example/help text
+    example_text = ""
+    if field == "number_field":
+        example_text = "\n\n<blockquote>💡 Example: <code>num|1</code> means field 'num' from row 1 (first column)</blockquote>"
+    elif field == "message_field":
+        example_text = "\n\n<blockquote>💡 Example: <code>msg|2</code> means field 'msg' from row 2</blockquote>"
+    elif field == "timestamp_field":
+        example_text = "\n\n<blockquote>💡 Example: <code>time|3</code> (optional)</blockquote>"
+    elif field == "service_field":
+        example_text = "\n\n<blockquote>💡 Example: <code>sender|4</code> (optional)</blockquote>"
+    elif field == "interval_sec":
+        example_text = "\n\n<blockquote>💡 Interval in seconds (minimum 1)</blockquote>"
+    
+    if step in CDR_NON_SKIPPABLE_STEPS:
+        required_text = f"{emoji_tag('4958534696645428119', '⚠️')} <b>Required</b>"
+    else:
+        required_text = f"{emoji_tag('4956721670690702265', '✅')} <b>Optional</b> (Can SKIP)"
+    
+    text = f"""{emoji_tag(CUSTOM_EMOJIS['CDR_PANEL'], '📦')} <b>ADD NON API PANEL – Step {step_num}/{total_steps}</b>
 
-    admin_panel_state[user_id] = f"api_detail_{api_id}"
+<b>{label}</b>
+{required_text}
 
-    header = f"{emoji_tag(CUSTOM_EMOJIS['MANAGE_API'], '🔧')} <b>Manage: {config['panel_name']}</b>"
-    info = (
-        f"{emoji_tag(CUSTOM_EMOJIS['API_STATUS_ACTIVE'] if config['active'] else CUSTOM_EMOJIS['API_STATUS_INACTIVE'], '🟢' if config['active'] else '🔴')} Status: <b>{'ACTIVE' if config['active'] else 'INACTIVE'}</b>\n"
-        f"{emoji_tag(CUSTOM_EMOJIS['API_TODAY_OTP'], '📈')} Today's OTP: <code>{config.get('total_otps', 0)}</code>\n"
-        f"{emoji_tag(CUSTOM_EMOJIS['API_LAST_POLL'], '⏰')} Last Poll: <code>{config.get('last_poll_time', 'Never')}</code>\n"
-        f"{emoji_tag(CUSTOM_EMOJIS['API_ERROR_COUNT'], '❌')} Errors: <code>{config.get('error_count', 0)}</code>"
+Current value: <code>{current_value or 'Not set'}</code>
+{example_text}
+
+Send the value or press SKIP:"""
+    
+    await reply_or_edit(
+        update,
+        text,
+        reply_markup=cdr_get_step_keyboard(step),
+        parse_mode='HTML',
+        context=context,
+        auto_delete=False
     )
 
+async def cdr_handle_add_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer("⏭ Step skipped!")
+    
+    current_step = admin_panel_state.get(user_id)
+    if not current_step or not current_step.startswith("cdr_add_"):
+        await query.edit_message_text("❌ No active session.", reply_markup=admin_panel_keyboard())
+        return
+    
+    data = admin_temp_data.get(user_id, {})
+    label, field, next_step = CDR_STEP_MESSAGES.get(current_step, ("", "", ""))
+    
+    if field:
+        data[field] = None  # skip = None
+    admin_temp_data[user_id] = data
+    
+    if next_step:
+        await cdr_add_step(update, context, user_id, next_step)
+    else:
+        await cdr_show_confirm_step(query, context, user_id)
+
+async def cdr_handle_add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer("❌ Cancelled!")
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    await query.edit_message_text("❌ Panel addition cancelled.", reply_markup=admin_panel_keyboard())
+
+async def cdr_show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
+    data = admin_temp_data.get(user_id, {})
+    
+    # Build confirmation text with premium emojis
+    text = f"{emoji_tag(CUSTOM_EMOJIS['CDR_PANEL'], '📦')} <b>Confirm NON API Panel Details</b>\n\n"
+    
+    fields = [
+        ("Panel Name", "panel_name", CUSTOM_EMOJIS.get("API_FIELD_NAME", "5818775306974006843")),
+        ("Login URL", "login_url", CUSTOM_EMOJIS.get("CDR_LOGIN_URL", "6285048454255220485")),
+        ("SMSCDR URL", "smscdr_url", CUSTOM_EMOJIS.get("CDR_SMSCDR_URL", "6267172559851099903")),
+        ("Username", "username", CUSTOM_EMOJIS.get("CDR_USERNAME", "5818775306974006843")),
+        ("Password", "password", CUSTOM_EMOJIS.get("CDR_PASSWORD", "5821453562680448557")),
+        ("Number Field", "number_field", CUSTOM_EMOJIS.get("CDR_FIELD_NUMBER", "5877410604225924969")),
+        ("Message Field", "message_field", CUSTOM_EMOJIS.get("CDR_FIELD_MESSAGE", "5980911993140284450")),
+        ("Timestamp Field", "timestamp_field", CUSTOM_EMOJIS.get("CDR_FIELD_TIMESTAMP", "6285240160120477644")),
+        ("Service Field", "service_field", CUSTOM_EMOJIS.get("CDR_FIELD_SERVICE", "5818967150278218011")),
+        ("Interval", "interval_sec", CUSTOM_EMOJIS.get("API_FIELD_INTERVAL", "6093456762113888541")),
+    ]
+    
+    for label, key, emoji_id in fields:
+        value = data.get(key)
+        if value is None:
+            text += f"{emoji_tag(emoji_id, '•')} {label}: <i>Skipped (Not Used)</i>\n"
+        elif value == "":
+            text += f"{emoji_tag(emoji_id, '•')} {label}: <i>Not set</i>\n"
+        else:
+            safe_val = html.escape(str(value))
+            if len(safe_val) > 30:
+                safe_val = safe_val[:30] + "..."
+            text += f"{emoji_tag(emoji_id, '•')} {label}: <code>{safe_val}</code>\n"
+    
+    text += f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Is all correct?</b></blockquote>"
+    
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "YES ADD",
+                callback_data="cdr_add_confirm_yes",
+                style=KBS.SUCCESS,
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "4956721670690702265"))
+            ),
+            InlineKeyboardButton(
+                "CANCEL",
+                callback_data="cdr_add_confirm_no",
+                style=KBS.DANGER,
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "6206110936789423908"))
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "EDIT VALUE",
+                callback_data="cdr_add_edit",
+                style=KBS.PRIMARY,
+                icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", "6204162490515855272"))
+            )
+        ]
+    ])
+    
+    admin_panel_state[user_id] = "cdr_add_confirm"
+    await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+
+async def cdr_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = admin_temp_data.get(user_id, {})
+    if not data:
+        await query.answer("Session expired.", show_alert=True)
+        return
+    
+    # Gather fields
+    panel_name = data.get("panel_name") or "CDR_" + str(user_id)[-4:]
+    login_url = data.get("login_url")
+    smscdr_url = data.get("smscdr_url")
+    username = data.get("username")
+    password = data.get("password")
+    number_field = data.get("number_field")
+    message_field = data.get("message_field")
+    timestamp_field = data.get("timestamp_field")  # may be None
+    service_field = data.get("service_field")      # may be None
+    interval = data.get("interval_sec") or 30
+    
+    if not all([login_url, smscdr_url, username, password, number_field, message_field]):
+        await query.answer("Missing required fields!", show_alert=True)
+        return
+    
+    # Insert into DB
+    db_exec("""
+        INSERT INTO cdr_panels (
+            panel_name, login_url, smscdr_url, username, password,
+            number_field, message_field, timestamp_field, service_field,
+            interval_sec, active, created_by, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    """, (
+        panel_name, login_url, smscdr_url, username, password,
+        number_field, message_field, timestamp_field, service_field,
+        interval, user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+    
+    panel_id = db_fetch_one("SELECT last_insert_rowid()")[0]
+    
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    
+    # Start polling
+    await start_cdr_polling(panel_id)
+    
+    success_text = f"""
+✅ {emoji_tag(CUSTOM_EMOJIS['CDR_PANEL'], '📦')} <b>NON API Panel '{panel_name}' added successfully!</b>
+
+🆔 <b>Panel ID</b>: <code>{panel_id}</code>
+📛 <b>Name</b>: {panel_name}
+🌐 <b>Login URL</b>: <code>{login_url}</code>
+📡 <b>SMSCDR URL</b>: <code>{smscdr_url}</code>
+👤 <b>Username</b>: {username}
+🔑 <b>Password</b>: {'*' * len(password)}
+📱 <b>Number Field</b>: {number_field}
+💬 <b>Message Field</b>: {message_field}
+🕐 <b>Timestamp Field</b>: {timestamp_field or 'Not used'}
+🔧 <b>Service Field</b>: {service_field or 'Not used'}
+⏱️ <b>Interval</b>: {interval}s
+
+<blockquote>✅ Polling started automatically.</blockquote>
+"""
+    await query.edit_message_text(success_text, reply_markup=admin_panel_keyboard(), parse_mode='HTML')
+
+async def cdr_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    await query.edit_message_text("❌ Panel addition cancelled.", reply_markup=admin_panel_keyboard())
+
+async def cdr_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = admin_temp_data.get(user_id, {})
+    if not data:
+        await query.answer("Session expired.", show_alert=True)
+        return
+    admin_panel_state[user_id] = "cdr_add_name"
+    await query.edit_message_text(
+        "✏️ Edit mode: You can re-enter each step. Press SKIP to keep current value.",
+        reply_markup=admin_cancel_keyboard()
+    )
+    await cdr_add_step(update, context, user_id, "cdr_add_name")
+
+async def cdr_handle_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = admin_panel_state.get(user_id)
+    if not state or not state.startswith("cdr_add_"):
+        return False
+    
+    text = update.message.text.strip()
+    if text == "/cancel":
+        admin_temp_data.pop(user_id, None)
+        admin_panel_state[user_id] = "main"
+        await update.message.reply_text("❌ Addition cancelled.", reply_markup=admin_panel_keyboard())
+        return True
+    
+    data = admin_temp_data.get(user_id, {})
+    label, field, next_step = CDR_STEP_MESSAGES.get(state, ("", "", ""))
+    
+    if field:
+        if field == "interval_sec":
+            try:
+                val = int(text)
+                if val < 1:
+                    await update.message.reply_text("⏱️ Interval must be at least 1 second.")
+                    return True
+                data[field] = val
+            except ValueError:
+                await update.message.reply_text("❌ Please enter a valid number.")
+                return True
+        else:
+            data[field] = text
+        admin_temp_data[user_id] = data
+    
+    if next_step:
+        await cdr_add_step(update, context, user_id, next_step)
+    else:
+        await cdr_show_confirm_step(update, context, user_id)
+    
+    return True
+
+# ==================== CDR PANEL EDIT, DELETE, TOGGLE, TEST, STATS, LOGS ====================
+
+async def cdr_panel_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, panel_id: int, user_id: int):
+    if not is_admin(user_id):
+        await update.answer("Admin only!", show_alert=True)
+        return
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await update.answer("Panel not found!", show_alert=True)
+        return
+    
+    admin_panel_state[user_id] = f"cdr_detail_{panel_id}"
+    
+    header = f"{emoji_tag(CUSTOM_EMOJIS['CDR_PANEL'], '📦')} <b>Manage: {panel['panel_name']}</b>"
+    info = (
+        f"{emoji_tag(CUSTOM_EMOJIS['CDR_ACTIVE'] if panel['active'] else CUSTOM_EMOJIS['CDR_INACTIVE'], '🟢' if panel['active'] else '🔴')} Status: <b>{'ACTIVE' if panel['active'] else 'INACTIVE'}</b>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_TODAY_OTP'], '📈')} Total OTPs: <code>{panel.get('total_otps', 0)}</code>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_LAST_POLL'], '⏰')} Last Poll: <code>{panel.get('last_poll_time', 'Never')}</code>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_ERROR_COUNT'], '❌')} Errors: <code>{panel.get('error_count', 0)}</code>"
+    )
+    
     btns = []
-    if config['active']:
+    if panel['active']:
         btns.append(InlineKeyboardButton(
             "STOP POLLING",
-            callback_data=f"api_toggle|{api_id}",
+            callback_data=f"cdr_toggle|{panel_id}",
             style=KBS.DANGER,
             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_STOP_POLL", ""))
         ))
     else:
         btns.append(InlineKeyboardButton(
             "START POLLING",
-            callback_data=f"api_toggle|{api_id}",
+            callback_data=f"cdr_toggle|{panel_id}",
             style=KBS.SUCCESS,
             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_START_POLL", ""))
         ))
-
+    
     btns.append(InlineKeyboardButton(
         "EDIT",
-        callback_data=f"api_edit|{api_id}",
+        callback_data=f"cdr_edit|{panel_id}",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("EDIT_BALANCE", ""))
     ))
     btns.append(InlineKeyboardButton(
-        "TEST",
-        callback_data=f"api_test|{api_id}",
+        "TEST LOGIN",
+        callback_data=f"cdr_test_login|{panel_id}",
         style=KBS.PRIMARY,
-        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_TEST", ""))
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CDR_TEST_LOGIN", ""))
     ))
     btns.append(InlineKeyboardButton(
-        "STATS",
-        callback_data=f"api_stats|{api_id}",
+        "TEST FETCH",
+        callback_data=f"cdr_test_fetch|{panel_id}",
         style=KBS.PRIMARY,
-        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_STATS", ""))
-    ))
-    btns.append(InlineKeyboardButton(
-        "LOGS",
-        callback_data=f"api_logs|{api_id}",
-        style=KBS.PRIMARY,
-        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_LOGS", ""))
-    ))
-    btns.append(InlineKeyboardButton(
-        "DELETE",
-        callback_data=f"api_delete|{api_id}",
-        style=KBS.DANGER,
-        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("DELETE", ""))
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CDR_TEST_FETCH", ""))
     ))
     btns.append(InlineKeyboardButton(
         "FORCE POLL",
-        callback_data=f"api_force|{api_id}",
+        callback_data=f"cdr_force|{panel_id}",
         style=KBS.PRIMARY,
-        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_FORCE_POLL", ""))
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CDR_FORCE_POLL", ""))
+    ))
+    btns.append(InlineKeyboardButton(
+        "STATS",
+        callback_data=f"cdr_stats|{panel_id}",
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CDR_STATS", ""))
+    ))
+    btns.append(InlineKeyboardButton(
+        "LOGS",
+        callback_data=f"cdr_logs|{panel_id}",
+        style=KBS.PRIMARY,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CDR_LOGS", ""))
+    ))
+    btns.append(InlineKeyboardButton(
+        "DELETE",
+        callback_data=f"cdr_delete|{panel_id}",
+        style=KBS.DANGER,
+        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CDR_DELETE", ""))
     ))
     btns.append(InlineKeyboardButton(
         "BACK TO LIST",
-        callback_data="api_system",
+        callback_data="cdr_list",
         style=KBS.PRIMARY,
         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))
     ))
-
+    
     rows = [[btn] for btn in btns]
     sep = emoji_tag(CUSTOM_EMOJIS["API_SEPARATOR"], "➖") * 20
     text = f"{header}\n\n{info}\n\n{sep}\n\n"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
-# ==================== API TOGGLE ====================
+def get_cdr_panel(panel_id: int) -> dict | None:
+    row = db_fetch_one("""
+        SELECT id, panel_name, login_url, smscdr_url, username, password,
+               number_field, message_field, timestamp_field, service_field,
+               interval_sec, active, last_poll_time, total_otps, error_count, last_error,
+               created_by, created_at, updated_at
+        FROM cdr_panels WHERE id = ?
+    """, (panel_id,))
+    if not row:
+        return None
+    cols = ['id','panel_name','login_url','smscdr_url','username','password',
+            'number_field','message_field','timestamp_field','service_field',
+            'interval_sec','active','last_poll_time','total_otps','error_count','last_error',
+            'created_by','created_at','updated_at']
+    return dict(zip(cols, row))
 
-async def api_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cdr_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
         await query.answer("Admin only!", show_alert=True)
         return
-    api_id = int(query.data.split('|')[1])
-    config = get_api_config(api_id)
-    if not config:
-        await query.answer("API not found!", show_alert=True)
+    panel_id = int(query.data.split('|')[1])
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await query.answer("Panel not found!", show_alert=True)
         return
-
-    if config['active']:
-        await stop_polling_for_api(api_id)
+    
+    if panel['active']:
+        await stop_cdr_polling(panel_id)
+        db_exec("UPDATE cdr_panels SET active = 0 WHERE id = ?", (panel_id,))
         await query.answer("Polling stopped.")
     else:
-        db_exec("UPDATE api_keys SET active = 1 WHERE id = ?", (api_id,))
-        await start_polling_for_api(api_id)
+        db_exec("UPDATE cdr_panels SET active = 1 WHERE id = ?", (panel_id,))
+        await start_cdr_polling(panel_id)
         await query.answer("Polling started.")
+    
+    await cdr_panel_detail(update, context, panel_id, user_id)
 
-    await api_detail_page(update, context, api_id, user_id)
-
-# ==================== API EDIT MENU ====================
-
-async def api_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, api_id: int, user_id: int):
+async def cdr_edit_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
     if not is_admin(user_id):
-        await update.answer("Admin only!", show_alert=True)
+        await query.answer("Admin only!", show_alert=True)
         return
-    config = get_api_config(api_id)
-    if not config:
-        await update.answer("API not found!", show_alert=True)
+    panel_id = int(query.data.split('|')[1])
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await query.answer("Panel not found!", show_alert=True)
         return
-
-    admin_panel_state[user_id] = f"api_edit_{api_id}"
-
+    
+    admin_panel_state[user_id] = f"cdr_edit_{panel_id}"
+    
     fields = [
-        ("NAME", "API_FIELD_NAME", "panel_name", KBS.SUCCESS),
-        ("BASE URL", "API_FIELD_URL", "base_url", KBS.SUCCESS),
-        ("ENDPOINT", "API_FIELD_ENDPOINT", "endpoint", KBS.SUCCESS),
-        ("TOKEN", "API_FIELD_TOKEN", "token", KBS.SUCCESS),
-        ("METHOD", "API_FIELD_METHOD", "method", KBS.SUCCESS),
-        ("INTERVAL", "API_FIELD_INTERVAL", "interval_sec", KBS.SUCCESS),
-        ("MAX RECORDS", "API_FIELD_RECORDS", "max_records", KBS.PRIMARY),
-        ("RETRY COUNT", "API_FIELD_RETRY", "retry_count", KBS.PRIMARY),
-        ("OTP LIST PATH", "API_FIELD_OTP_PATH", "otp_list_path", KBS.PRIMARY),
-        ("NUMBER PATH", "API_FIELD_NUMBER", "number_path", KBS.PRIMARY),
-        ("MESSAGE PATH", "API_FIELD_MESSAGE", "message_path", KBS.PRIMARY),
-        ("COUNTRY PATH", "API_FIELD_COUNTRY", "country_path", KBS.PRIMARY),
-        ("SERVICE PATH", "API_FIELD_SERVICE", "service_path", KBS.PRIMARY),
-        ("TIMESTAMP PATH", "API_FIELD_TIMESTAMP", "timestamp_path", KBS.PRIMARY),
-        ("SUCCESS PATH", "API_FIELD_SUCCESS_PATH", "success_path", KBS.PRIMARY),
-        ("SUCCESS VALUE", "API_FIELD_SUCCESS_VALUE", "success_value", KBS.PRIMARY),
-        ("PLACEHOLDERS", "API_FIELD_PLACEHOLDERS", "placeholder_config", KBS.PRIMARY),
+        ("Panel Name", "panel_name", CUSTOM_EMOJIS.get("API_FIELD_NAME", "5818775306974006843"), KBS.SUCCESS),
+        ("Login URL", "login_url", CUSTOM_EMOJIS.get("CDR_LOGIN_URL", "6285048454255220485"), KBS.SUCCESS),
+        ("SMSCDR URL", "smscdr_url", CUSTOM_EMOJIS.get("CDR_SMSCDR_URL", "6267172559851099903"), KBS.SUCCESS),
+        ("Username", "username", CUSTOM_EMOJIS.get("CDR_USERNAME", "5818775306974006843"), KBS.SUCCESS),
+        ("Password", "password", CUSTOM_EMOJIS.get("CDR_PASSWORD", "5821453562680448557"), KBS.SUCCESS),
+        ("Number Field", "number_field", CUSTOM_EMOJIS.get("CDR_FIELD_NUMBER", "5877410604225924969"), KBS.PRIMARY),
+        ("Message Field", "message_field", CUSTOM_EMOJIS.get("CDR_FIELD_MESSAGE", "5980911993140284450"), KBS.PRIMARY),
+        ("Timestamp Field", "timestamp_field", CUSTOM_EMOJIS.get("CDR_FIELD_TIMESTAMP", "6285240160120477644"), KBS.PRIMARY),
+        ("Service Field", "service_field", CUSTOM_EMOJIS.get("CDR_FIELD_SERVICE", "5818967150278218011"), KBS.PRIMARY),
+        ("Interval", "interval_sec", CUSTOM_EMOJIS.get("API_FIELD_INTERVAL", "6093456762113888541"), KBS.SUCCESS),
     ]
-
+    
     rows = []
-    for label, emoji_key, field, style in fields:
-        value = config.get(field, "")
-        if field == "placeholder_config":
-            try:
-                value = json.loads(value) if value else {}
-                display_value = ", ".join([f"{k}={v}" for k, v in value.items()]) if value else "None"
-            except:
-                display_value = str(value)[:20]
+    for label, key, emoji_id, style in fields:
+        value = panel.get(key)
+        if key == "password":
+            display = '*' * len(value) if value else 'Not set'
         else:
-            display_value = str(value)[:30] + "..." if len(str(value)) > 30 else value
+            display = str(value)[:30] + "..." if len(str(value)) > 30 else value
         rows.append([InlineKeyboardButton(
-            f"{label}: {display_value}",
-            callback_data=f"api_edit_field|{api_id}|{field}",
+            f"{label}: {display}",
+            callback_data=f"cdr_edit_field|{panel_id}|{key}",
             style=style,
-            icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get(emoji_key, ""))
+            icon_custom_emoji_id=safe_icon(emoji_id)
         )])
-
+    
     rows.append([
         InlineKeyboardButton(
             "BACK TO DETAIL",
-            callback_data=f"api_detail|{api_id}",
+            callback_data=f"cdr_detail|{panel_id}",
             style=KBS.DANGER,
             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", ""))
         )
     ])
-
-    text = f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} <b>Edit Configuration: {config['panel_name']}</b>\n\nSelect a field to edit:"
+    
+    text = f"{emoji_tag(CUSTOM_EMOJIS['CDR_EDIT'], '✏️')} <b>Edit CDR Panel: {panel['panel_name']}</b>\n\nSelect a field to edit:"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
-# ==================== API EDIT FIELD PROMPT ====================
-
-async def api_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cdr_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
         await query.answer("Admin only!", show_alert=True)
         return
     data = query.data.split('|')
-    api_id = int(data[1])
+    panel_id = int(data[1])
     field = data[2]
-    config = get_api_config(api_id)
-    if not config:
-        await query.answer("API not found!", show_alert=True)
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await query.answer("Panel not found!", show_alert=True)
         return
-
-    admin_temp_data[user_id] = {"api_id": api_id, "field": field, "current": config.get(field)}
-    admin_panel_state[user_id] = f"api_edit_value_{api_id}"
-
-    current_val = config.get(field, "")
-    if field == "placeholder_config":
-        try:
-            current_val = json.loads(current_val) if current_val else {}
-            display_val = "\n".join([f"{k}: {v}" for k, v in current_val.items()]) if current_val else "None"
-        except:
-            display_val = str(current_val)
+    
+    admin_temp_data[user_id] = {"cdr_panel_id": panel_id, "cdr_field": field, "cdr_current": panel.get(field)}
+    admin_panel_state[user_id] = f"cdr_edit_value_{panel_id}"
+    
+    current_val = panel.get(field, "")
+    if field == "password":
+        display_val = '*' * len(current_val) if current_val else "Not set"
     else:
         display_val = str(current_val)
-
+    
     await query.edit_message_text(
-        f"{emoji_tag(CUSTOM_EMOJIS['EDIT_BALANCE'], '✏️')} Edit <b>{field}</b>\n\nCurrent value:\n<code>{display_val}</code>\n\nSend new value (or /cancel):",
+        f"{emoji_tag(CUSTOM_EMOJIS['CDR_EDIT'], '✏️')} Edit <b>{field}</b>\n\nCurrent value:\n<code>{display_val}</code>\n\nSend new value (or /cancel):",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Cancel", callback_data=f"api_edit|{api_id}", style=KBS.DANGER,
+            [InlineKeyboardButton("Cancel", callback_data=f"cdr_edit|{panel_id}", style=KBS.DANGER,
                                   icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
         ]),
         parse_mode='HTML'
     )
 
-# ==================== API TEST ====================
+async def cdr_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = admin_panel_state.get(user_id)
+    if not state or not state.startswith("cdr_edit_value_"):
+        return False
+    
+    panel_id = int(state.split("_")[-1])
+    data = admin_temp_data.get(user_id, {})
+    field = data.get("cdr_field")
+    if not field:
+        await update.message.reply_text("Session expired. Please start over.")
+        return True
+    
+    new_value = update.message.text.strip()
+    if new_value.lower() == "/cancel":
+        await cdr_edit_menu(update, context)
+        return True
+    
+    if field == "interval_sec":
+        try:
+            new_value = int(new_value)
+            if new_value < 1:
+                await update.message.reply_text("Interval must be at least 1 second.")
+                return True
+        except ValueError:
+            await update.message.reply_text("Please enter a valid number.")
+            return True
+    
+    db_exec(f"UPDATE cdr_panels SET {field} = ?, updated_at = ? WHERE id = ?",
+            (new_value, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), panel_id))
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    await update.message.reply_text(f"✅ {field} updated successfully!")
+    await cdr_panel_detail(update, context, panel_id, user_id)
+    return True
 
-async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cdr_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
         await query.answer("Admin only!", show_alert=True)
         return
-    api_id = int(query.data.split('|')[1])
-    config = get_api_config(api_id)
-    if not config:
-        await query.answer("API not found!", show_alert=True)
+    panel_id = int(query.data.split('|')[1])
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await query.answer("Panel not found!", show_alert=True)
         return
+    
+    # Confirm delete
+    text = (
+        f"{emoji_tag(CUSTOM_EMOJIS['CDR_DELETE'], '🗑️')} <b>Confirm Delete</b>\n\n"
+        f"Are you sure you want to delete CDR panel <b>{panel['panel_name']}</b>?\n"
+        f"This will remove all configuration and stop polling."
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("YES, DELETE", callback_data=f"cdr_delete_yes|{panel_id}", style=KBS.DANGER,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "")))],
+        [InlineKeyboardButton("NO, CANCEL", callback_data=f"cdr_delete_no|{panel_id}", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "")))]
+    ])
+    await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
-    await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} Testing <b>{config['panel_name']}</b> ...", parse_mode='HTML')
+async def cdr_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    data = query.data.split('|')
+    panel_id = int(data[1])
+    action = data[0]  # "cdr_delete_yes" or "cdr_delete_no"
+    
+    if action == "cdr_delete_yes":
+        await stop_cdr_polling(panel_id)
+        db_exec("DELETE FROM cdr_panels WHERE id = ?", (panel_id,))
+        db_exec("DELETE FROM cdr_logs WHERE panel_id = ?", (panel_id,))
+        await query.answer("Panel deleted.")
+        await cdr_list(update, context, user_id)
+    else:
+        await query.answer("Cancelled.")
+        await cdr_panel_detail(update, context, panel_id, user_id)
 
+async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    panel_id = int(query.data.split('|')[1])
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await query.answer("Panel not found!", show_alert=True)
+        return
+    
+    await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['CDR_TEST_LOGIN'], '🧪')} Testing login for <b>{panel['panel_name']}</b> ...", parse_mode='HTML')
+    
     try:
-        async with aiohttp.ClientSession() as session:
-            method = config.get('method', 'GET')
-            base_url = config.get('base_url', '')
-            endpoint = config.get('endpoint', '/')
-            headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
-            body_template = config.get('body_template')
-            token = config.get('token', '')
-            curl_command = config.get('curl_command')
-            otp_list_path = config.get('otp_list_path', 'data')
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context_browser = await browser.new_context()
+            page = await context_browser.new_page()
             
-            placeholders = {}
-            user_placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
-            placeholders.update(user_placeholders)
-            if base_url:
-                placeholders["API_BASE"] = base_url
-                placeholders["BASE_URL"] = base_url
-                placeholders["API_URL"] = base_url
-                placeholders["API"] = base_url
-                placeholders["URL"] = base_url
-            if token:
-                placeholders["TOKEN"] = token
-                placeholders["YOUR_TOKEN"] = token
-                placeholders["API_TOKEN"] = token
-                placeholders["AUTH_TOKEN"] = token
-            placeholders["RECORDS"] = str(config.get('max_records', 200))
+            await page.goto(panel['login_url'], wait_until="domcontentloaded")
             
-            if curl_command:
-                parsed = parse_curl_complete(curl_command)
-                parsed["placeholders"].update(placeholders)
-                request = build_request_from_curl(parsed, placeholders)
-                url = request["url"]
-                method = request["method"]
-                headers = request["headers"]
-                data = request["data"]
-            else:
-                url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
-                for key, value in placeholders.items():
-                    url = url.replace(f"{{{key}}}", str(value))
-                for key, value in headers.items():
-                    if isinstance(value, str):
-                        for ph_key, ph_value in placeholders.items():
-                            value = value.replace(f"{{{ph_key}}}", str(ph_value))
-                        headers[key] = value
-                data = None
-                if body_template:
-                    try:
-                        data = json.loads(body_template)
-                        if data:
-                            data_str = json.dumps(data)
-                            for ph_key, ph_value in placeholders.items():
-                                data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
-                            data = json.loads(data_str)
-                    except:
-                        data = body_template
-
-            if method.upper() == 'GET':
-                async with session.get(url, headers=headers, timeout=30) as response:
-                    raw_bytes = await response.read()
-                    status = response.status
-            elif method.upper() == 'POST':
-                async with session.post(url, headers=headers, json=data, timeout=30) as response:
-                    raw_bytes = await response.read()
-                    status = response.status
-            else:
-                async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
-                    raw_bytes = await response.read()
-                    status = response.status
-
-            # Decode with fallback
-            try:
-                text = raw_bytes.decode('utf-8')
-            except UnicodeDecodeError:
-                try:
-                    text = raw_bytes.decode('latin-1')
-                except:
-                    text = raw_bytes.decode('utf-8', errors='ignore')
-
-            if status == 200:
-                config['otp_list_path'] = otp_list_path
-                otps = ResponseParser.parse_response(text, config)
-                if otps:
-                    sample = "\n".join([
-                        f"{emoji_tag(CUSTOM_EMOJIS['API_OTP_COUNT'], '📨')} {i+1}. {otp.get('number', 'N/A')} – OTP: {otp.get('otp', '?')}"
-                        for i, otp in enumerate(otps[:5])
-                    ])
-                    more = f"\n... and {len(otps)-5} more" if len(otps) > 5 else ""
-                    result = f"✅ Found <b>{len(otps)}</b> OTP(s)\n\n{sample}{more}"
+            # Fill username, password
+            await page.fill('input[type="text"]', panel['username'])
+            await page.fill('input[type="password"]', panel['password'])
+            
+            # Solve captcha
+            html = await page.content()
+            soup = BeautifulSoup(html, 'html.parser')
+            captcha_text = soup.get_text()
+            match = re.search(r'(\d+)\s*([\+\-])\s*(\d+)', captcha_text)
+            if match:
+                a, op, b = int(match.group(1)), match.group(2), int(match.group(3))
+                if op == '+':
+                    answer = a + b
                 else:
-                    result = "✅ API responded but no OTPs found.\n\nRaw response (first 300 chars):\n<code>" + text[:300] + "</code>"
+                    answer = a - b
+                await page.fill('input:last-of-type', str(answer))
             else:
-                result = f"❌ Error: HTTP {status}\n\nResponse:\n<code>{text[:500]}</code>"
+                # Try to find captcha input by placeholder or label
+                captcha_input = await page.query_selector('input[placeholder*="captcha"], input[placeholder*="answer"]')
+                if captcha_input:
+                    # If we can't solve, we'll just proceed (but likely fail)
+                    pass
+            
+            await page.click('button:has-text("Login"), button[type="submit"]')
+            await page.wait_for_timeout(3000)
+            
+            if "login" in page.url.lower():
+                result = "❌ Login failed – still on login page. Check credentials and captcha."
+            else:
+                # Save cookie for future use
+                storage = await context_browser.storage_state()
+                db_exec("UPDATE cdr_panels SET cookie_data = ? WHERE id = ?", (json.dumps(storage), panel_id))
+                result = "✅ Login successful! Cookie saved."
+            
+            await browser.close()
     except Exception as e:
         result = f"❌ Exception: {str(e)}"
-
+    
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Back", callback_data=f"api_detail|{api_id}", style=KBS.PRIMARY,
+        [InlineKeyboardButton("Back", callback_data=f"cdr_detail|{panel_id}", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
     ])
     await query.edit_message_text(
-        f"{emoji_tag(CUSTOM_EMOJIS['API_TEST'], '🧪')} <b>Test Result: {config['panel_name']}</b>\n\n{result}",
+        f"{emoji_tag(CUSTOM_EMOJIS['CDR_TEST_LOGIN'], '🧪')} <b>Test Login Result: {panel['panel_name']}</b>\n\n{result}",
         reply_markup=kb,
         parse_mode='HTML'
     )
 
-# ==================== API STATS ====================
-
-async def api_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cdr_test_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
         await query.answer("Admin only!", show_alert=True)
         return
-    api_id = int(query.data.split('|')[1])
-    config = get_api_config(api_id)
-    if not config:
-        await query.answer("API not found!", show_alert=True)
+    panel_id = int(query.data.split('|')[1])
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await query.answer("Panel not found!", show_alert=True)
         return
+    
+    await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['CDR_TEST_FETCH'], '📥')} Testing fetch for <b>{panel['panel_name']}</b> ...", parse_mode='HTML')
+    
+    try:
+        result = await cdr_fetch_once(panel)
+        if result:
+            count = len(result)
+            sample = "\n".join([f"• {r.get('number','')} → OTP: {r.get('otp','N/A')}" for r in result[:3]])
+            more = f"\n... and {count-3} more" if count > 3 else ""
+            msg = f"✅ Found <b>{count}</b> OTP(s)\n\n{sample}{more}"
+        else:
+            msg = "✅ Fetched successfully, but no new OTPs found."
+    except Exception as e:
+        msg = f"❌ Exception: {str(e)}"
+    
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Back", callback_data=f"cdr_detail|{panel_id}", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
+    ])
+    await query.edit_message_text(
+        f"{emoji_tag(CUSTOM_EMOJIS['CDR_TEST_FETCH'], '📥')} <b>Test Fetch Result: {panel['panel_name']}</b>\n\n{msg}",
+        reply_markup=kb,
+        parse_mode='HTML'
+    )
 
-    total_otps = config.get('total_otps', 0)
-    last_otp_time = config.get('last_otp_time', 'Never')
+async def cdr_force(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    panel_id = int(query.data.split('|')[1])
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await query.answer("Panel not found!", show_alert=True)
+        return
+    
+    await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['CDR_FORCE_POLL'], '🔄')} Force polling <b>{panel['panel_name']}</b> ...", parse_mode='HTML')
+    
+    try:
+        otps = await cdr_fetch_once(panel)
+        if otps:
+            new_count = await process_otps(otps, context=context)
+            if new_count > 0:
+                db_exec("UPDATE cdr_panels SET total_otps = total_otps + ?, last_poll_time = ? WHERE id = ?",
+                        (new_count, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), panel_id))
+            result = f"✅ Found and processed <b>{new_count}</b> new OTP(s)."
+        else:
+            result = "✅ Fetched successfully, but no new OTPs found."
+    except Exception as e:
+        result = f"❌ Exception: {str(e)}"
+    
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Back", callback_data=f"cdr_detail|{panel_id}", style=KBS.PRIMARY,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
+    ])
+    await query.edit_message_text(
+        f"{emoji_tag(CUSTOM_EMOJIS['CDR_FORCE_POLL'], '🔄')} <b>Force Poll Result: {panel['panel_name']}</b>\n\n{result}",
+        reply_markup=kb,
+        parse_mode='HTML'
+    )
+
+async def cdr_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("Admin only!", show_alert=True)
+        return
+    panel_id = int(query.data.split('|')[1])
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await query.answer("Panel not found!", show_alert=True)
+        return
+    
+    total_otps = panel.get('total_otps', 0)
+    last_poll = panel.get('last_poll_time', 'Never')
     today = datetime.now().strftime("%Y-%m-%d")
-    today_otps = db_fetch_one("SELECT SUM(otp_count) FROM api_logs WHERE api_id = ? AND timestamp LIKE ? AND status = 'success'",
-                              (api_id, f"{today}%"))[0] or 0
-    logs = db_fetch_all("SELECT status FROM api_logs WHERE api_id = ? ORDER BY timestamp DESC LIMIT 50", (api_id,))
+    today_otps = db_fetch_one("SELECT SUM(otp_count) FROM cdr_logs WHERE panel_id = ? AND timestamp LIKE ? AND status = 'success'",
+                              (panel_id, f"{today}%"))[0] or 0
+    logs = db_fetch_all("SELECT status FROM cdr_logs WHERE panel_id = ? ORDER BY timestamp DESC LIMIT 50", (panel_id,))
     success = sum(1 for log in logs if log[0] == 'success')
     rate = (success / len(logs) * 100) if logs else 0
-
+    
     text = (
-        f"{emoji_tag(CUSTOM_EMOJIS['API_STATS'], '📊')} <b>Statistics: {config['panel_name']}</b>\n\n"
-        f"{emoji_tag(CUSTOM_EMOJIS['API_TOTAL_OTP'], '📊')} Total OTP: <code>{total_otps}</code>\n"
-        f"{emoji_tag(CUSTOM_EMOJIS['API_TODAY_OTP'], '📈')} Today's OTP: <code>{today_otps}</code>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['CDR_STATS'], '📊')} <b>Statistics: {panel['panel_name']}</b>\n\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_TOTAL_OTP'], '📊')} Total OTPs: <code>{total_otps}</code>\n"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_TODAY_OTP'], '📈')} Today's OTPs: <code>{today_otps}</code>\n"
         f"{emoji_tag(CUSTOM_EMOJIS['API_SUCCESS_RATE'], '🏆')} Success Rate (last 50): <code>{rate:.1f}%</code>\n"
-        f"{emoji_tag(CUSTOM_EMOJIS['API_LAST_POLL'], '⏰')} Last OTP: <code>{last_otp_time}</code>"
+        f"{emoji_tag(CUSTOM_EMOJIS['API_LAST_POLL'], '⏰')} Last Poll: <code>{last_poll}</code>"
     )
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Back", callback_data=f"api_detail|{api_id}", style=KBS.PRIMARY,
+        [InlineKeyboardButton("Back", callback_data=f"cdr_detail|{panel_id}", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
     ])
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
-# ==================== API LOGS ====================
-
-async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cdr_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     if not is_admin(user_id):
         await query.answer("Admin only!", show_alert=True)
         return
-    api_id = int(query.data.split('|')[1])
-    config = get_api_config(api_id)
-    if not config:
-        await query.answer("API not found!", show_alert=True)
+    panel_id = int(query.data.split('|')[1])
+    panel = get_cdr_panel(panel_id)
+    if not panel:
+        await query.answer("Panel not found!", show_alert=True)
         return
-
-    logs = db_fetch_all("SELECT timestamp, status, message, otp_count FROM api_logs WHERE api_id = ? ORDER BY timestamp DESC LIMIT 10", (api_id,))
+    
+    logs = db_fetch_all("SELECT timestamp, status, message, otp_count FROM cdr_logs WHERE panel_id = ? ORDER BY timestamp DESC LIMIT 10", (panel_id,))
     if not logs:
         lines = ["No logs yet."]
     else:
@@ -4132,185 +4743,258 @@ async def api_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji = "✅" if status == "success" else "❌"
             count_str = f"{count} OTPs" if status == "success" else ""
             lines.append(f"{emoji} <code>{ts}</code> – {msg} {count_str}")
-    text = f"{emoji_tag(CUSTOM_EMOJIS['API_LOGS'], '📜')} <b>Polling Logs: {config['panel_name']}</b>\n\n" + "\n".join(lines[:10])
+    text = f"{emoji_tag(CUSTOM_EMOJIS['CDR_LOGS'], '📜')} <b>Logs: {panel['panel_name']}</b>\n\n" + "\n".join(lines[:10])
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Refresh", callback_data=f"api_logs|{api_id}", style=KBS.PRIMARY,
+        [InlineKeyboardButton("Refresh", callback_data=f"cdr_logs|{panel_id}", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_FORCE_POLL", "")))],
-        [InlineKeyboardButton("Back", callback_data=f"api_detail|{api_id}", style=KBS.PRIMARY,
+        [InlineKeyboardButton("Back", callback_data=f"cdr_detail|{panel_id}", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
     ])
     await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
-# ==================== API DELETE ====================
-
-async def api_delete_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
+async def cdr_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
-        await query.answer("Admin only!", show_alert=True)
+        await update.answer("Admin only!", show_alert=True)
         return
-    api_id = int(query.data.split('|')[1])
-    config = get_api_config(api_id)
-    if not config:
-        await query.answer("API not found!", show_alert=True)
+    panels = db_fetch_all("SELECT id, panel_name, active FROM cdr_panels ORDER BY id")
+    if not panels:
+        text = "📭 No NON API panels configured."
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Add Panel", callback_data="cdr_add_choice", style=KBS.SUCCESS,
+                                  icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))],
+            [InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
+                                  icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
+        ])
+        await reply_or_edit(update, text, reply_markup=kb, context=context, auto_delete=False)
         return
-
-    text = (
-        f"{emoji_tag(CUSTOM_EMOJIS['DELETE'], '🗑️')} <b>Confirm Delete</b>\n\n"
-        f"Are you sure you want to delete API <b>{config['panel_name']}</b>?\n"
-        f"This will remove all configuration and stop polling."
-    )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("YES, DELETE", callback_data=f"api_delete_yes|{api_id}", style=KBS.DANGER,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("YES", "")))],
-        [InlineKeyboardButton("NO, CANCEL", callback_data=f"api_delete_no|{api_id}", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("NO", "")))]
+    
+    rows = []
+    for pid, pname, active in panels:
+        style = KBS.SUCCESS if active else KBS.DANGER
+        icon = CUSTOM_EMOJIS.get("CDR_ACTIVE" if active else "CDR_INACTIVE", "")
+        rows.append([InlineKeyboardButton(
+            pname,
+            callback_data=f"cdr_detail|{pid}",
+            style=style,
+            icon_custom_emoji_id=safe_icon(icon)
+        )])
+    rows.append([
+        InlineKeyboardButton("Add Panel", callback_data="cdr_add_choice", style=KBS.SUCCESS,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADD_API_KEY", "")))
     ])
-    await reply_or_edit(update, text, reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+    rows.append([
+        InlineKeyboardButton("Back", callback_data="admin_manage_api", style=KBS.PRIMARY,
+                             icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))
+    ])
+    text = f"{emoji_tag(CUSTOM_EMOJIS['CDR_PANEL'], '📦')} <b>NON API PANELS</b> ({len(panels)} configured)"
+    await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
-async def api_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    if not is_admin(user_id):
-        await query.answer("Admin only!", show_alert=True)
-        return
-    data = query.data.split('|')
-    api_id = int(data[1])
-    action = data[0]
+# ==================== CDR POLLING ENGINE ====================
 
-    if action == "api_delete_yes":
-        if api_id in polling_tasks:
-            polling_tasks[api_id].cancel()
-            del polling_tasks[api_id]
-        db_exec("DELETE FROM api_keys WHERE id = ?", (api_id,))
-        db_exec("DELETE FROM api_logs WHERE api_id = ?", (api_id,))
-        await query.answer("API deleted.")
-        await api_system_grid(update, context, user_id)
-    else:
-        await query.answer("Cancelled.")
-        await api_detail_page(update, context, api_id, user_id)
-
-# ==================== API FORCE POLL ====================
-
-async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    if not is_admin(user_id):
-        await query.answer("Admin only!", show_alert=True)
-        return
-    api_id = int(query.data.split('|')[1])
-    config = get_api_config(api_id)
-    if not config:
-        await query.answer("API not found!", show_alert=True)
-        return
-
-    await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_FORCE_POLL'], '🔄')} Force polling <b>{config['panel_name']}</b> ...", parse_mode='HTML')
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            method = config.get('method', 'GET')
-            base_url = config.get('base_url', '')
-            endpoint = config.get('endpoint', '/')
-            headers = json.loads(config.get('headers', '{}')) if config.get('headers') else {}
-            body_template = config.get('body_template')
-            token = config.get('token', '')
-            curl_command = config.get('curl_command')
-            otp_list_path = config.get('otp_list_path', 'data')
-            
-            placeholders = {}
-            user_placeholders = json.loads(config.get('placeholder_config', '{}')) if config.get('placeholder_config') else {}
-            placeholders.update(user_placeholders)
-            if base_url:
-                placeholders["API_BASE"] = base_url
-                placeholders["BASE_URL"] = base_url
-                placeholders["API_URL"] = base_url
-                placeholders["API"] = base_url
-                placeholders["URL"] = base_url
-            if token:
-                placeholders["TOKEN"] = token
-                placeholders["YOUR_TOKEN"] = token
-                placeholders["API_TOKEN"] = token
-                placeholders["AUTH_TOKEN"] = token
-            placeholders["RECORDS"] = str(config.get('max_records', 200))
-            
-            if curl_command:
-                parsed = parse_curl_complete(curl_command)
-                parsed["placeholders"].update(placeholders)
-                request = build_request_from_curl(parsed, placeholders)
-                url = request["url"]
-                method = request["method"]
-                headers = request["headers"]
-                data = request["data"]
-            else:
-                url = base_url.rstrip('/') + '/' + endpoint.lstrip('/')
-                for key, value in placeholders.items():
-                    url = url.replace(f"{{{key}}}", str(value))
-                for key, value in headers.items():
-                    if isinstance(value, str):
-                        for ph_key, ph_value in placeholders.items():
-                            value = value.replace(f"{{{ph_key}}}", str(ph_value))
-                        headers[key] = value
-                data = None
-                if body_template:
-                    try:
-                        data = json.loads(body_template)
-                        if data:
-                            data_str = json.dumps(data)
-                            for ph_key, ph_value in placeholders.items():
-                                data_str = data_str.replace(f"{{{ph_key}}}", str(ph_value))
-                            data = json.loads(data_str)
-                    except:
-                        data = body_template
-
-            if method.upper() == 'GET':
-                async with session.get(url, headers=headers, timeout=30) as response:
-                    raw_bytes = await response.read()
-                    status = response.status
-            elif method.upper() == 'POST':
-                async with session.post(url, headers=headers, json=data, timeout=30) as response:
-                    raw_bytes = await response.read()
-                    status = response.status
-            else:
-                async with session.request(method, url, headers=headers, json=data, timeout=30) as response:
-                    raw_bytes = await response.read()
-                    status = response.status
-
-            # Decode with fallback
+async def cdr_fetch_once(panel: dict) -> list[dict]:
+    """Perform one fetch cycle: login (if needed), navigate, click Show Report, parse table.
+       Returns list of OTP entries (dicts) or empty list.
+    """
+    # We'll use Playwright for full simulation
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context_browser = await browser.new_context()
+        # Load cookies if available
+        cookie_data = panel.get('cookie_data')
+        if cookie_data:
             try:
-                text = raw_bytes.decode('utf-8')
-            except UnicodeDecodeError:
-                try:
-                    text = raw_bytes.decode('latin-1')
-                except:
-                    text = raw_bytes.decode('utf-8', errors='ignore')
-
-            if status == 200:
-                config['otp_list_path'] = otp_list_path
-                otps = ResponseParser.parse_response(text, config)
-                if otps:
-                    new_count = await process_otps(otps, bot=context.bot)
-                    if new_count > 0:
-                        db_exec("UPDATE api_keys SET total_otps = total_otps + ?, last_otp_time = ? WHERE id = ?",
-                                (new_count, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), api_id))
-                    result = f"✅ Found and processed <b>{new_count}</b> new OTP(s)."
+                storage = json.loads(cookie_data)
+                await context_browser.add_cookies(storage.get('cookies', []))
+            except:
+                pass
+        
+        page = await context_browser.new_page()
+        
+        # 1. Login if cookie not valid or not present
+        await page.goto(panel['login_url'], wait_until="domcontentloaded")
+        if "login" in page.url.lower():
+            # Need to login
+            await page.fill('input[type="text"]', panel['username'])
+            await page.fill('input[type="password"]', panel['password'])
+            # Solve captcha
+            html = await page.content()
+            soup = BeautifulSoup(html, 'html.parser')
+            captcha_text = soup.get_text()
+            match = re.search(r'(\d+)\s*([\+\-])\s*(\d+)', captcha_text)
+            if match:
+                a, op, b = int(match.group(1)), match.group(2), int(match.group(3))
+                if op == '+':
+                    answer = a + b
                 else:
-                    result = "✅ API responded, but no OTPs found."
+                    answer = a - b
+                await page.fill('input:last-of-type', str(answer))
+            await page.click('button:has-text("Login"), button[type="submit"]')
+            await page.wait_for_timeout(3000)
+            if "login" in page.url.lower():
+                await browser.close()
+                raise Exception("Login failed")
+            # Save cookie
+            storage = await context_browser.storage_state()
+            db_exec("UPDATE cdr_panels SET cookie_data = ? WHERE id = ?", (json.dumps(storage), panel['id']))
+        
+        # 2. Navigate to SMSCDR URL
+        await page.goto(panel['smscdr_url'], wait_until="domcontentloaded")
+        # Click "Show Report" button
+        show_btn = await page.query_selector('button:has-text("Show Report"), input[value="Show Report"]')
+        if show_btn:
+            await show_btn.click()
+            await page.wait_for_timeout(2000)
+            # Wait for AJAX (table to load)
+            await page.wait_for_selector('table.dataTable tbody tr, table tbody tr', timeout=10000)
+        else:
+            # If no button, assume page auto-loads
+            await page.wait_for_timeout(3000)
+        
+        # 3. Parse table
+        html = await page.content()
+        soup = BeautifulSoup(html, 'html.parser')
+        table = soup.select_one('table.dataTable tbody')
+        if not table:
+            table = soup.find('table')
+            if table:
+                table = table.find('tbody')
+        if not table:
+            await browser.close()
+            return []  # No table
+        
+        rows = table.find_all('tr')
+        if not rows:
+            await browser.close()
+            return []
+        
+        # Parse field mappings
+        number_field, number_row = parse_field_row(panel['number_field'])
+        message_field, message_row = parse_field_row(panel['message_field'])
+        timestamp_field, timestamp_row = parse_field_row(panel.get('timestamp_field'))
+        service_field, service_row = parse_field_row(panel.get('service_field'))
+        
+        results = []
+        for tr in rows:
+            cols = tr.find_all('td')
+            if len(cols) < max(number_row, message_row, timestamp_row or 0, service_row or 0):
+                continue
+            # Extract values by row index (1-based -> 0-based)
+            number = cols[number_row-1].get_text(strip=True) if number_row <= len(cols) else ""
+            message = cols[message_row-1].get_text(strip=True) if message_row <= len(cols) else ""
+            timestamp = cols[timestamp_row-1].get_text(strip=True) if timestamp_row and timestamp_row <= len(cols) else ""
+            service = cols[service_row-1].get_text(strip=True) if service_row and service_row <= len(cols) else ""
+            
+            if not number or not message:
+                continue
+            
+            # Extract OTP
+            otp = extract_otp_from_message(message)
+            if not otp:
+                continue
+            
+            # Detect country from number
+            country = get_country_from_number(number)
+            country_code = get_country_code(country) if country else ""
+            
+            results.append({
+                "number": number,
+                "otp": otp,
+                "message": message,
+                "service": service or "UNKNOWN",
+                "country": country or "Unknown",
+                "country_code": country_code,
+                "timestamp": timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+        
+        await browser.close()
+        return results
+
+def parse_field_row(field_str: str) -> tuple:
+    """Parse 'field|row' into (field, row_index). Row is 1-based, convert to 0-based later."""
+    if not field_str:
+        return "", 0
+    parts = field_str.split('|')
+    if len(parts) == 2:
+        return parts[0].strip(), int(parts[1].strip())
+    return field_str.strip(), 1
+
+def get_country_from_number(number: str) -> str | None:
+    if not number:
+        return None
+    clean = number.replace('+', '').replace(' ', '').strip()
+    for code in sorted(COUNTRY_CODE_MAP.keys(), key=len, reverse=True):
+        if clean.startswith(code):
+            return COUNTRY_CODE_MAP[code][2] if len(COUNTRY_CODE_MAP[code]) >= 3 else None
+    return None
+
+async def cdr_poll_loop(panel_id: int):
+    """Continuous polling loop for a single CDR panel."""
+    while True:
+        panel = get_cdr_panel(panel_id)
+        if not panel or not panel['active']:
+            break
+        
+        interval = panel.get('interval_sec', 30)
+        try:
+            otps = await cdr_fetch_once(panel)
+            if otps:
+                new_count = await process_otps(otps, bot=application.bot)
+                if new_count > 0:
+                    db_exec("UPDATE cdr_panels SET total_otps = total_otps + ?, last_poll_time = ? WHERE id = ?",
+                            (new_count, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), panel_id))
+                db_exec("INSERT INTO cdr_logs (panel_id, timestamp, status, message, otp_count) VALUES (?, ?, 'success', ?, ?)",
+                        (panel_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "OK", new_count))
+                db_exec("UPDATE cdr_panels SET error_count = 0 WHERE id = ?", (panel_id,))
             else:
-                result = f"❌ Error: HTTP {status}"
-    except Exception as e:
-        result = f"❌ Exception: {str(e)}"
+                db_exec("INSERT INTO cdr_logs (panel_id, timestamp, status, message, otp_count) VALUES (?, ?, 'info', ?, 0)",
+                        (panel_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "No new OTPs", 0))
+        except Exception as e:
+            err_msg = str(e)[:200]
+            db_exec("INSERT INTO cdr_logs (panel_id, timestamp, status, message, otp_count) VALUES (?, ?, 'error', ?, 0)",
+                    (panel_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), err_msg, 0))
+            db_exec("UPDATE cdr_panels SET error_count = error_count + 1, last_error = ? WHERE id = ?",
+                    (err_msg, panel_id))
+            # If error_count > 5, maybe disable? We'll let admin handle.
+        
+        await asyncio.sleep(interval)
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Back", callback_data=f"api_detail|{api_id}", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
-    ])
-    await query.edit_message_text(
-        f"{emoji_tag(CUSTOM_EMOJIS['API_FORCE_POLL'], '🔄')} <b>Force Poll Result: {config['panel_name']}</b>\n\n{result}",
-        reply_markup=kb,
-        parse_mode='HTML'
-    )
+async def start_cdr_polling(panel_id: int):
+    """Start polling task for a CDR panel."""
+    if panel_id in cdr_polling_tasks and not cdr_polling_tasks[panel_id].done():
+        return
+    task = asyncio.create_task(cdr_poll_loop(panel_id))
+    cdr_polling_tasks[panel_id] = task
 
-# ==================== MANAGE API MENU ====================
+async def stop_cdr_polling(panel_id: int):
+    """Stop polling task for a CDR panel."""
+    if panel_id in cdr_polling_tasks:
+        cdr_polling_tasks[panel_id].cancel()
+        del cdr_polling_tasks[panel_id]
+    db_exec("UPDATE cdr_panels SET active = 0 WHERE id = ?", (panel_id,))
+
+async def start_all_cdr_panels():
+    """Start all active CDR panels on bot startup."""
+    panels = db_fetch_all("SELECT id FROM cdr_panels WHERE active = 1")
+    for (pid,) in panels:
+        await start_cdr_polling(pid)
+
+# ==================== DETAIL PAGE WRAPPERS ====================
+
+async def cdr_detail_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    panel_id = int(query.data.split('|')[1])
+    await cdr_panel_detail(update, context, panel_id, user_id)
+
+async def cdr_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await cdr_list(update, context, user_id)
+
+async def cdr_add_choice_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await cdr_add_start(update, context, user_id)
+
+# ==================== API SYSTEM GRID UPDATED ====================
 
 async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
@@ -4323,12 +5007,14 @@ async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, us
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("LIST_API_KEY", "")))],
         [InlineKeyboardButton("API SYSTEM", callback_data="api_system", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("API_SYSTEM", "")))],
+        [InlineKeyboardButton("NON API PANELS", callback_data="cdr_list", style=KBS.SUCCESS,
+                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("CDR_PANEL", "")))],
         [InlineKeyboardButton("Back", callback_data="admin_back", style=KBS.DANGER,
                               icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))],
     ])
-    await reply_or_edit(update, "🔧 MANAGE API\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
+    await reply_or_edit(update, "🔧 MANAGE API & PANELS\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
 
-# ==================== API LIST ====================
+# ==================== API LIST (unchanged) ====================
 
 async def api_list(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     if not is_admin(user_id):
@@ -4359,9 +5045,13 @@ async def api_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_list(update, context, user_id)
 
+# ==================== API SYSTEM GRID WRAPPER ====================
+
 async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_system_grid(update, context, user_id)
+
+# ==================== API DETAIL WRAPPER (unchanged) ====================
 
 async def api_detail_page_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4383,14 +5073,16 @@ async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_
     user_id = update.effective_user.id
     await manage_api_menu(update, context, user_id)
 
-# ==================== COUNTRY CODE MAP ====================
-
+# ==================== COUNTRY CODE MAP (ONLY 2 COUNTRIES) ====================
+# You can add your full country map here later
 COUNTRY_CODE_MAP = {
     "93": ("AF", "🇦🇫", "Afghanistan"),
     "355": ("AL", "🇦🇱", "Albania"),
     "213": ("DZ", "🇩🇿", "Algeria"),
+    "1684": ("AS", "🇦🇸", "American Samoa"),
     "376": ("AD", "🇦🇩", "Andorra"),
     "244": ("AO", "🇦🇴", "Angola"),
+    "1264": ("AI", "🇦🇮", "Anguilla"),
     "1268": ("AG", "🇦🇬", "Antigua and Barbuda"),
     "54": ("AR", "🇦🇷", "Argentina"),
     "374": ("AM", "🇦🇲", "Armenia"),
@@ -4406,12 +5098,14 @@ COUNTRY_CODE_MAP = {
     "32": ("BE", "🇧🇪", "Belgium"),
     "501": ("BZ", "🇧🇿", "Belize"),
     "229": ("BJ", "🇧🇯", "Benin"),
+    "1441": ("BM", "🇧🇲", "Bermuda"),
     "975": ("BT", "🇧🇹", "Bhutan"),
     "591": ("BO", "🇧🇴", "Bolivia"),
     "387": ("BA", "🇧🇦", "Bosnia and Herzegovina"),
     "267": ("BW", "🇧🇼", "Botswana"),
     "55": ("BR", "🇧🇷", "Brazil"),
     "246": ("IO", "🇮🇴", "British Indian Ocean Territory"),
+    "1284": ("VG", "🇻🇬", "British Virgin Islands"),
     "673": ("BN", "🇧🇳", "Brunei"),
     "359": ("BG", "🇧🇬", "Bulgaria"),
     "226": ("BF", "🇧🇫", "Burkina Faso"),
@@ -4421,6 +5115,7 @@ COUNTRY_CODE_MAP = {
     "1": ("CA", "🇨🇦", "Canada"),
     "238": ("CV", "🇨🇻", "Cape Verde"),
     "599": ("BQ", "🇧🇶", "Caribbean Netherlands"),
+    "1345": ("KY", "🇰🇾", "Cayman Islands"),
     "236": ("CF", "🇨🇫", "Central African Republic"),
     "235": ("TD", "🇹🇩", "Chad"),
     "56": ("CL", "🇨🇱", "Chile"),
@@ -4428,16 +5123,18 @@ COUNTRY_CODE_MAP = {
     "57": ("CO", "🇨🇴", "Colombia"),
     "269": ("KM", "🇰🇲", "Comoros"),
     "242": ("CG", "🇨🇬", "Congo"),
-    "243": ("CD", "🇨🇩", "DR Congo"),
+    "682": ("CK", "🇨🇰", "Cook Islands"),
     "506": ("CR", "🇨🇷", "Costa Rica"),
     "385": ("HR", "🇭🇷", "Croatia"),
     "53": ("CU", "🇨🇺", "Cuba"),
     "357": ("CY", "🇨🇾", "Cyprus"),
     "420": ("CZ", "🇨🇿", "Czech Republic"),
+    "243": ("CD", "🇨🇩", "DR Congo"),
     "45": ("DK", "🇩🇰", "Denmark"),
     "253": ("DJ", "🇩🇯", "Djibouti"),
     "1767": ("DM", "🇩🇲", "Dominica"),
     "1809": ("DO", "🇩🇴", "Dominican Republic"),
+    "670": ("TL", "🇹🇱", "East Timor"),
     "593": ("EC", "🇪🇨", "Ecuador"),
     "20": ("EG", "🇪🇬", "Egypt"),
     "503": ("SV", "🇸🇻", "El Salvador"),
@@ -4480,10 +5177,10 @@ COUNTRY_CODE_MAP = {
     "353": ("IE", "🇮🇪", "Ireland"),
     "972": ("IL", "🇮🇱", "Israel"),
     "39": ("IT", "🇮🇹", "Italy"),
+    "225": ("CI", "🇨🇮", "Ivory Coast"),
     "1876": ("JM", "🇯🇲", "Jamaica"),
     "81": ("JP", "🇯🇵", "Japan"),
     "962": ("JO", "🇯🇴", "Jordan"),
-    "7": ("KZ", "🇰🇿", "Kazakhstan"),
     "254": ("KE", "🇰🇪", "Kenya"),
     "686": ("KI", "🇰🇮", "Kiribati"),
     "383": ("XK", "🇽🇰", "Kosovo"),
@@ -4498,7 +5195,7 @@ COUNTRY_CODE_MAP = {
     "423": ("LI", "🇱🇮", "Liechtenstein"),
     "370": ("LT", "🇱🇹", "Lithuania"),
     "352": ("LU", "🇱🇺", "Luxembourg"),
-    "853": ("MO", "🇲🇴", "Macao"),
+    "853": ("MO", "🇲🇴", "Macau"),
     "261": ("MG", "🇲🇬", "Madagascar"),
     "265": ("MW", "🇲🇼", "Malawi"),
     "60": ("MY", "🇲🇾", "Malaysia"),
@@ -4509,13 +5206,13 @@ COUNTRY_CODE_MAP = {
     "596": ("MQ", "🇲🇶", "Martinique"),
     "222": ("MR", "🇲🇷", "Mauritania"),
     "230": ("MU", "🇲🇺", "Mauritius"),
-    "262": ("RE", "🇷🇪", "Reunion"),
     "52": ("MX", "🇲🇽", "Mexico"),
     "691": ("FM", "🇫🇲", "Micronesia"),
     "373": ("MD", "🇲🇩", "Moldova"),
     "377": ("MC", "🇲🇨", "Monaco"),
     "976": ("MN", "🇲🇳", "Mongolia"),
     "382": ("ME", "🇲🇪", "Montenegro"),
+    "1664": ("MS", "🇲🇸", "Montserrat"),
     "212": ("MA", "🇲🇦", "Morocco"),
     "258": ("MZ", "🇲🇿", "Mozambique"),
     "95": ("MM", "🇲🇲", "Myanmar"),
@@ -4529,7 +5226,10 @@ COUNTRY_CODE_MAP = {
     "227": ("NE", "🇳🇪", "Niger"),
     "234": ("NG", "🇳🇬", "Nigeria"),
     "683": ("NU", "🇳🇺", "Niue"),
+    "672": ("NF", "🇳🇫", "Norfolk Island"),
+    "850": ("KP", "🇰🇵", "North Korea"),
     "389": ("MK", "🇲🇰", "North Macedonia"),
+    "1670": ("MP", "🇲🇵", "Northern Mariana Islands"),
     "47": ("NO", "🇳🇴", "Norway"),
     "968": ("OM", "🇴🇲", "Oman"),
     "92": ("PK", "🇵🇰", "Pakistan"),
@@ -4548,7 +5248,6 @@ COUNTRY_CODE_MAP = {
     "40": ("RO", "🇷🇴", "Romania"),
     "7": ("RU", "🇷🇺", "Russia"),
     "250": ("RW", "🇷🇼", "Rwanda"),
-    "590": ("BL", "🇧🇱", "Saint Barthelemy"),
     "290": ("SH", "🇸🇭", "Saint Helena"),
     "1869": ("KN", "🇰🇳", "Saint Kitts and Nevis"),
     "1758": ("LC", "🇱🇨", "Saint Lucia"),
@@ -4563,6 +5262,7 @@ COUNTRY_CODE_MAP = {
     "248": ("SC", "🇸🇨", "Seychelles"),
     "232": ("SL", "🇸🇱", "Sierra Leone"),
     "65": ("SG", "🇸🇬", "Singapore"),
+    "1721": ("SX", "🇸🇽", "Sint Maarten"),
     "421": ("SK", "🇸🇰", "Slovakia"),
     "386": ("SI", "🇸🇮", "Slovenia"),
     "677": ("SB", "🇸🇧", "Solomon Islands"),
@@ -4581,7 +5281,6 @@ COUNTRY_CODE_MAP = {
     "992": ("TJ", "🇹🇯", "Tajikistan"),
     "255": ("TZ", "🇹🇿", "Tanzania"),
     "66": ("TH", "🇹🇭", "Thailand"),
-    "670": ("TL", "🇹🇱", "Timor-Leste"),
     "228": ("TG", "🇹🇬", "Togo"),
     "690": ("TK", "🇹🇰", "Tokelau"),
     "676": ("TO", "🇹🇴", "Tonga"),
@@ -4589,20 +5288,19 @@ COUNTRY_CODE_MAP = {
     "216": ("TN", "🇹🇳", "Tunisia"),
     "90": ("TR", "🇹🇷", "Turkey"),
     "993": ("TM", "🇹🇲", "Turkmenistan"),
+    "1649": ("TC", "🇹🇨", "Turks and Caicos"),
     "688": ("TV", "🇹🇻", "Tuvalu"),
+    "971": ("AE", "🇦🇪", "UAE"),
+    "1340": ("VI", "🇻🇮", "U.S. Virgin Islands"),
     "256": ("UG", "🇺🇬", "Uganda"),
     "380": ("UA", "🇺🇦", "Ukraine"),
-    "971": ("AE", "🇦🇪", "United Arab Emirates"),
     "44": ("GB", "🇬🇧", "United Kingdom"),
     "1": ("US", "🇺🇸", "United States"),
     "598": ("UY", "🇺🇾", "Uruguay"),
     "998": ("UZ", "🇺🇿", "Uzbekistan"),
     "678": ("VU", "🇻🇺", "Vanuatu"),
-    "379": ("VA", "🇻🇦", "Vatican City"),
     "58": ("VE", "🇻🇪", "Venezuela"),
     "84": ("VN", "🇻🇳", "Vietnam"),
-    "1284": ("VG", "🇻🇬", "British Virgin Islands"),
-    "1340": ("VI", "🇻🇮", "U.S. Virgin Islands"),
     "681": ("WF", "🇼🇫", "Wallis and Futuna"),
     "967": ("YE", "🇾🇪", "Yemen"),
     "260": ("ZM", "🇿🇲", "Zambia"),
@@ -4620,9 +5318,6 @@ def get_country_code(country_name):
     lower = country_name.lower()
     for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
         if lower == name.lower() or lower == iso.lower() or lower == code:
-            return iso
-    for code, (iso, flag, name) in COUNTRY_CODE_MAP.items():
-        if lower in name.lower() or name.lower() in lower:
             return iso
     return country_name.upper()[:2]
 
@@ -4825,18 +5520,28 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
             if country:
                 otp_entry['country'] = country
         
-        otp_code = extract_otp_from_message(message)
-        if not otp_code:
+        # --- Extract OTP using the fixed function ---
+        otp_code = extract_otp_from_message(message)  # returns None if not found
+        if otp_code is None:
+            # If still no OTP, try to get from entry (maybe API gave explicit field)
             otp_code = otp_entry.get("otp", "")
+            if not otp_code:
+                # Final fallback: set to "N/A"
+                otp_code = "N/A"
+        else:
+            # OTP found, use it
+            pass
         
-        if not number or not otp_code:
-            return 0
+        # If we got "N/A", we still proceed with N/A.
+        if not number:
+            return 0  # skip if no number
 
         existing = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND (user_id=0 OR user_id>0)", (number, otp_code))
         is_new = existing is None
 
         # Send to groups (if new) - using sendRichMessage
         if is_new and group_ids:
+            # Insert into DB even if N/A
             db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
                     (number, otp_code, message, otp_timestamp_str))
             try:
@@ -5001,6 +5706,7 @@ class ResponseParser:
             if message_path:
                 entry["message"] = ResponseParser._get_json_path(item, message_path, "")
             else:
+                # If no message_path, try to find a long string field
                 for key, value in item.items():
                     if isinstance(value, str) and len(value) > 10:
                         entry["message"] = value
@@ -5012,10 +5718,18 @@ class ResponseParser:
             if country_path:
                 entry["country"] = ResponseParser._get_json_path(item, country_path, "")
             
+            # If we have a message but no explicit OTP, try to extract OTP
             if "message" in entry and entry["message"]:
                 otp = extract_otp_from_message(entry["message"])
                 if otp:
                     entry["otp"] = otp
+            # If we still don't have an OTP, we might get it from a field named "otp" or "code"
+            if "otp" not in entry:
+                # Try to find an OTP field in item
+                for key in ["otp", "code", "pin", "password"]:
+                    if key in item and item[key]:
+                        entry["otp"] = str(item[key])
+                        break
             
             entry = {k: v for k, v in entry.items() if v}
             if entry.get("number") or entry.get("otp"):
@@ -5029,8 +5743,13 @@ class ResponseParser:
             try:
                 content = json.loads(content)
             except:
+                # If not JSON, use the universal extractor on raw text
                 otps = extract_all_otps_from_message(content)
-                return [{"otp": otp, "message": content[:200]} for otp in otps]
+                # Build entries for each potential OTP
+                if otps:
+                    return [{"message": content[:200], "otp": otp} for otp in otps]
+                else:
+                    return [{"message": content[:200], "otp": "N/A"}]
         if isinstance(content, dict):
             return ResponseParser.parse_json_response(content, config)
         return []
@@ -5073,6 +5792,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await handle_admin_text(update, context): return
     if await handle_api_add_text(update, context): return
     if await handle_edit_value_text(update, context): return
+    if await cdr_handle_add_text(update, context): return
+    if await cdr_edit_value_text(update, context): return
 
     user_id = update.effective_user.id
     if await ban_check(update, context): return
@@ -5220,7 +5941,9 @@ def main():
 
     # API Management
     application.add_handler(CallbackQueryHandler(manage_api_menu_wrapper, pattern="^admin_manage_api$"))
-    application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))
+    application.add_handler(CallbackQueryHandler(api_add_choice, pattern="^api_add_choice$"))
+    application.add_handler(CallbackQueryHandler(api_choice_handler, pattern="^api_choice_(api|cdr)$"))
+    application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))  # kept for backward
     application.add_handler(CallbackQueryHandler(handle_api_add_skip, pattern="^api_add_skip$"))
     application.add_handler(CallbackQueryHandler(handle_api_add_cancel, pattern="^api_add_cancel$"))
     application.add_handler(CallbackQueryHandler(api_add_confirm_yes, pattern=r"^api_add_confirm_yes\|"))
@@ -5242,6 +5965,26 @@ def main():
     application.add_handler(CallbackQueryHandler(api_add_curl_continue, pattern="^api_add_curl_continue$"))
     application.add_handler(CallbackQueryHandler(api_add_curl_cancel, pattern="^api_add_curl_cancel$"))
 
+    # CDR Panel Handlers
+    application.add_handler(CallbackQueryHandler(cdr_add_choice_wrapper, pattern="^cdr_add_choice$"))
+    application.add_handler(CallbackQueryHandler(cdr_handle_add_skip, pattern="^cdr_add_skip$"))
+    application.add_handler(CallbackQueryHandler(cdr_handle_add_cancel, pattern="^cdr_add_cancel$"))
+    application.add_handler(CallbackQueryHandler(cdr_add_confirm_yes, pattern="^cdr_add_confirm_yes$"))
+    application.add_handler(CallbackQueryHandler(cdr_add_confirm_no, pattern="^cdr_add_confirm_no$"))
+    application.add_handler(CallbackQueryHandler(cdr_add_edit, pattern="^cdr_add_edit$"))
+    application.add_handler(CallbackQueryHandler(cdr_list_wrapper, pattern="^cdr_list$"))
+    application.add_handler(CallbackQueryHandler(cdr_detail_wrapper, pattern=r"^cdr_detail\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_toggle, pattern=r"^cdr_toggle\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_edit_menu, pattern=r"^cdr_edit\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_edit_field_prompt, pattern=r"^cdr_edit_field\|(\d+)\|(.+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_delete, pattern=r"^cdr_delete\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_delete_confirm, pattern=r"^cdr_delete_(yes|no)\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_test_login, pattern=r"^cdr_test_login\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_test_fetch, pattern=r"^cdr_test_fetch\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_force, pattern=r"^cdr_force\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_stats, pattern=r"^cdr_stats\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_logs, pattern=r"^cdr_logs\|(\d+)$"))
+
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
 
@@ -5251,12 +5994,14 @@ def main():
     async def start_api_tasks(app):
         print("🚀 Starting added API polling tasks...")
         await start_all_polling()
+        print("🚀 Starting CDR panel polling tasks...")
+        await start_all_cdr_panels()
 
     application.post_init = start_api_tasks
 
     save_user_data_json()
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
-    print("✅ Full bot started with Multi-API System and Country Map.")
+    print("✅ Full bot started with Multi-API System, Country Map, and NON API CDR Panel support.")
     print("🔄 Starting polling...")
     application.run_polling(drop_pending_updates=True)
 
