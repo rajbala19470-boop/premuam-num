@@ -5716,6 +5716,9 @@ def main():
         update_last_success()
         print("🚀 Checking for configured API/CDR panels...")
         
+        # 🔥 এখানে watchdog টাস্ক শুরু করুন (ইভেন্ট লুপ চলছে)
+        asyncio.create_task(watchdog_task())
+        
         apis = db_fetch_all("SELECT id FROM api_keys WHERE active = 1")
         cdrs = db_fetch_all("SELECT id FROM cdr_panels WHERE active = 1")
         
@@ -5736,7 +5739,7 @@ def main():
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
     print("✅ Full bot started with Multi-API System, Country Map, and NON API CDR Panel support.")
     print("🔄 Starting polling...")
-    asyncio.create_task(watchdog_task())
+    # ❌ এখান থেকে asyncio.create_task(watchdog_task()) সরিয়ে দেওয়া হয়েছে
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
