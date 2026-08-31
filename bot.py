@@ -930,9 +930,9 @@ def stock_added_message(country, service, count):
     EMOJI_COIN = "6118207206941790766"
 
     return (
-        f'<blockquote>{emoji_tag(EMOJI_EYE, "👁️")} <b>STOCK</b> '
+        f'{emoji_tag(EMOJI_EYE, "👁️")} <b>STOCK</b> '
         f'{emoji_tag(EMOJI_PACKAGE, "📦")} <b>ADDED SUCCESSFULLY</b> '
-        f'{emoji_tag(EMOJI_CHECK, "✅")}</blockquote>\n\n'
+        f'{emoji_tag(EMOJI_CHECK, "✅")}\n\n'
         f'<b>NUMBER</b> {emoji_tag(EMOJI_NUMBER, "📱")} : <code>{count}</code>\n'
         f'<b>COUNTRY</b> {emoji_tag(EMOJI_COUNTRY, "🌍")} : {emoji_tag(flag_eid, "🏁")} <b>{country}</b>\n'
         f'<b>SERVICE</b> {emoji_tag(EMOJI_SERVICE, "🔧")} : {emoji_tag(svc_eid, "⚙️")} <b>{service}</b>\n'
@@ -986,7 +986,7 @@ def start_welcome_html():
     inbox = emoji_tag(INBOX_EMOJI, "📩")
     money = emoji_tag(MONEY_EMOJI, "🤑")
     blockquote = (
-        f'<blockquote>{wave} <b>WELCOME TO OUR 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓</b> {think}</blockquote>'
+        f'{wave} <b>WELCOME TO OUR 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓</b> {think}'
     )
     sub = f'<b>{inbox} RECEIVE OTP\'S AND START EARNING MONEY {money}</b>'
     return f'{blockquote}\n{sub}'
@@ -1162,11 +1162,11 @@ async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TY
         f'{emoji_tag(CUSTOM_EMOJIS["PROFILE_ICON"], "👤")} '
         f'<a href="tg://user?id={user_id}">{first_name}</a> YOUR DETAILS {emoji_tag(emoji_clipboard, "📋")}\n'
         f'------------------------------------------------\n'
-        f'<blockquote><b>{emoji_tag(emoji_id, "🆔")} USER ID: <code>{user_id}</code></b></blockquote>\n'
-        f'<blockquote><b>{emoji_tag(emoji_money, "💰")} BALANCE: <code>${balance:.3f}</code></b></blockquote>\n'
-        f'<blockquote><b>{emoji_tag(emoji_withdraw, "💸")} WITHDRAWED: <code>${withdrawn:.3f}</code></b></blockquote>\n'
-        f'<blockquote><b>{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>$0.1</code></b></blockquote>\n'
-        f'<blockquote><b>{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code></b></blockquote>'
+        f'{emoji_tag(emoji_id, "🆔")} USER ID: <code>{user_id}</code>\n'
+        f'{emoji_tag(emoji_money, "💰")} BALANCE: <code>${balance:.3f}</code>\n'
+        f'{emoji_tag(emoji_withdraw, "💸")} WITHDRAWED: <code>${withdrawn:.3f}</code>\n'
+        f'{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>$0.1</code>\n'
+        f'{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code>'
     )
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
@@ -2315,12 +2315,10 @@ async def stock_status_callback(update: Update, context: ContextTypes.DEFAULT_TY
         for country, service, stock in rows:
             payout = get_country_info(country).get("payout", "0.001$")
             line = (
-                f'<blockquote>'
                 f'{service_emoji_tag(service)}|'
                 f'{country_flag_emoji(country)}<b>{country}</b>|'
                 f'<code>{payout}</code>|'
                 f'{stock}'
-                f'</blockquote>'
             )
             lines.append(line)
         text = "\n".join(lines)
@@ -2786,11 +2784,11 @@ async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f'{emoji_tag(CUSTOM_EMOJIS["PROFILE_ICON"], "👤")} '
         f'<a href="tg://user?id={user_id}">{first_name}</a> YOUR DETAILS {emoji_tag(emoji_clipboard, "📋")}\n'
         f'------------------------------------------------\n'
-        f'<blockquote><b>{emoji_tag(emoji_id, "🆔")} USER ID: <code>{user_id}</code></b></blockquote>\n'
-        f'<blockquote><b>{emoji_tag(emoji_money, "💰")} BALANCE: <code>${balance:.3f}</code></b></blockquote>\n'
-        f'<blockquote><b>{emoji_tag(emoji_withdraw, "💸")} WITHDRAWED: <code>${withdrawn:.3f}</code></b></blockquote>\n'
-        f'<blockquote><b>{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>$0.1</code></b></blockquote>\n'
-        f'<blockquote><b>{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code></b></blockquote>'
+        f'{emoji_tag(emoji_id, "🆔")} USER ID: <code>{user_id}</code>\n'
+        f'{emoji_tag(emoji_money, "💰")} BALANCE: <code>${balance:.3f}</code>\n'
+        f'{emoji_tag(emoji_withdraw, "💸")} WITHDRAWED: <code>${withdrawn:.3f}</code>\n'
+        f'{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>$0.1</code>\n'
+        f'{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code>'
     )
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
@@ -3125,15 +3123,15 @@ async def api_add_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     data = admin_temp_data.get(user_id, {})
     current_value = data.get(field, "")
     
-    # Example with proper formatting
+    # Example with proper formatting - removed <blockquote> to avoid Entity_text_invalid
     example_text = ""
     if field in STEP_EXAMPLES:
-        example_text = f"\n\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>EXAMPLE</b>:\n<code>{STEP_EXAMPLES[field]}</code></blockquote>"
+        example_text = f"\n\n💡 <b>EXAMPLE</b>:\n<code>{STEP_EXAMPLES[field]}</code>"
     
     if step in NON_SKIPPABLE_STEPS:
-        required_text = f"{emoji_tag('4958534696645428119', '⚠️')} <b>Required</b>"
+        required_text = f"⚠️ <b>Required</b>"
     else:
-        required_text = f"{emoji_tag('4956721670690702265', '✅')} <b>Optional</b> (Can SKIP)"
+        required_text = f"✅ <b>Optional</b> (Can SKIP)"
     
     text = f"""{emoji_tag(CUSTOM_EMOJIS['ADD_API_KEY'], '➕')} <b>ADD API – Step {step_num}/{total_steps}</b>
 
@@ -3230,7 +3228,7 @@ async def show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         confirm_text += f"\n{emoji_tag(curl_icon, '📌')} <b>CURL</b>: <i>Skipped (Not Used)</i>\n"
     
-    confirm_text += f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Is all correct?</b></blockquote>"
+    confirm_text += f"\n💡 <b>Is all correct?</b>"
     
     kb = InlineKeyboardMarkup([
         [
@@ -3446,7 +3444,7 @@ async def handle_api_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
 {emoji_tag(data_icon, '📦')} <b>Data</b>: {data_present}
 {emoji_tag(token_icon, '🔑')} <b>Placeholders</b>: {placeholders_list}
 
-<blockquote>✅ Bot will use this exact format for polling</blockquote>
+✅ Bot will use this exact format for polling
 """
             # Inline buttons: CONTINUE and CANCEL with premium emojis
             kb = InlineKeyboardMarkup([
@@ -3627,11 +3625,11 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     success_text += f"""
     
-<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Next Steps</b>:
+💡 <b>Next Steps</b>:
 1. Go to <b>API System</b> → {panel_name}
 2. Click <b>TEST</b> to verify API works
 3. Click <b>EDIT</b> to adjust any settings
-4. Check <b>LOGS</b> for polling status</blockquote>
+4. Check <b>LOGS</b> for polling status
 """
     
     await query.edit_message_text(success_text, reply_markup=admin_panel_keyboard(), parse_mode='HTML')
@@ -3997,23 +3995,23 @@ async def cdr_add_step(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     data = admin_temp_data.get(user_id, {})
     current_value = data.get(field, "")
     
-    # Example/help text
+    # Example/help text - removed <blockquote>
     example_text = ""
     if field == "number_field":
-        example_text = "\n\n<blockquote>💡 Example: <code>num|1</code> means field 'num' from row 1 (first column)</blockquote>"
+        example_text = "\n\n💡 Example: <code>num|1</code> means field 'num' from row 1 (first column)"
     elif field == "message_field":
-        example_text = "\n\n<blockquote>💡 Example: <code>msg|2</code> means field 'msg' from row 2</blockquote>"
+        example_text = "\n\n💡 Example: <code>msg|2</code> means field 'msg' from row 2"
     elif field == "timestamp_field":
-        example_text = "\n\n<blockquote>💡 Example: <code>time|3</code> (optional)</blockquote>"
+        example_text = "\n\n💡 Example: <code>time|3</code> (optional)"
     elif field == "service_field":
-        example_text = "\n\n<blockquote>💡 Example: <code>sender|4</code> (optional)</blockquote>"
+        example_text = "\n\n💡 Example: <code>sender|4</code> (optional)"
     elif field == "interval_sec":
-        example_text = "\n\n<blockquote>💡 Interval in seconds (minimum 1)</blockquote>"
+        example_text = "\n\n💡 Interval in seconds (minimum 1)"
     
     if step in CDR_NON_SKIPPABLE_STEPS:
-        required_text = f"{emoji_tag('4958534696645428119', '⚠️')} <b>Required</b>"
+        required_text = f"⚠️ <b>Required</b>"
     else:
-        required_text = f"{emoji_tag('4956721670690702265', '✅')} <b>Optional</b> (Can SKIP)"
+        required_text = f"✅ <b>Optional</b> (Can SKIP)"
     
     text = f"""{emoji_tag(CUSTOM_EMOJIS['CDR_PANEL'], '📦')} <b>ADD NON API PANEL – Step {step_num}/{total_steps}</b>
 
@@ -4095,7 +4093,7 @@ async def cdr_show_confirm_step(update: Update, context: ContextTypes.DEFAULT_TY
                 safe_val = safe_val[:30] + "..."
             text += f"{emoji_tag(emoji_id, '•')} {label}: <code>{safe_val}</code>\n"
     
-    text += f"\n<blockquote>{emoji_tag('5303449763406954093', '💡')} <b>Is all correct?</b></blockquote>"
+    text += f"\n💡 <b>Is all correct?</b>"
     
     kb = InlineKeyboardMarkup([
         [
@@ -4185,7 +4183,7 @@ async def cdr_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
 🔧 <b>Service Field</b>: {service_field or 'Not used'}
 ⏱️ <b>Interval</b>: {interval}s
 
-<blockquote>✅ Polling started automatically.</blockquote>
+✅ Polling started automatically.
 """
     await query.edit_message_text(success_text, reply_markup=admin_panel_keyboard(), parse_mode='HTML')
 
@@ -5794,235 +5792,9 @@ def get_api_config(api_id: int) -> dict | None:
 # ==================== COUNTRY CODE MAP ====================
 # You can add your full country map here later (only two countries shown as minimal)
 COUNTRY_CODE_MAP = {
-    "93": ("AF", "🇦🇫", "Afghanistan"),
-    "355": ("AL", "🇦🇱", "Albania"),
-    "213": ("DZ", "🇩🇿", "Algeria"),
-    "1684": ("AS", "🇦🇸", "American Samoa"),
-    "376": ("AD", "🇦🇩", "Andorra"),
-    "244": ("AO", "🇦🇴", "Angola"),
-    "1264": ("AI", "🇦🇮", "Anguilla"),
-    "1268": ("AG", "🇦🇬", "Antigua and Barbuda"),
-    "54": ("AR", "🇦🇷", "Argentina"),
-    "374": ("AM", "🇦🇲", "Armenia"),
-    "297": ("AW", "🇦🇼", "Aruba"),
-    "61": ("AU", "🇦🇺", "Australia"),
-    "43": ("AT", "🇦🇹", "Austria"),
-    "994": ("AZ", "🇦🇿", "Azerbaijan"),
-    "1242": ("BS", "🇧🇸", "Bahamas"),
-    "973": ("BH", "🇧🇭", "Bahrain"),
     "880": ("BD", "🇧🇩", "Bangladesh"),
-    "1246": ("BB", "🇧🇧", "Barbados"),
-    "375": ("BY", "🇧🇾", "Belarus"),
-    "32": ("BE", "🇧🇪", "Belgium"),
-    "501": ("BZ", "🇧🇿", "Belize"),
-    "229": ("BJ", "🇧🇯", "Benin"),
-    "1441": ("BM", "🇧🇲", "Bermuda"),
-    "975": ("BT", "🇧🇹", "Bhutan"),
-    "591": ("BO", "🇧🇴", "Bolivia"),
-    "387": ("BA", "🇧🇦", "Bosnia and Herzegovina"),
-    "267": ("BW", "🇧🇼", "Botswana"),
-    "55": ("BR", "🇧🇷", "Brazil"),
-    "246": ("IO", "🇮🇴", "British Indian Ocean Territory"),
-    "1284": ("VG", "🇻🇬", "British Virgin Islands"),
-    "673": ("BN", "🇧🇳", "Brunei"),
-    "359": ("BG", "🇧🇬", "Bulgaria"),
-    "226": ("BF", "🇧🇫", "Burkina Faso"),
-    "257": ("BI", "🇧🇮", "Burundi"),
-    "855": ("KH", "🇰🇭", "Cambodia"),
-    "237": ("CM", "🇨🇲", "Cameroon"),
-    "1": ("CA", "🇨🇦", "Canada"),
-    "238": ("CV", "🇨🇻", "Cape Verde"),
-    "599": ("BQ", "🇧🇶", "Caribbean Netherlands"),
-    "1345": ("KY", "🇰🇾", "Cayman Islands"),
-    "236": ("CF", "🇨🇫", "Central African Republic"),
-    "235": ("TD", "🇹🇩", "Chad"),
-    "56": ("CL", "🇨🇱", "Chile"),
-    "86": ("CN", "🇨🇳", "China"),
-    "57": ("CO", "🇨🇴", "Colombia"),
-    "269": ("KM", "🇰🇲", "Comoros"),
-    "242": ("CG", "🇨🇬", "Congo"),
-    "682": ("CK", "🇨🇰", "Cook Islands"),
-    "506": ("CR", "🇨🇷", "Costa Rica"),
-    "385": ("HR", "🇭🇷", "Croatia"),
-    "53": ("CU", "🇨🇺", "Cuba"),
-    "357": ("CY", "🇨🇾", "Cyprus"),
-    "420": ("CZ", "🇨🇿", "Czech Republic"),
-    "243": ("CD", "🇨🇩", "DR Congo"),
-    "45": ("DK", "🇩🇰", "Denmark"),
-    "253": ("DJ", "🇩🇯", "Djibouti"),
-    "1767": ("DM", "🇩🇲", "Dominica"),
-    "1809": ("DO", "🇩🇴", "Dominican Republic"),
-    "670": ("TL", "🇹🇱", "East Timor"),
-    "593": ("EC", "🇪🇨", "Ecuador"),
-    "20": ("EG", "🇪🇬", "Egypt"),
-    "503": ("SV", "🇸🇻", "El Salvador"),
-    "240": ("GQ", "🇬🇶", "Equatorial Guinea"),
-    "291": ("ER", "🇪🇷", "Eritrea"),
-    "372": ("EE", "🇪🇪", "Estonia"),
-    "268": ("SZ", "🇸🇿", "Eswatini"),
-    "251": ("ET", "🇪🇹", "Ethiopia"),
-    "500": ("FK", "🇫🇰", "Falkland Islands"),
-    "298": ("FO", "🇫🇴", "Faroe Islands"),
-    "679": ("FJ", "🇫🇯", "Fiji"),
-    "358": ("FI", "🇫🇮", "Finland"),
-    "33": ("FR", "🇫🇷", "France"),
-    "594": ("GF", "🇬🇫", "French Guiana"),
-    "689": ("PF", "🇵🇫", "French Polynesia"),
-    "241": ("GA", "🇬🇦", "Gabon"),
-    "220": ("GM", "🇬🇲", "Gambia"),
-    "995": ("GE", "🇬🇪", "Georgia"),
-    "49": ("DE", "🇩🇪", "Germany"),
     "233": ("GH", "🇬🇭", "Ghana"),
-    "350": ("GI", "🇬🇮", "Gibraltar"),
-    "30": ("GR", "🇬🇷", "Greece"),
-    "299": ("GL", "🇬🇱", "Greenland"),
-    "1473": ("GD", "🇬🇩", "Grenada"),
-    "590": ("GP", "🇬🇵", "Guadeloupe"),
-    "1671": ("GU", "🇬🇺", "Guam"),
-    "502": ("GT", "🇬🇹", "Guatemala"),
-    "224": ("GN", "🇬🇳", "Guinea"),
-    "245": ("GW", "🇬🇼", "Guinea-Bissau"),
-    "592": ("GY", "🇬🇾", "Guyana"),
-    "509": ("HT", "🇭🇹", "Haiti"),
-    "504": ("HN", "🇭🇳", "Honduras"),
-    "852": ("HK", "🇭🇰", "Hong Kong"),
-    "36": ("HU", "🇭🇺", "Hungary"),
-    "354": ("IS", "🇮🇸", "Iceland"),
-    "91": ("IN", "🇮🇳", "India"),
-    "62": ("ID", "🇮🇩", "Indonesia"),
-    "98": ("IR", "🇮🇷", "Iran"),
-    "964": ("IQ", "🇮🇶", "Iraq"),
-    "353": ("IE", "🇮🇪", "Ireland"),
-    "972": ("IL", "🇮🇱", "Israel"),
-    "39": ("IT", "🇮🇹", "Italy"),
-    "225": ("CI", "🇨🇮", "Ivory Coast"),
-    "1876": ("JM", "🇯🇲", "Jamaica"),
-    "81": ("JP", "🇯🇵", "Japan"),
-    "962": ("JO", "🇯🇴", "Jordan"),
-    "254": ("KE", "🇰🇪", "Kenya"),
-    "686": ("KI", "🇰🇮", "Kiribati"),
-    "383": ("XK", "🇽🇰", "Kosovo"),
-    "965": ("KW", "🇰🇼", "Kuwait"),
-    "996": ("KG", "🇰🇬", "Kyrgyzstan"),
-    "856": ("LA", "🇱🇦", "Laos"),
-    "371": ("LV", "🇱🇻", "Latvia"),
-    "961": ("LB", "🇱🇧", "Lebanon"),
-    "266": ("LS", "🇱🇸", "Lesotho"),
-    "231": ("LR", "🇱🇷", "Liberia"),
-    "218": ("LY", "🇱🇾", "Libya"),
-    "423": ("LI", "🇱🇮", "Liechtenstein"),
-    "370": ("LT", "🇱🇹", "Lithuania"),
-    "352": ("LU", "🇱🇺", "Luxembourg"),
-    "853": ("MO", "🇲🇴", "Macau"),
-    "261": ("MG", "🇲🇬", "Madagascar"),
-    "265": ("MW", "🇲🇼", "Malawi"),
-    "60": ("MY", "🇲🇾", "Malaysia"),
-    "960": ("MV", "🇲🇻", "Maldives"),
-    "223": ("ML", "🇲🇱", "Mali"),
-    "356": ("MT", "🇲🇹", "Malta"),
-    "692": ("MH", "🇲🇭", "Marshall Islands"),
-    "596": ("MQ", "🇲🇶", "Martinique"),
-    "222": ("MR", "🇲🇷", "Mauritania"),
-    "230": ("MU", "🇲🇺", "Mauritius"),
-    "52": ("MX", "🇲🇽", "Mexico"),
-    "691": ("FM", "🇫🇲", "Micronesia"),
-    "373": ("MD", "🇲🇩", "Moldova"),
-    "377": ("MC", "🇲🇨", "Monaco"),
-    "976": ("MN", "🇲🇳", "Mongolia"),
-    "382": ("ME", "🇲🇪", "Montenegro"),
-    "1664": ("MS", "🇲🇸", "Montserrat"),
-    "212": ("MA", "🇲🇦", "Morocco"),
-    "258": ("MZ", "🇲🇿", "Mozambique"),
-    "95": ("MM", "🇲🇲", "Myanmar"),
-    "264": ("NA", "🇳🇦", "Namibia"),
-    "674": ("NR", "🇳🇷", "Nauru"),
-    "977": ("NP", "🇳🇵", "Nepal"),
-    "31": ("NL", "🇳🇱", "Netherlands"),
-    "687": ("NC", "🇳🇨", "New Caledonia"),
-    "64": ("NZ", "🇳🇿", "New Zealand"),
-    "505": ("NI", "🇳🇮", "Nicaragua"),
-    "227": ("NE", "🇳🇪", "Niger"),
-    "234": ("NG", "🇳🇬", "Nigeria"),
-    "683": ("NU", "🇳🇺", "Niue"),
-    "672": ("NF", "🇳🇫", "Norfolk Island"),
-    "850": ("KP", "🇰🇵", "North Korea"),
-    "389": ("MK", "🇲🇰", "North Macedonia"),
-    "1670": ("MP", "🇲🇵", "Northern Mariana Islands"),
-    "47": ("NO", "🇳🇴", "Norway"),
-    "968": ("OM", "🇴🇲", "Oman"),
-    "92": ("PK", "🇵🇰", "Pakistan"),
-    "680": ("PW", "🇵🇼", "Palau"),
-    "970": ("PS", "🇵🇸", "Palestine"),
-    "507": ("PA", "🇵🇦", "Panama"),
-    "675": ("PG", "🇵🇬", "Papua New Guinea"),
-    "595": ("PY", "🇵🇾", "Paraguay"),
-    "51": ("PE", "🇵🇪", "Peru"),
-    "63": ("PH", "🇵🇭", "Philippines"),
-    "48": ("PL", "🇵🇱", "Poland"),
-    "351": ("PT", "🇵🇹", "Portugal"),
-    "1787": ("PR", "🇵🇷", "Puerto Rico"),
-    "974": ("QA", "🇶🇦", "Qatar"),
-    "262": ("RE", "🇷🇪", "Reunion"),
-    "40": ("RO", "🇷🇴", "Romania"),
-    "7": ("RU", "🇷🇺", "Russia"),
-    "250": ("RW", "🇷🇼", "Rwanda"),
-    "290": ("SH", "🇸🇭", "Saint Helena"),
-    "1869": ("KN", "🇰🇳", "Saint Kitts and Nevis"),
-    "1758": ("LC", "🇱🇨", "Saint Lucia"),
-    "508": ("PM", "🇵🇲", "Saint Pierre and Miquelon"),
-    "1784": ("VC", "🇻🇨", "Saint Vincent and the Grenadines"),
-    "685": ("WS", "🇼🇸", "Samoa"),
-    "378": ("SM", "🇸🇲", "San Marino"),
-    "239": ("ST", "🇸🇹", "Sao Tome and Principe"),
-    "966": ("SA", "🇸🇦", "Saudi Arabia"),
-    "221": ("SN", "🇸🇳", "Senegal"),
-    "381": ("RS", "🇷🇸", "Serbia"),
-    "248": ("SC", "🇸🇨", "Seychelles"),
-    "232": ("SL", "🇸🇱", "Sierra Leone"),
-    "65": ("SG", "🇸🇬", "Singapore"),
-    "1721": ("SX", "🇸🇽", "Sint Maarten"),
-    "421": ("SK", "🇸🇰", "Slovakia"),
-    "386": ("SI", "🇸🇮", "Slovenia"),
-    "677": ("SB", "🇸🇧", "Solomon Islands"),
-    "252": ("SO", "🇸🇴", "Somalia"),
-    "27": ("ZA", "🇿🇦", "South Africa"),
-    "82": ("KR", "🇰🇷", "South Korea"),
-    "211": ("SS", "🇸🇸", "South Sudan"),
-    "34": ("ES", "🇪🇸", "Spain"),
-    "94": ("LK", "🇱🇰", "Sri Lanka"),
-    "249": ("SD", "🇸🇩", "Sudan"),
-    "597": ("SR", "🇸🇷", "Suriname"),
-    "46": ("SE", "🇸🇪", "Sweden"),
-    "41": ("CH", "🇨🇭", "Switzerland"),
-    "963": ("SY", "🇸🇾", "Syria"),
-    "886": ("TW", "🇹🇼", "Taiwan"),
-    "992": ("TJ", "🇹🇯", "Tajikistan"),
-    "255": ("TZ", "🇹🇿", "Tanzania"),
-    "66": ("TH", "🇹🇭", "Thailand"),
-    "228": ("TG", "🇹🇬", "Togo"),
-    "690": ("TK", "🇹🇰", "Tokelau"),
-    "676": ("TO", "🇹🇴", "Tonga"),
-    "1868": ("TT", "🇹🇹", "Trinidad and Tobago"),
-    "216": ("TN", "🇹🇳", "Tunisia"),
-    "90": ("TR", "🇹🇷", "Turkey"),
-    "993": ("TM", "🇹🇲", "Turkmenistan"),
-    "1649": ("TC", "🇹🇨", "Turks and Caicos"),
-    "688": ("TV", "🇹🇻", "Tuvalu"),
-    "971": ("AE", "🇦🇪", "UAE"),
-    "1340": ("VI", "🇻🇮", "U.S. Virgin Islands"),
-    "256": ("UG", "🇺🇬", "Uganda"),
-    "380": ("UA", "🇺🇦", "Ukraine"),
-    "44": ("GB", "🇬🇧", "United Kingdom"),
-    "1": ("US", "🇺🇸", "United States"),
-    "598": ("UY", "🇺🇾", "Uruguay"),
-    "998": ("UZ", "🇺🇿", "Uzbekistan"),
-    "678": ("VU", "🇻🇺", "Vanuatu"),
-    "58": ("VE", "🇻🇪", "Venezuela"),
-    "84": ("VN", "🇻🇳", "Vietnam"),
-    "681": ("WF", "🇼🇫", "Wallis and Futuna"),
-    "967": ("YE", "🇾🇪", "Yemen"),
-    "260": ("ZM", "🇿🇲", "Zambia"),
-    "263": ("ZW", "🇿🇼", "Zimbabwe"),
+    # Add more countries as needed
 }
 
 ISO_TO_INFO = {}
@@ -6288,9 +6060,9 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                 svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
                 
                 header = (
-                    f'<blockquote>{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
+                    f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
                     f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b> '
-                    f'{emoji_tag("6100453534422013617", "✨")}</blockquote>\n'
+                    f'{emoji_tag("6100453534422013617", "✨")}\n'
                     f'{emoji_tag("6204108584381322968", "📱")} <b>NUMBER</b>: <code>+{number}</code>\n'
                     f'{emoji_tag("5976327845696251345", "📲")} <b>APP</b>: {emoji_tag(svc_eid, "⚙️")} <b>{service_name}</b>\n'
                     f'💰 <b>BALANCE ADDED</b>: <code>+${reward}</code>{emoji_tag("5976788549658221281", "💵")}'
