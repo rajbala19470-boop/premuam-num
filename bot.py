@@ -1017,7 +1017,14 @@ async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
 async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True, delete_after: int = None):
     user_id = update.effective_user.id
     await delete_previous_messages(update, context)
-    sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    try:
+        sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except BadRequest as e:
+        # If HTML parsing fails, fallback to plain text
+        if "Entity_text_invalid" in str(e) or "Parse" in str(e):
+            sent = await context.bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup)
+        else:
+            raise
     db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?", (sent.message_id, user_id))
     if auto_delete and delete_after is None:
         await schedule_delete(context, user_id, sent.message_id)
@@ -1044,17 +1051,26 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
     except BadRequest as e:
         if "Message is not modified" in str(e):
             return None
+        # Fallback: try to send a new message without HTML or with plain text
         if context and context.bot:
             try:
                 await query.message.delete()
             except:
                 pass
-            sent = await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
+            # Try sending without parse_mode
+            try:
+                sent = await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=text,
+                    reply_markup=reply_markup
+                )
+            except:
+                # If still fails, send a simple fallback
+                sent = await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="An error occurred while displaying the message. Please try again.",
+                    reply_markup=reply_markup
+                )
             db_exec("UPDATE users SET last_bot_message_id=? WHERE user_id=?",
                     (sent.message_id, user_id))
             if auto_delete and delete_after is None:
