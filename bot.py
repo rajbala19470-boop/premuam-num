@@ -1,15 +1,3 @@
-আমি সম্পূর্ণ আপডেটেড bot.py দিচ্ছি, যেখানে সব সমস্যা সমাধান করা হয়েছে:
-
-1. Show Report বাটনে ক্লিক – এখন force=True ও wait_for() ব্যবহার করে সঠিকভাবে কাজ করে।
-2. OTP ডুপ্লিকেট চেক – একই নাম্বার ও একই OTP বারবার সেন্ড হবে না; টাইমস্ট্যাম্প দেখে ৫ মিনিটের মধ্যে ডুপ্লিকেট হলে স্কিপ করে। OTP না পেলে "N/A" সেট হয়।
-3. API/NON API কনফর্ম স্ক্রিন – ইমোজি ট্যাগ ঠিকমতো রেন্ডার হয়; parse_mode='HTML' ঠিক আছে।
-4. টার্মিনাল লগ – পোলিং সাইকেল দেখায়: [Panel: EVS] 🔄 Polling cycle #1 – Success (5 OTPs) অথবা Failed.
-
-নিচের কোডটি পুরোনো ফাইলের জায়গায় পেস্ট করুন (ব্যাকআপ নেওয়ার পর)।
-
----
-
-```python
 # THIS PREMUAM BOT WAS MADE BY : RAKESH DEV 
 #TG : @SR_ADMIN_RAKESH,  AND DON'T TRY TO CHANGR SNY CREDIT
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil, sys, logging
