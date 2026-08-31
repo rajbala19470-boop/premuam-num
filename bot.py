@@ -290,7 +290,7 @@ for service in default_services:
 conn.commit()
 print("✅ Database setup completed")
 
-# ================= COUNTRY MAP (শুধু ২টি দেশ উদাহরণ হিসেবে) =================
+# ================= COUNTRY MAP =================
 COUNTRY_CODE_MAP = {
     "93": ("AF", "🇦🇫", "Afghanistan"),
     "355": ("AL", "🇦🇱", "Albania"),
@@ -556,7 +556,7 @@ cdr_polling_tasks = {}
 
 # ================= WATCHDOG =================
 last_success_time = datetime.now()
-RESTART_TIMEOUT = 120  # ২ মিনিট inactivity
+RESTART_TIMEOUT = 120
 
 def restart_script():
     logger.info("🔄 Script restarting due to inactivity...")
@@ -596,7 +596,6 @@ def emoji_tag(emoji_id: str, fallback: str = " ") -> str:
         return fallback
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
-# ================= BLOCKQUOTE =================
 def blockquote(text: str) -> str:
     return f'<blockquote>{text}</blockquote>'
 
@@ -3981,6 +3980,7 @@ async def cdr_handle_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     return True
 
 # ================= CDR PANEL DETAIL (IMPROVED LOGIN & FETCH) =================
+# FIXED: removed 'await' on locator objects, used .element_handles() for inputs
 
 async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_last_success()
@@ -4002,7 +4002,7 @@ async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False, slow_mo=500)  # headless=False for debugging
+            browser = await p.chromium.launch(headless=False, slow_mo=500)
             context = await browser.new_context()
             page = await context.new_page()
 
@@ -4021,7 +4021,8 @@ async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Solve captcha
             captcha_answer = await _solve_captcha(page)
             if captcha_answer:
-                inputs = await page.locator("input").all()
+                # Use .element_handles() to get actual elements
+                inputs = await page.locator("input").element_handles()
                 if inputs:
                     await inputs[-1].fill(captcha_answer)
                     print(f"✅ Captcha solved: {captcha_answer}")
@@ -4030,10 +4031,10 @@ async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 print("ℹ️ No captcha detected")
 
-            # Click login button
-            login_btn = await page.locator("button").first
+            # Click login button – do NOT await the locator itself
+            login_btn = page.locator("button").first
             if await login_btn.count() == 0:
-                login_btn = await page.locator("input[type='submit']").first
+                login_btn = page.locator("input[type='submit']").first
             if await login_btn.count() == 0:
                 await page.locator("form").first.evaluate("form => form.submit()")
                 print("✅ Form submitted via JS")
@@ -4070,6 +4071,7 @@ async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=kb, parse_mode='HTML'
     )
 
+
 async def cdr_fetch_once(panel: dict) -> list[dict]:
     """Fetch OTPs from SMSCDR page using stored cookies; auto-login if needed."""
     max_retries = 2
@@ -4077,7 +4079,7 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
     for attempt in range(max_retries):
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)  # headless for production
+                browser = await p.chromium.launch(headless=True)
                 context = await browser.new_context()
 
                 cookie_data = panel.get('cookie_data')
@@ -4101,14 +4103,14 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
 
                     captcha_answer = await _solve_captcha(page)
                     if captcha_answer:
-                        inputs = await page.locator("input").all()
+                        inputs = await page.locator("input").element_handles()
                         if inputs:
                             await inputs[-1].fill(captcha_answer)
                             print(f"Captcha solved: {captcha_answer}")
 
-                    login_btn = await page.locator("button").first
+                    login_btn = page.locator("button").first
                     if await login_btn.count() == 0:
-                        login_btn = await page.locator("input[type='submit']").first
+                        login_btn = page.locator("input[type='submit']").first
                     if await login_btn.count() == 0:
                         await page.locator("form").first.evaluate("form => form.submit()")
                     else:
@@ -4128,7 +4130,7 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
                 await page.wait_for_timeout(2000)
 
                 # Click "Show Report" if present
-                show_btn = await page.locator("button:has-text('Show Report'), input[value='Show Report']").first
+                show_btn = page.locator("button:has-text('Show Report'), input[value='Show Report']").first
                 if await show_btn.count() > 0:
                     await show_btn.click()
                     await page.wait_for_timeout(3000)
@@ -5716,7 +5718,7 @@ def main():
         update_last_success()
         print("🚀 Checking for configured API/CDR panels...")
         
-        # 🔥 এখানে watchdog টাস্ক শুরু করুন (ইভেন্ট লুপ চলছে)
+        # ✅ Start watchdog here (event loop is running)
         asyncio.create_task(watchdog_task())
         
         apis = db_fetch_all("SELECT id FROM api_keys WHERE active = 1")
@@ -5739,7 +5741,7 @@ def main():
     print(f"✅ Super Admins: {SUPER_ADMIN_IDS}")
     print("✅ Full bot started with Multi-API System, Country Map, and NON API CDR Panel support.")
     print("🔄 Starting polling...")
-    # ❌ এখান থেকে asyncio.create_task(watchdog_task()) সরিয়ে দেওয়া হয়েছে
+    # ❌ Removed asyncio.create_task(watchdog_task()) from here
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
