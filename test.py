@@ -40,7 +40,7 @@ ADMIN2_TELEGRAM = ""
 #   A) a tuple/list of strings: GROUP_ID = "-1003716770621","-1001234567890"
 #   B) a comma-separated string: GROUP_ID = "-1003716770621,-1001234567890"
 #   C) a single string: GROUP_ID = "-1003716770621"
-GROUP_ID = "-1003716770621","-1004309109716"   # ← edit as needed
+GROUP_ID = "-1004334030635"   # ← edit as needed
 CHANNEL_URL = "https://t.me/A_S_COMMUNITY_9_x"
 BOT_URL = "https://t.me/AIR_NUMBER_BOT?start=1"
 
