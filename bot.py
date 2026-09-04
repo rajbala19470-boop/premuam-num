@@ -22,6 +22,16 @@ from emoji import CUSTOM_EMOJIS
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
+# ================= GLOBAL STATE (DEFINED EARLY) =================
+admin_mode = {}
+admin_panel_state = {}
+admin_temp_data = {}
+last_activation_data = {}
+polling_tasks = {}
+cdr_polling_tasks = {}
+polling_cycle_counts = {}
+application = None
+
 # ================= CONFIGURATION =================
 BOT_TOKEN = "8769374062:AAHTIxugF2XHffjlg6p2Xrd4Br-OUezroro"
 SUPER_ADMIN_IDS = [8744359777]
@@ -57,78 +67,11 @@ if GROUP_ID:
 
 # ================= EMOJIS (PREMIUM) =================
 GLOBAL_BODY_EMOJIS = {
-    "🇺🇸": "5913463998522592692", "🇺🇦": "5911406692007941050", "🇵🇱": "5913550391789752571",
-    "🇰🇿": "5913724621433082323", "🇨🇳": "5913779335021466780", "🇦🇿": "5911197578640233518",
-    "🇪🇺": "5911106310585193018", "🇦🇲": "5913272455866093666", "🇷🇺": "5913274246867456342",
-    "🇺🇿": "5911051846104912282", "🇩🇪": "5911096835887337583", "🇯🇵": "5913293711659241040",
-    "🇹🇷": "5910995113881901195", "🇧🇾": "5911011185649521599", "🇬🇧": "5913443365499703513",
-    "🇮🇳": "5913754823643107921", "🇧🇷": "5911148568768418614", "🇿🇲": "5913564754160389778",
-    "🇾🇪": "5913346492512341993", "🏴󠁧󠁢󠁷󠁬󠁳󠁿": "5911297801702084799", "🇻🇳": "5913428887164949581",
-    "🇻🇦": "5911211932420938860", "🇻🇺": "5913511535220625585", "🇺🇾": "5913623088406204470",
-    "🇦🇪": "5913726554168365343", "🇺🇬": "5913488939397681980", "🇹🇲": "5913315521503170180",
-    "🇹🇳": "5911332947419468671", "🇹🇹": "5911228635548750294", "🇹🇬": "5913423260757790970",
-    "🇹🇭": "5913617968805187987", "🇹🇿": "5911418949844603556", "🇹🇯": "5911287639809463107",
-    "🇨🇭": "5913271227505448072", "🇸🇪": "5911156510162949403", "🇸🇿": "5913374525763883286",
-    "🇸🇷": "5913275539652611719", "🇸🇩": "5911387497799094470", "🇪🇸": "5911193287967904547",
-    "🇱🇰": "5911293163137406640", "🇸🇸": "5911406262511211744", "🇿🇦": "5911203119148044594",
-    "🇸🇴": "5911397852965244436", "🇸🇧": "5911482712929080608", "🇸🇮": "5913431983836368644",
-    "🇸🇰": "5913751666842145020", "🇸🇬": "5911531460808051849", "🇸🇱": "5911210450657218661",
-    "🇸🇨": "5911185183364616913", "🇷🇸": "5913592598433369871", "🇸🇳": "5910995302860461643",
-    "🏴󠁧󠁢󠁳󠁣󠁴󠁿": "5911460091336331851", "🇸🇹": "5913574331937462345", "🇸🇲": "5913587968458625465",
-    "🇼🇸": "5913325971158602854", "🇰🇳": "5913691898077253637", "🇻🇨": "5911318941531116255",
-    "🇱🇨": "5911243659344351824", "🇵🇸": "5913684768431541668", "🇷🇼": "5911455229433352234",
-    "🇷🇴": "5913460373570195273", "🇶🇦": "5911260864983339619", "🇵🇷": "5911504350974317480",
-    "🇵🇹": "5911023653939581472", "🇵🇭": "5911268638874145162", "🇵🇪": "5911207993935925780",
-    "🇵🇾": "5911014265141072316", "🇵🇬": "5911107251183030903", "🇵🇦": "5913428968769327174",
-    "🇵🇼": "5911283903187915549", "🇵🇰": "5913705895375672082", "🇴🇲": "5913570801474343473",
-    "🇳🇴": "5913617397574537046", "🇳🇬": "5911143844304393105", "🇳🇪": "5911270086278124251",
-    "🇳🇿": "5913640044937089340", "🇳🇱": "5913367645226275100", "🇳🇵": "5913496520014958723",
-    "🇳🇦": "5911108535378252443", "🇲🇿": "5911333419865871464", "🇲🇦": "5911482111633658301",
-    "🇲🇪": "5913239436157522151", "🇲🇳": "5911041383564580038", "🇲🇨": "5911245347266500057",
-    "🇲🇩": "5913456847402045950", "🇲🇻": "5913501399097806832", "🇲🇱": "5911305266355245916",
-    "🇲🇹": "5911023714069123567", "🇧🇲": "5913680005312811090", "🇲🇶": "5911378005921370347",
-    "🇲🇭": "5913235935759175692", "🇲🇺": "5913291113204027321", "🇲🇽": "5913687302462246518",
-    "🇫🇲": "5911271104185373336", "🇲🇾": "5913654360063087453", "🇰🇪": "5911154710571651231",
-    "🇲🇬": "5913766918271012920", "🇲🇰": "5913394029210374721", "🇱🇺": "5913390842344640293",
-    "🇱🇹": "5911172315642597775", "🇱🇮": "5911166650580734660", "🇱🇾": "5911236989260140996",
-    "🇱🇷": "5913324167272337727", "🇰🇮": "5911294443037660118", "🇽🇰": "5911433681582429010",
-    "🇰🇼": "5913290705182134003", "🇰🇬": "5911202161370337549", "🇱🇦": "5913718526874489279",
-    "🇱🇻": "5913738489882480243", "🇱🇧": "5911504273664905447", "🇱🇸": "5911059881988723711",
-    "🇮🇩": "5913479361620611038", "🇮🇷": "5911308891307643032", "🇮🇶": "5911382442622587735",
-    "🇮🇪": "5913440715504881532", "🇮🇱": "5911471936856134692", "🇮🇹": "5913688444923547525",
-    "🇯🇲": "5913232280742006526", "🇯🇴": "5913234136167878475", "🇮🇸": "5911047899029967246",
-    "🇭🇺": "5913767635530551104", "🇭🇳": "5911406889576436289", "🇭🇹": "5913459789454643194",
-    "🇬🇾": "5913579412883771480", "🇬🇼": "5911398694778836149", "🇬🇳": "5913471858312744319",
-    "🇬🇹": "5913324858762072330", "🇬🇩": "5913228063084121946", "🇬🇷": "5911210399117611448",
-    "🇬🇭": "5913391155877252952", "🇬🇪": "5913434771270144023", "🇬🇲": "5913657267755945883",
-    "🇬🇦": "5911037896051137264", "🇫🇷": "5913605586414473124", "🇫🇮": "5911041344909873378",
-    "🇫🇯": "5911393832875856716", "🇪🇹": "5911078333168227043", "🇩🇴": "5911152099231536123",
-    "🇹🇱": "5911141915864076479", "🇪🇨": "5911273865849347408", "🇪🇬": "5913694831539916769",
-    "🇸🇻": "5913238624408703010", "🏴󠁧󠁢󠁥󠁮󠁧󠁿": "5913475719488344315", "🇪🇪": "5910986042910969906",
-    "🇩🇲": "5911377121158107430", "🇩🇯": "5911407709915190157", "🇩🇰": "5911206009661034712",
-    "🇨🇾": "5911023550860366409", "🇭🇷": "5913692684056269311", "🇨🇷": "5911261745451635030",
-    "🇨🇬": "5911338788574990168", "🇨🇩": "5913770362834783827", "🇰🇲": "5911338582416560604",
-    "🇰🇭": "5913699998385573485", "🇨🇲": "5911172109484167745", "🇨🇦": "5913623736946265914",
-    "🇨🇻": "5913571501554012193", "🇨🇫": "5913443245240619222", "🇹🇩": "5913299849167507310",
-    "🇨🇿": "5911198691036764307", "🇨🇱": "5911470957603592832", "🇨🇴": "5913773060074246009",
-    "🇧🇮": "5913766441529642752", "🇧🇼": "5911513782722499475", "🇧🇦": "5913700002680541032",
-    "🇧🇴": "5913638795101606133", "🇧🇹": "5913236734623093021", "🇧🇯": "5913735869952430547",
-    "🇦🇷": "5913573356979884082", "🇦🇺": "5913632326880858455", "🇦🇹": "5911338831524664592",
-    "🇧🇸": "5911451643135660214", "🇧🇭": "5913581663446634403", "🇧🇩": "5911365056594973179",
-    "🇧🇧": "5911016996740272263", "🇧🇪": "5913529642802745141", "🇧🇿": "5913355005137522807",
-    "🇦🇬": "5913389025573475085", "🇦🇴": "5913753316109586411", "🇦🇩": "5911314702398396902",
-    "🇩🇿": "5913782968563800236", "🇦🇱": "5911357458797826163", "🇦🇫": "5913492040364068694",
-    "🇿🇼": "5911092502265336396", "🇨🇺": "5431551436502611633", "🇰🇵": "5434142701941437163",
-    "🇻🇪": "5434009132753499322", "🇸🇾": "5433910876786670092", "🇲🇲": "5433666360003540231",
-    "🇳🇮": "5334807849418003620", "🇰🇷": "5913371673905598425", "🇬🇶": "5911306279967529251",
-    "🇬🇱": "5292014752283774878", "🇫🇴": "5296469342039327674", "🇨🇮": "5222233374948602940",
-    "🇧🇳": "5911336409163109113", "🇧🇬": "5294329219965272288", "🇧🇫": "5913407764515786948",
-    "🇪🇷": "5433723401464198287", "🇲🇼": "5433968339154122439", "🇲🇷": "5433859405898594234",
-    "🇳🇷": "5434131139889478358", "🇸🇦": "4985897134424328239", "🇹🇴": "5433640100573491806",
-    "🇹🇻": "5433684690923961019", "🇹🇼": "5366187256937726720", "🇭🇰": "5292166459118606932",
-    "🇲🇴": "6323557758096377611"
+    # Only Bangladesh flag as default, others can be added later
+    "🇧🇩": "5911365056594973179",
+    # The rest of the flags are commented out, user can add them later
+    # "🇺🇸": "5913463998522592692", etc.
 }
-
 def apply_emojis(text):
     for char, eid in GLOBAL_BODY_EMOJIS.items():
         text = text.replace(char, f'<tg-emoji emoji-id="{eid}">{char}</tg-emoji>')
@@ -547,241 +490,9 @@ def get_numbers_from_stock(country, service, count=3):
 
 # ================= COUNTRY MAP (ONLY BANGLADESH AS DEFAULT) =================
 COUNTRY_CODE_MAP = {
-    "1": ("US", "🇺🇸", "United States / Canada"),
-    "7": ("RU", "🇷🇺", "Russia / Kazakhstan"),
-    "20": ("EG", "🇪🇬", "Egypt"),
-    "27": ("ZA", "🇿🇦", "South Africa"),
-    "30": ("GR", "🇬🇷", "Greece"),
-    "31": ("NL", "🇳🇱", "Netherlands"),
-    "32": ("BE", "🇧🇪", "Belgium"),
-    "33": ("FR", "🇫🇷", "France"),
-    "34": ("ES", "🇪🇸", "Spain"),
-    "36": ("HU", "🇭🇺", "Hungary"),
-    "39": ("IT", "🇮🇹", "Italy"),
-    "40": ("RO", "🇷🇴", "Romania"),
-    "41": ("CH", "🇨🇭", "Switzerland"),
-    "43": ("AT", "🇦🇹", "Austria"),
-    "44": ("GB", "🇬🇧", "United Kingdom"),
-    "45": ("DK", "🇩🇰", "Denmark"),
-    "46": ("SE", "🇸🇪", "Sweden"),
-    "47": ("NO", "🇳🇴", "Norway"),
-    "48": ("PL", "🇵🇱", "Poland"),
-    "49": ("DE", "🇩🇪", "Germany"),
-    "51": ("PE", "🇵🇪", "Peru"),
-    "52": ("MX", "🇲🇽", "Mexico"),
-    "53": ("CU", "🇨🇺", "Cuba"),
-    "54": ("AR", "🇦🇷", "Argentina"),
-    "55": ("BR", "🇧🇷", "Brazil"),
-    "56": ("CL", "🇨🇱", "Chile"),
-    "57": ("CO", "🇨🇴", "Colombia"),
-    "58": ("VE", "🇻🇪", "Venezuela"),
-    "60": ("MY", "🇲🇾", "Malaysia"),
-    "61": ("AU", "🇦🇺", "Australia"),
-    "62": ("ID", "🇮🇩", "Indonesia"),
-    "63": ("PH", "🇵🇭", "Philippines"),
-    "64": ("NZ", "🇳🇿", "New Zealand"),
-    "65": ("SG", "🇸🇬", "Singapore"),
-    "66": ("TH", "🇹🇭", "Thailand"),
-    "81": ("JP", "🇯🇵", "Japan"),
-    "82": ("KR", "🇰🇷", "South Korea"),
-    "84": ("VN", "🇻🇳", "Vietnam"),
-    "86": ("CN", "🇨🇳", "China"),
-    "90": ("TR", "🇹🇷", "Turkey"),
-    "91": ("IN", "🇮🇳", "India"),
-    "92": ("PK", "🇵🇰", "Pakistan"),
-    "93": ("AF", "🇦🇫", "Afghanistan"),
-    "94": ("LK", "🇱🇰", "Sri Lanka"),
-    "95": ("MM", "🇲🇲", "Myanmar"),
-    "98": ("IR", "🇮🇷", "Iran"),
-    "211": ("SS", "🇸🇸", "South Sudan"),
-    "212": ("MA", "🇲🇦", "Morocco"),
-    "213": ("DZ", "🇩🇿", "Algeria"),
-    "216": ("TN", "🇹🇳", "Tunisia"),
-    "218": ("LY", "🇱🇾", "Libya"),
-    "220": ("GM", "🇬🇲", "Gambia"),
-    "221": ("SN", "🇸🇳", "Senegal"),
-    "222": ("MR", "🇲🇷", "Mauritania"),
-    "223": ("ML", "🇲🇱", "Mali"),
-    "224": ("GN", "🇬🇳", "Guinea"),
-    "225": ("CI", "🇨🇮", "Ivory Coast"),
-    "226": ("BF", "🇧🇫", "Burkina Faso"),
-    "227": ("NE", "🇳🇪", "Niger"),
-    "228": ("TG", "🇹🇬", "Togo"),
-    "229": ("BJ", "🇧🇯", "Benin"),
-    "230": ("MU", "🇲🇺", "Mauritius"),
-    "231": ("LR", "🇱🇷", "Liberia"),
-    "232": ("SL", "🇸🇱", "Sierra Leone"),
-    "233": ("GH", "🇬🇭", "Ghana"),
-    "234": ("NG", "🇳🇬", "Nigeria"),
-    "235": ("TD", "🇹🇩", "Chad"),
-    "236": ("CF", "🇨🇫", "Central African Republic"),
-    "237": ("CM", "🇨🇲", "Cameroon"),
-    "238": ("CV", "🇨🇻", "Cape Verde"),
-    "239": ("ST", "🇸🇹", "Sao Tome and Principe"),
-    "240": ("GQ", "🇬🇶", "Equatorial Guinea"),
-    "241": ("GA", "🇬🇦", "Gabon"),
-    "242": ("CG", "🇨🇬", "Congo"),
-    "243": ("CD", "🇨🇩", "DR Congo"),
-    "244": ("AO", "🇦🇴", "Angola"),
-    "245": ("GW", "🇬🇼", "Guinea-Bissau"),
-    "246": ("IO", "🇮🇴", "British Indian Ocean Territory"),
-    "247": ("AC", "🇦🇨", "Ascension Island"),
-    "248": ("SC", "🇸🇨", "Seychelles"),
-    "249": ("SD", "🇸🇩", "Sudan"),
-    "250": ("RW", "🇷🇼", "Rwanda"),
-    "251": ("ET", "🇪🇹", "Ethiopia"),
-    "252": ("SO", "🇸🇴", "Somalia"),
-    "253": ("DJ", "🇩🇯", "Djibouti"),
-    "254": ("KE", "🇰🇪", "Kenya"),
-    "255": ("TZ", "🇹🇿", "Tanzania"),
-    "256": ("UG", "🇺🇬", "Uganda"),
-    "257": ("BI", "🇧🇮", "Burundi"),
-    "258": ("MZ", "🇲🇿", "Mozambique"),
-    "260": ("ZM", "🇿🇲", "Zambia"),
-    "261": ("MG", "🇲🇬", "Madagascar"),
-    "262": ("RE", "🇷🇪", "Reunion / Mayotte"),
-    "263": ("ZW", "🇿🇼", "Zimbabwe"),
-    "264": ("NA", "🇳🇦", "Namibia"),
-    "265": ("MW", "🇲🇼", "Malawi"),
-    "266": ("LS", "🇱🇸", "Lesotho"),
-    "267": ("BW", "🇧🇼", "Botswana"),
-    "268": ("SZ", "🇸🇿", "Eswatini"),
-    "269": ("KM", "🇰🇲", "Comoros"),
-    "290": ("SH", "🇸🇭", "Saint Helena / Tristan da Cunha"),
-    "291": ("ER", "🇪🇷", "Eritrea"),
-    "297": ("AW", "🇦🇼", "Aruba"),
-    "298": ("FO", "🇫🇴", "Faroe Islands"),
-    "299": ("GL", "🇬🇱", "Greenland"),
-    "350": ("GI", "🇬🇮", "Gibraltar"),
-    "351": ("PT", "🇵🇹", "Portugal"),
-    "352": ("LU", "🇱🇺", "Luxembourg"),
-    "353": ("IE", "🇮🇪", "Ireland"),
-    "354": ("IS", "🇮🇸", "Iceland"),
-    "355": ("AL", "🇦🇱", "Albania"),
-    "356": ("MT", "🇲🇹", "Malta"),
-    "357": ("CY", "🇨🇾", "Cyprus"),
-    "358": ("FI", "🇫🇮", "Finland / Åland Islands"),
-    "359": ("BG", "🇧🇬", "Bulgaria"),
-    "370": ("LT", "🇱🇹", "Lithuania"),
-    "371": ("LV", "🇱🇻", "Latvia"),
-    "372": ("EE", "🇪🇪", "Estonia"),
-    "373": ("MD", "🇲🇩", "Moldova"),
-    "374": ("AM", "🇦🇲", "Armenia"),
-    "375": ("BY", "🇧🇾", "Belarus"),
-    "376": ("AD", "🇦🇩", "Andorra"),
-    "377": ("MC", "🇲🇨", "Monaco"),
-    "378": ("SM", "🇸🇲", "San Marino"),
-    "379": ("VA", "🇻🇦", "Vatican City"),
-    "380": ("UA", "🇺🇦", "Ukraine"),
-    "381": ("RS", "🇷🇸", "Serbia"),
-    "382": ("ME", "🇲🇪", "Montenegro"),
-    "383": ("XK", "🇽🇰", "Kosovo"),
-    "385": ("HR", "🇭🇷", "Croatia"),
-    "386": ("SI", "🇸🇮", "Slovenia"),
-    "387": ("BA", "🇧🇦", "Bosnia and Herzegovina"),
-    "389": ("MK", "🇲🇰", "North Macedonia"),
-    "420": ("CZ", "🇨🇿", "Czech Republic"),
-    "421": ("SK", "🇸🇰", "Slovakia"),
-    "423": ("LI", "🇱🇮", "Liechtenstein"),
-    "500": ("FK", "🇫🇰", "Falkland Islands"),
-    "501": ("BZ", "🇧🇿", "Belize"),
-    "502": ("GT", "🇬🇹", "Guatemala"),
-    "503": ("SV", "🇸🇻", "El Salvador"),
-    "504": ("HN", "🇭🇳", "Honduras"),
-    "505": ("NI", "🇳🇮", "Nicaragua"),
-    "506": ("CR", "🇨🇷", "Costa Rica"),
-    "507": ("PA", "🇵🇦", "Panama"),
-    "508": ("PM", "🇵🇲", "Saint Pierre and Miquelon"),
-    "509": ("HT", "🇭🇹", "Haiti"),
-    "590": ("GP", "🇬🇵", "Guadeloupe / Saint Martin / Saint Barthélemy"),
-    "591": ("BO", "🇧🇴", "Bolivia"),
-    "592": ("GY", "🇬🇾", "Guyana"),
-    "593": ("EC", "🇪🇨", "Ecuador"),
-    "594": ("GF", "🇬🇫", "French Guiana"),
-    "595": ("PY", "🇵🇾", "Paraguay"),
-    "596": ("MQ", "🇲🇶", "Martinique"),
-    "597": ("SR", "🇸🇷", "Suriname"),
-    "598": ("UY", "🇺🇾", "Uruguay"),
-    "599": ("CW", "🇨🇼", "Curaçao / Caribbean Netherlands"),
-    "670": ("TL", "🇹🇱", "East Timor"),
-    "672": ("NF", "🇳🇫", "Norfolk Island / Australian External Territories"),
-    "673": ("BN", "🇧🇳", "Brunei"),
-    "674": ("NR", "🇳🇷", "Nauru"),
-    "675": ("PG", "🇵🇬", "Papua New Guinea"),
-    "676": ("TO", "🇹🇴", "Tonga"),
-    "677": ("SB", "🇸🇧", "Solomon Islands"),
-    "678": ("VU", "🇻🇺", "Vanuatu"),
-    "679": ("FJ", "🇫🇯", "Fiji"),
-    "680": ("PW", "🇵🇼", "Palau"),
-    "681": ("WF", "🇼🇫", "Wallis and Futuna"),
-    "682": ("CK", "🇨🇰", "Cook Islands"),
-    "683": ("NU", "🇳🇺", "Niue"),
-    "685": ("WS", "🇼🇸", "Samoa"),
-    "686": ("KI", "🇰🇮", "Kiribati"),
-    "687": ("NC", "🇳🇨", "New Caledonia"),
-    "688": ("TV", "🇹🇻", "Tuvalu"),
-    "689": ("PF", "🇵🇫", "French Polynesia"),
-    "690": ("TK", "🇹🇰", "Tokelau"),
-    "691": ("FM", "🇫🇲", "Micronesia"),
-    "692": ("MH", "🇲🇭", "Marshall Islands"),
-    "850": ("KP", "🇰🇵", "North Korea"),
-    "852": ("HK", "🇭🇰", "Hong Kong"),
-    "853": ("MO", "🇲🇴", "Macau"),
-    "855": ("KH", "🇰🇭", "Cambodia"),
-    "856": ("LA", "🇱🇦", "Laos"),
     "880": ("BD", "🇧🇩", "Bangladesh"),
-    "886": ("TW", "🇹🇼", "Taiwan"),
-    "960": ("MV", "🇲🇻", "Maldives"),
-    "961": ("LB", "🇱🇧", "Lebanon"),
-    "962": ("JO", "🇯🇴", "Jordan"),
-    "963": ("SY", "🇸🇾", "Syria"),
-    "964": ("IQ", "🇮🇶", "Iraq"),
-    "965": ("KW", "🇰🇼", "Kuwait"),
-    "966": ("SA", "🇸🇦", "Saudi Arabia"),
-    "967": ("YE", "🇾🇪", "Yemen"),
-    "968": ("OM", "🇴🇲", "Oman"),
-    "970": ("PS", "🇵🇸", "Palestine"),
-    "971": ("AE", "🇦🇪", "UAE"),
-    "972": ("IL", "🇮🇱", "Israel"),
-    "973": ("BH", "🇧🇭", "Bahrain"),
-    "974": ("QA", "🇶🇦", "Qatar"),
-    "975": ("BT", "🇧🇹", "Bhutan"),
-    "976": ("MN", "🇲🇳", "Mongolia"),
-    "977": ("NP", "🇳🇵", "Nepal"),
-    "992": ("TJ", "🇹🇯", "Tajikistan"),
-    "993": ("TM", "🇹🇲", "Turkmenistan"),
-    "994": ("AZ", "🇦🇿", "Azerbaijan"),
-    "995": ("GE", "🇬🇪", "Georgia"),
-    "996": ("KG", "🇰🇬", "Kyrgyzstan"),
-    "998": ("UZ", "🇺🇿", "Uzbekistan"),
-    "1242": ("BS", "🇧🇸", "Bahamas"),
-    "1246": ("BB", "🇧🇧", "Barbados"),
-    "1264": ("AI", "🇦🇮", "Anguilla"),
-    "1268": ("AG", "🇦🇬", "Antigua and Barbuda"),
-    "1284": ("VG", "🇻🇬", "British Virgin Islands"),
-    "1340": ("VI", "🇻🇮", "U.S. Virgin Islands"),
-    "1345": ("KY", "🇰🇾", "Cayman Islands"),
-    "1441": ("BM", "🇧🇲", "Bermuda"),
-    "1473": ("GD", "🇬🇩", "Grenada"),
-    "1649": ("TC", "🇹🇨", "Turks and Caicos"),
-    "1664": ("MS", "🇲🇸", "Montserrat"),
-    "1670": ("MP", "🇲🇵", "Northern Mariana Islands"),
-    "1671": ("GU", "🇬🇺", "Guam"),
-    "1684": ("AS", "🇦🇸", "American Samoa"),
-    "1721": ("SX", "🇸🇽", "Sint Maarten"),
-    "1758": ("LC", "🇱🇨", "Saint Lucia"),
-    "1767": ("DM", "🇩🇲", "Dominica"),
-    "1784": ("VC", "🇻🇨", "Saint Vincent and the Grenadines"),
-    "1787": ("PR", "🇵🇷", "Puerto Rico"),
-    "1809": ("DO", "🇩🇴", "Dominican Republic"),
-    "1829": ("DO", "🇩🇴", "Dominican Republic"),
-    "1849": ("DO", "🇩🇴", "Dominican Republic"),
-    "1868": ("TT", "🇹🇹", "Trinidad and Tobago"),
-    "1869": ("KN", "🇰🇳", "Saint Kitts and Nevis"),
-    "1876": ("JM", "🇯🇲", "Jamaica"),
-    "1939": ("PR", "🇵🇷", "Puerto Rico"),
+    # Add more countries here later
 }
-
 ISO_TO_INFO = {}
 for code, val in COUNTRY_CODE_MAP.items():
     if len(val) >= 3:
@@ -1202,6 +913,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("Database", callback_data="admin_database", style=KBS.SUCCESS,
                                  icon_custom_emoji_id=safe_icon(DATABASE_EMOJI)),
         ],
+        # NEW BUTTONS: AIR CONTROL and FORCE JOIN
         [
             InlineKeyboardButton("AIR CONTROL", callback_data="admin_air_control", style=KBS.DANGER,
                                  icon_custom_emoji_id=safe_icon("6206236607532504295")),
@@ -1248,8 +960,6 @@ def air_control_keyboard():
     cooldown = get_setting('cooldown', '5')
     num_req = get_setting('num_req', '1')
     w_group = get_setting('w_group', 'NOT SET')
-    w_methods = get_setting('w_methods', ['bKash', 'Nagad'])
-    methods_str = ', '.join(w_methods) if w_methods else 'None'
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"MIN WITHDRAW: {min_w}", callback_data="air_min_w", style=KBS.SUCCESS,
                               icon_custom_emoji_id=safe_icon("5352877703043258544")),
@@ -1272,15 +982,14 @@ def air_control_keyboard():
 def air_otp_control_keyboard():
     default_rate = get_setting('otp_default_rate', '0.5')
     service_rates = get_setting('otp_service_rates', {})
-    kb = InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton(f"Default Rate: {default_rate}", callback_data="air_def_rate", style=KBS.PRIMARY,
                               icon_custom_emoji_id=safe_icon("5352877703043258544"))],
         [InlineKeyboardButton("Set Service Rate", callback_data="air_srv_rate", style=KBS.SUCCESS,
                               icon_custom_emoji_id=safe_icon("5395444784611480792"))]
-    ])
-    rows = kb.inline_keyboard.copy()
+    ]
     for srv_name, rate in service_rates.items():
-        app_info = PREMIUM_APPS.get(srv_name, {"emoji": "📱", "id": "5465590345108589516"})
+        app_info = PREMIUM_APPS.get(srv_name, {"emoji": "📱", "id": "5465590345108589516"}) if 'PREMIUM_APPS' in globals() else {"emoji": "📱", "id": "5465590345108589516"}
         rows.append([InlineKeyboardButton(f"Delete: {srv_name} ({rate})", callback_data=f"del_srv_rate_{srv_name}", style=KBS.DANGER,
                                           icon_custom_emoji_id=safe_icon(app_info['id']))])
     rows.append([InlineKeyboardButton("BACK", callback_data="air_control", style=KBS.DANGER,
@@ -1289,7 +998,6 @@ def air_otp_control_keyboard():
 
 def manage_w_methods_keyboard():
     methods = get_setting('w_methods', [])
-    kb = InlineKeyboardMarkup([])
     rows = []
     for idx, method in enumerate(methods):
         rows.append([InlineKeyboardButton(f"Delete: {method}", callback_data=f"del_w_method_{idx}", style=KBS.DANGER,
@@ -1745,7 +1453,7 @@ async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TY
         f'{emoji_tag(emoji_id, "🆔")} USER ID: <code>{user_id}</code>\n'
         f'{emoji_tag(emoji_money, "💰")} BALANCE: <code>${balance:.3f}</code>\n'
         f'{emoji_tag(emoji_withdraw, "💸")} WITHDRAWED: <code>${withdrawn:.3f}</code>\n'
-        f'{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>$0.1</code>\n'
+        f'{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>${get_setting("min_withdraw", "10.0")}</code>\n'
         f'{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code>'
     )
     kb = InlineKeyboardMarkup([[
@@ -2532,6 +2240,40 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         admin_panel_state[user_id] = "main"
         await admin_panel_menu(update, user_id, context)
         return True
+    # Force Join text handler
+    elif state == "waiting_fj_channel":
+        try:
+            chat_identifier = text.strip()
+            res = requests.get(BASE_URL + f"getChat?chat_id={chat_identifier}").json()
+            if res.get('ok'):
+                chat = res['result']
+                if chat['type'] in ['channel', 'supergroup']:
+                    invite_link = None
+                    try:
+                        inv = requests.post(BASE_URL + f"exportChatInviteLink?chat_id={chat['id']}").json()
+                        if inv.get('ok'):
+                            invite_link = inv['result']
+                    except:
+                        pass
+                    channel_data = {
+                        'id': chat['id'],
+                        'username': chat.get('username', ''),
+                        'title': chat.get('title', 'Channel'),
+                        'invite_link': invite_link or ''
+                    }
+                    channels = get_force_join_channels()
+                    channels.append(channel_data)
+                    set_force_join_channels(channels)
+                    await update.message.reply_text(f"✅ Channel '{chat.get('title')}' added successfully!")
+                    await admin_force_join(update, context)
+                    admin_panel_state[user_id] = None
+                else:
+                    await update.message.reply_text("❌ This is not a channel or supergroup.")
+            else:
+                await update.message.reply_text("❌ Failed to fetch channel. Ensure the bot is admin and the chat ID/username is correct.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {e}")
+        return True
     return False
 
 # ================= STOCK GET NUMBER CALLBACK =================
@@ -2847,8 +2589,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _database_wrapper(update, context)
     elif action == "manage_api":
         await _manage_api_wrapper(update, context)
+    # AIR CONTROL
     elif action == "air_control":
         await admin_air_control(update, context)
+    # FORCE JOIN
     elif action == "force_join":
         await admin_force_join(update, context)
     elif action == "exit":
@@ -3210,45 +2954,6 @@ async def force_join_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.answer("❌ You haven't joined all channels!", show_alert=True)
 
-async def force_join_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = admin_panel_state.get(user_id)
-    if state == "waiting_fj_channel":
-        chat_identifier = update.message.text.strip()
-        # Try to fetch channel info
-        try:
-            res = requests.get(BASE_URL + f"getChat?chat_id={chat_identifier}").json()
-            if res.get('ok'):
-                chat = res['result']
-                if chat['type'] in ['channel', 'supergroup']:
-                    invite_link = None
-                    try:
-                        inv = requests.post(BASE_URL + f"exportChatInviteLink?chat_id={chat['id']}").json()
-                        if inv.get('ok'):
-                            invite_link = inv['result']
-                    except:
-                        pass
-                    channel_data = {
-                        'id': chat['id'],
-                        'username': chat.get('username', ''),
-                        'title': chat.get('title', 'Channel'),
-                        'invite_link': invite_link or ''
-                    }
-                    channels = get_force_join_channels()
-                    channels.append(channel_data)
-                    set_force_join_channels(channels)
-                    await update.message.reply_text(f"✅ Channel '{chat.get('title')}' added successfully!")
-                    await admin_force_join(update, context)
-                    admin_panel_state[user_id] = None
-                else:
-                    await update.message.reply_text("❌ This is not a channel or supergroup.")
-            else:
-                await update.message.reply_text("❌ Failed to fetch channel. Ensure the bot is admin and the chat ID/username is correct.")
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
-        return True
-    return False
-
 # ================= COUNTRY & SERVICE CALLBACKS =================
 async def country_manager_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id):
@@ -3596,11 +3301,13 @@ async def send_balance_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f'{emoji_tag(emoji_id, "🆔")} USER ID: <code>{user_id}</code>\n'
         f'{emoji_tag(emoji_money, "💰")} BALANCE: <code>${balance:.3f}</code>\n'
         f'{emoji_tag(emoji_withdraw, "💸")} WITHDRAWED: <code>${withdrawn:.3f}</code>\n'
-        f'{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>$0.1</code>\n'
+        f'{emoji_tag(emoji_warning, "⚠️")} MINIMUM WITHDRAW: <code>${get_setting("min_withdraw", "10.0")}</code>\n'
         f'{emoji_tag(emoji_inbox, "📨")} TOTAL OTP: <code>{total_otp}</code>'
     )
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
-                                                     icon_custom_emoji_id=safe_icon("5445353829304387411"))]])
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("WITHDRAW", callback_data="withdraw", style=KBS.SUCCESS,
+                             icon_custom_emoji_id=safe_icon("5445353829304387411"))
+    ]])
     await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def send_support_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3618,7 +3325,7 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
     admin_panel_state[user_id] = "main"
     await send_clean_message(update, context, "ADMIN PANEL\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓", reply_markup=admin_panel_keyboard(), auto_delete=False)
 
-# ================= CURL PARSER =================
+# ================= CURL PARSER (unchanged) =================
 import re
 import json
 from urllib.parse import urlparse, parse_qs
@@ -3757,7 +3464,7 @@ def build_request_from_curl(parsed: dict, placeholders: dict = None) -> dict:
             "data": data, "base_url": parsed.get("base_url", ""), "endpoint": parsed.get("endpoint", ""),
             "placeholders": placeholders}
 
-# ================= API ADD STEPS =================
+# ================= API ADD STEPS (unchanged) =================
 STEP_ORDER = [
     "api_add_name", "api_add_base_url", "api_add_endpoint", "api_add_token",
     "api_add_interval", "api_add_otp_list_path", "api_add_number_path",
@@ -4299,7 +4006,6 @@ async def poll_single_api_curl_based(api_id: int):
                 db_exec("UPDATE api_keys SET error_count = error_count + 1 WHERE id = ?", (api_id,))
                 consecutive_failures += 1
 
-            # Recovery check: if 3 consecutive failures or 2 mins inactivity, reset counters
             if consecutive_failures >= 3 or (datetime.now() - last_success_time).total_seconds() > 120:
                 logger.warning(f"[API: {config.get('panel_name', api_id)}] ⚠️ Recovery triggered (failures={consecutive_failures}, inactivity={(datetime.now()-last_success_time).seconds}s). Resetting counters...")
                 consecutive_failures = 0
@@ -4327,7 +4033,7 @@ async def start_all_polling():
     for (api_id,) in apis:
         await start_polling_for_api(api_id)
 
-# ================= API SYSTEM GRID =================
+# ================= API SYSTEM GRID (unchanged) =================
 async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
@@ -4365,7 +4071,7 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     text = f"{emoji_tag(CUSTOM_EMOJIS['API_SYSTEM'], '🖥️')} <b>API SYSTEM</b> ({len(apis)} configured)"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
-# ================= API ADD CHOICE =================
+# ================= API ADD CHOICE (unchanged) =================
 async def api_add_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -4396,8 +4102,7 @@ async def api_choice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await cdr_add_start(update, context, user_id)
 
-# ================= CDR PANEL MANAGEMENT (IMPROVED) =================
-
+# ================= CDR PANEL MANAGEMENT (unchanged) =================
 async def _solve_captcha(page) -> str | None:
     body_text = await page.locator("body").inner_text()
     match = re.search(r"(\d+)\s*([\+\-])\s*(\d+)", body_text)
@@ -4653,8 +4358,7 @@ async def cdr_handle_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         await cdr_show_confirm_step(update, context, user_id)
     return True
 
-# ================= CDR PANEL DETAIL (IMPROVED LOGIN & FETCH) =================
-
+# ================= CDR PANEL DETAIL (improved) =================
 async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -4734,7 +4438,6 @@ async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def cdr_fetch_once(panel: dict) -> list[dict]:
-    """Fetch OTPs from SMSCDR page using stored cookies; auto-login only when needed."""
     max_retries = 2
     last_exception = None
     for attempt in range(max_retries):
@@ -4746,7 +4449,6 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
                 )
                 context = await browser.new_context()
 
-                # Load saved cookies if available
                 cookie_data = panel.get('cookie_data')
                 if cookie_data:
                     try:
@@ -4757,11 +4459,9 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
 
                 page = await context.new_page()
 
-                # Step 1: Go to login page to check session
                 await page.goto(panel['login_url'], wait_until="domcontentloaded", timeout=60000)
                 await page.wait_for_timeout(2000)
 
-                # If still on login page, perform login
                 if "login" in page.url.lower():
                     print(f"Panel {panel['id']}: Session expired, logging in...")
                     await page.locator("input[type='text']").first.fill(panel['username'])
@@ -4786,7 +4486,6 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
                     if "login" in page.url.lower():
                         raise Exception("Login failed – still on login page")
 
-                    # Save fresh cookies
                     storage = await context.storage_state()
                     db_exec("UPDATE cdr_panels SET cookie_data = ? WHERE id = ?",
                             (json.dumps(storage), panel['id']))
@@ -4794,7 +4493,6 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
                 else:
                     print(f"Panel {panel['id']}: Session active, proceeding.")
 
-                # Step 2: Navigate to SMSCDR page (use domcontentloaded to avoid timeout)
                 try:
                     await page.goto(panel['smscdr_url'], wait_until="domcontentloaded", timeout=60000)
                 except Exception as e:
@@ -4804,7 +4502,6 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
 
                 await page.wait_for_timeout(3000)
 
-                # Click "Show Report" if needed
                 show_btn = page.locator("button:has-text('Show Report'), input[value='Show Report']").first
                 try:
                     if await show_btn.count() > 0:
@@ -4821,7 +4518,6 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
                 except Exception as e:
                     print(f"Panel {panel['id']}: Show Report click failed - {e}")
 
-                # Wait for table to appear (with retry)
                 table_found = False
                 for retry in range(3):
                     try:
@@ -4834,12 +4530,10 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
                     await page.wait_for_timeout(1000)
 
                 if not table_found:
-                    # Check if "No data" message
                     no_data = await page.locator("text='No data available'").count()
                     if no_data > 0:
                         await browser.close()
                         return []
-                    # If no table and no data, it might be an error – take screenshot
                     await page.screenshot(path=f"panel_{panel['id']}_no_table.png")
                     print(f"Panel {panel['id']}: No table found")
                     await browser.close()
@@ -4907,12 +4601,10 @@ async def cdr_fetch_once(panel: dict) -> list[dict]:
             if attempt < max_retries - 1:
                 await asyncio.sleep(2)
             else:
-                # Last attempt: raise to let caller handle
                 raise last_exception
 
     return []
 
-# ================= CDR POLL LOOP WITH RECOVERY =================
 async def cdr_poll_loop(panel_id: int):
     if panel_id not in polling_cycle_counts:
         polling_cycle_counts[f"cdr_{panel_id}"] = 0
@@ -4929,7 +4621,6 @@ async def cdr_poll_loop(panel_id: int):
 
             otps = await cdr_fetch_once(panel)
             if otps is not None:
-                # Even if empty list, consider it success (no OTPs but fetch worked)
                 consecutive_failures = 0
                 last_success_time = datetime.now()
                 new_count = len(otps)
@@ -4947,12 +4638,10 @@ async def cdr_poll_loop(panel_id: int):
                         (panel_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "OK", new_count))
                 db_exec("UPDATE cdr_panels SET error_count = 0 WHERE id = ?", (panel_id,))
             else:
-                # fetch failed (returned None)
                 consecutive_failures += 1
                 logger.warning(f"[CDR: {panel.get('panel_name', panel_id)}] 🔄 Polling cycle #{cycle} – ❌ Fetch returned None")
                 db_exec("UPDATE cdr_panels SET error_count = error_count + 1 WHERE id = ?", (panel_id,))
 
-            # Recovery check
             if consecutive_failures >= 3 or (datetime.now() - last_success_time).total_seconds() > 120:
                 logger.warning(f"[CDR: {panel.get('panel_name', panel_id)}] ⚠️ Recovery triggered (failures={consecutive_failures}, inactivity={(datetime.now()-last_success_time).seconds}s). Clearing cookies and resetting...")
                 db_exec("UPDATE cdr_panels SET cookie_data = NULL WHERE id = ?", (panel_id,))
@@ -5413,7 +5102,6 @@ async def api_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_list(update, context, user_id)
 
-# ================= API SYSTEM GRID WRAPPER =================
 async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_system_grid(update, context, user_id)
@@ -6176,73 +5864,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == BTN_ADMIN:
         await send_admin_panel_msg(update, context)
 
-async def handle_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = admin_panel_state.get(user_id)
-    if not state or not state.startswith("api_edit_value_"):
-        return False
-    api_id = int(state.split("_")[-1])
-    data = admin_temp_data.get(user_id, {})
-    field = data.get("field")
-    if not field:
-        await update.message.reply_text("Session expired. Please start over.")
-        return True
-    new_value = update.message.text.strip()
-    if new_value.lower() == "/cancel":
-        await api_edit_menu(update, context, api_id, user_id)
-        return True
-    if field in ["interval_sec", "max_records", "retry_count"]:
-        try:
-            new_value = int(new_value)
-            if field == "interval_sec" and new_value < 1:
-                await update.message.reply_text("Interval must be at least 1 second.")
-                return True
-        except ValueError:
-            await update.message.reply_text("Please enter a valid number.")
-            return True
-    elif field == "method":
-        if new_value.upper() not in ["GET", "POST", "PUT", "DELETE"]:
-            await update.message.reply_text("Method must be GET, POST, PUT, or DELETE.")
-            return True
-    elif field == "base_url":
-        if not new_value.startswith(("http://", "https://")):
-            await update.message.reply_text("Base URL must start with http:// or https://")
-            return True
-    elif field == "placeholder_config":
-        try:
-            new_value = json.loads(new_value)
-            db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (json.dumps(new_value), api_id))
-        except:
-            try:
-                parts = [p.strip() for p in new_value.split(',')]
-                new_placeholders = {}
-                for part in parts:
-                    if '=' in part:
-                        k, v = part.split('=', 1)
-                        new_placeholders[k.strip()] = v.strip()
-                db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (json.dumps(new_placeholders), api_id))
-            except:
-                await update.message.reply_text("Invalid format. Use JSON or key1=value1,key2=value2")
-                return True
-        admin_temp_data.pop(user_id, None)
-        admin_panel_state[user_id] = "main"
-        await update.message.reply_text(f"✅ {field} updated successfully!")
-        await api_detail_page(update, context, api_id, user_id)
-        return True
-    db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (new_value, api_id))
-    admin_temp_data.pop(user_id, None)
-    admin_panel_state[user_id] = "main"
-    await update.message.reply_text(f"✅ {field} updated successfully!")
-    await api_detail_page(update, context, api_id, user_id)
-    return True
-
 # ================= ERROR HANDLER =================
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     print(f"Error: {context.error}")
 
 # ================= MAIN =================
-application = None
-
 def main():
     global application, BOT_USERNAME
     os.system('cls' if os.name == 'nt' else 'clear')
