@@ -1,3 +1,6 @@
+# THIS PREMIUM BOT IS DEVELOPED BY RAKESH DEV
+# TG: @SR_ADMIN_RAKESH
+
 import asyncio, json, os, re, sqlite3, threading, tempfile, zipfile, shutil, sys, logging
 from datetime import datetime, timedelta
 import random
@@ -125,7 +128,6 @@ GLOBAL_BODY_EMOJIS = {
     "🇹🇻": "5433684690923961019", "🇹🇼": "5366187256937726720", "🇭🇰": "5292166459118606932",
     "🇲🇴": "6323557758096377611"
 }
-# User can expand GLOBAL_BODY_EMOJIS later with the full dict they provided
 
 def apply_emojis(text):
     for char, eid in GLOBAL_BODY_EMOJIS.items():
@@ -385,6 +387,163 @@ for service in default_services:
     c.execute("INSERT OR IGNORE INTO services (name, display_name, active, emoji_id) VALUES (?, ?, 1, '')", (service, service))
 conn.commit()
 print("✅ Database setup completed")
+
+# ================= HELPER FUNCTIONS (DEFINED EARLY) =================
+def safe_url(url: str) -> str | None:
+    if url and isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("tg://")):
+        return url
+    return None
+
+def safe_icon(emoji_id: str) -> str | None:
+    if emoji_id and isinstance(emoji_id, str) and emoji_id.isdigit() and len(emoji_id) > 9:
+        return emoji_id
+    return None
+
+def parse_payout(payout_str: str) -> float:
+    if not payout_str:
+        return 0.001
+    return float(payout_str.replace('$', '').strip())
+
+def emoji_tag(emoji_id: str, fallback: str = " ") -> str:
+    if not emoji_id or not emoji_id.isdigit() or len(emoji_id) < 10:
+        return fallback
+    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+
+def blockquote(text: str) -> str:
+    return f'<blockquote>{text}</blockquote>'
+
+def db_exec(query, params=()):
+    with db_lock:
+        c.execute(query, params)
+        conn.commit()
+
+def db_fetch_one(query, params=()):
+    with db_lock:
+        c.execute(query, params)
+        return c.fetchone()
+
+def db_fetch_all(query, params=()):
+    with db_lock:
+        c.execute(query, params)
+        return c.fetchall()
+
+def ensure_user(user_id, username, first_name):
+    db_exec('''INSERT OR IGNORE INTO users (user_id, username, first_name, joined_date, last_active)
+               VALUES (?, ?, ?, ?, ?)''',
+            (user_id, username, first_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+
+def extract_country_from_filename(filename):
+    try:
+        name = filename.replace('.txt', '')
+        if '_' in name:
+            country_part = name.split('_')[0].strip()
+        else:
+            country_part = name.strip()
+        for country_name in COUNTRIES_DATA.keys():
+            if country_name.lower() == country_part.lower():
+                return country_name
+        for country_name in COUNTRIES_DATA.keys():
+            if country_part.lower().startswith(country_name.lower()) or country_name.lower().startswith(country_part.lower()):
+                return country_name
+        for country_name in COUNTRIES_DATA.keys():
+            if country_name.lower() in country_part.lower() or country_part.lower() in country_name.lower():
+                return country_name
+        return country_part
+    except Exception:
+        return None
+
+def extract_service_from_filename(filename):
+    try:
+        name = filename.replace('.txt', '').lower()
+        if '_' in name:
+            service_part = name.split('_', 1)[1].strip()
+        else:
+            return "Unknown"
+        services = db_fetch_all("SELECT name FROM services WHERE active = 1")
+        for service in services:
+            if service[0].lower() in service_part:
+                return service[0]
+        return service_part
+    except Exception:
+        return "Unknown"
+
+def load_numbers_from_file(file_path, filename, force_country=None, force_service=None):
+    try:
+        if force_country and force_service:
+            country = force_country
+            service = force_service
+        else:
+            country = extract_country_from_filename(filename)
+            service = extract_service_from_filename(filename)
+            if not country:
+                return 0, None, None
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+            numbers = file.read().strip().split('\n')
+        valid_numbers = []
+        for num in numbers:
+            num = num.strip()
+            if num:
+                if not num.startswith('+'):
+                    num = '+' + num
+                valid_numbers.append(num)
+        if not valid_numbers:
+            return 0, None, None
+        with db_lock:
+            for number in valid_numbers:
+                c.execute('''INSERT INTO available_numbers (country, service, number)
+                             VALUES (?, ?, ?)''', (country, service, number))
+            c.execute('''INSERT OR IGNORE INTO countries (name, service, flag, stock)
+                         VALUES (?, ?, ?, 0)''', (country, service, country))
+            c.execute("SELECT stock FROM countries WHERE name = ? AND service = ?", (country, service))
+            current = c.fetchone()
+            current_stock = current[0] if current else 0
+            c.execute('''UPDATE countries SET stock = ?, active = 1
+                         WHERE name = ? AND service = ?''',
+                      (current_stock + len(valid_numbers), country, service))
+            conn.commit()
+        return len(valid_numbers), country, service
+    except Exception as e:
+        print(f"Error loading file: {e}")
+        return 0, None, None
+
+def delete_country_stock(country, service):
+    try:
+        db_exec("DELETE FROM available_numbers WHERE country = ? AND service = ?", (country, service))
+        db_exec("DELETE FROM countries WHERE name = ? AND service = ?", (country, service))
+        return True
+    except Exception as e:
+        print(f"Error deleting stock: {e}")
+        return False
+
+def get_numbers_from_stock(country, service, count=3):
+    try:
+        with db_lock:
+            c.execute('''SELECT COUNT(*) FROM available_numbers
+                         WHERE country = ? AND service = ? AND used = 0''', (country, service))
+            available = c.fetchone()
+            if not available or available[0] == 0:
+                return []
+            take = min(count, available[0])
+            c.execute('''SELECT id, number FROM available_numbers
+                         WHERE country = ? AND service = ? AND used = 0
+                         ORDER BY id ASC LIMIT ?''', (country, service, take))
+            results = c.fetchall()
+            if not results:
+                return []
+            numbers = []
+            for num_id, number in results:
+                c.execute("UPDATE available_numbers SET used = 1 WHERE id = ?", (num_id,))
+                numbers.append(number)
+            c.execute('''UPDATE countries SET stock = (
+                            SELECT COUNT(*) FROM available_numbers 
+                            WHERE country = ? AND service = ? AND used = 0
+                         ) WHERE name = ? AND service = ?''', 
+                      (country, service, country, service))
+            conn.commit()
+            return numbers
+    except Exception as e:
+        print(f"Error getting numbers: {e}")
+        return []
 
 # ================= COUNTRY MAP (ONLY BANGLADESH AS DEFAULT) =================
 COUNTRY_CODE_MAP = {
@@ -678,7 +837,7 @@ def load_bot_settings():
             settings[key] = val
     return settings
 
-bot_settings = load_bot_settings()
+bot_settings = load_bot_settings()  # Now db_fetch_all is defined
 
 # Convenience functions
 def get_setting(key, default=None):
@@ -707,35 +866,6 @@ def get_force_join_status():
 
 def set_force_join_status(status):
     update_setting('force_join_status', str(status))
-
-# ================= HELPERS =================
-def safe_url(url: str) -> str | None:
-    if url and isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("tg://")):
-        return url
-    return None
-
-def safe_icon(emoji_id: str) -> str | None:
-    if emoji_id and isinstance(emoji_id, str) and emoji_id.isdigit() and len(emoji_id) > 9:
-        return emoji_id
-    return None
-
-def parse_payout(payout_str: str) -> float:
-    if not payout_str:
-        return 0.001
-    return float(payout_str.replace('$', '').strip())
-
-def emoji_tag(emoji_id: str, fallback: str = " ") -> str:
-    if not emoji_id or not emoji_id.isdigit() or len(emoji_id) < 10:
-        return fallback
-    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
-
-def blockquote(text: str) -> str:
-    return f'<blockquote>{text}</blockquote>'
-
-def apply_emojis(text):
-    for char, eid in GLOBAL_BODY_EMOJIS.items():
-        text = text.replace(char, f'<tg-emoji emoji-id="{eid}">{char}</tg-emoji>')
-    return text
 
 # ================= COUNTRIES =================
 def load_countries_db():
@@ -799,139 +929,6 @@ def service_emoji_tag(service_name: str) -> str:
     row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
     eid = row[0] if row and row[0] else CUSTOM_EMOJIS.get("DEFAULT_SERVICE", "")
     return emoji_tag(eid, "⚙️")
-
-def db_exec(query, params=()):
-    with db_lock:
-        c.execute(query, params)
-        conn.commit()
-
-def db_fetch_one(query, params=()):
-    with db_lock:
-        c.execute(query, params)
-        return c.fetchone()
-
-def db_fetch_all(query, params=()):
-    with db_lock:
-        c.execute(query, params)
-        return c.fetchall()
-
-def ensure_user(user_id, username, first_name):
-    db_exec('''INSERT OR IGNORE INTO users (user_id, username, first_name, joined_date, last_active)
-               VALUES (?, ?, ?, ?, ?)''',
-            (user_id, username, first_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-
-def extract_country_from_filename(filename):
-    try:
-        name = filename.replace('.txt', '')
-        if '_' in name:
-            country_part = name.split('_')[0].strip()
-        else:
-            country_part = name.strip()
-        for country_name in COUNTRIES_DATA.keys():
-            if country_name.lower() == country_part.lower():
-                return country_name
-        for country_name in COUNTRIES_DATA.keys():
-            if country_part.lower().startswith(country_name.lower()) or country_name.lower().startswith(country_part.lower()):
-                return country_name
-        for country_name in COUNTRIES_DATA.keys():
-            if country_name.lower() in country_part.lower() or country_part.lower() in country_name.lower():
-                return country_name
-        return country_part
-    except Exception:
-        return None
-
-def extract_service_from_filename(filename):
-    try:
-        name = filename.replace('.txt', '').lower()
-        if '_' in name:
-            service_part = name.split('_', 1)[1].strip()
-        else:
-            return "Unknown"
-        services = db_fetch_all("SELECT name FROM services WHERE active = 1")
-        for service in services:
-            if service[0].lower() in service_part:
-                return service[0]
-        return service_part
-    except Exception:
-        return "Unknown"
-
-def load_numbers_from_file(file_path, filename, force_country=None, force_service=None):
-    try:
-        if force_country and force_service:
-            country = force_country
-            service = force_service
-        else:
-            country = extract_country_from_filename(filename)
-            service = extract_service_from_filename(filename)
-            if not country:
-                return 0, None, None
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
-            numbers = file.read().strip().split('\n')
-        valid_numbers = []
-        for num in numbers:
-            num = num.strip()
-            if num:
-                if not num.startswith('+'):
-                    num = '+' + num
-                valid_numbers.append(num)
-        if not valid_numbers:
-            return 0, None, None
-        with db_lock:
-            for number in valid_numbers:
-                c.execute('''INSERT INTO available_numbers (country, service, number)
-                             VALUES (?, ?, ?)''', (country, service, number))
-            c.execute('''INSERT OR IGNORE INTO countries (name, service, flag, stock)
-                         VALUES (?, ?, ?, 0)''', (country, service, country))
-            c.execute("SELECT stock FROM countries WHERE name = ? AND service = ?", (country, service))
-            current = c.fetchone()
-            current_stock = current[0] if current else 0
-            c.execute('''UPDATE countries SET stock = ?, active = 1
-                         WHERE name = ? AND service = ?''',
-                      (current_stock + len(valid_numbers), country, service))
-            conn.commit()
-        return len(valid_numbers), country, service
-    except Exception as e:
-        print(f"Error loading file: {e}")
-        return 0, None, None
-
-def delete_country_stock(country, service):
-    try:
-        db_exec("DELETE FROM available_numbers WHERE country = ? AND service = ?", (country, service))
-        db_exec("DELETE FROM countries WHERE name = ? AND service = ?", (country, service))
-        return True
-    except Exception as e:
-        print(f"Error deleting stock: {e}")
-        return False
-
-def get_numbers_from_stock(country, service, count=3):
-    try:
-        with db_lock:
-            c.execute('''SELECT COUNT(*) FROM available_numbers
-                         WHERE country = ? AND service = ? AND used = 0''', (country, service))
-            available = c.fetchone()
-            if not available or available[0] == 0:
-                return []
-            take = min(count, available[0])
-            c.execute('''SELECT id, number FROM available_numbers
-                         WHERE country = ? AND service = ? AND used = 0
-                         ORDER BY id ASC LIMIT ?''', (country, service, take))
-            results = c.fetchall()
-            if not results:
-                return []
-            numbers = []
-            for num_id, number in results:
-                c.execute("UPDATE available_numbers SET used = 1 WHERE id = ?", (num_id,))
-                numbers.append(number)
-            c.execute('''UPDATE countries SET stock = (
-                            SELECT COUNT(*) FROM available_numbers 
-                            WHERE country = ? AND service = ? AND used = 0
-                         ) WHERE name = ? AND service = ?''', 
-                      (country, service, country, service))
-            conn.commit()
-            return numbers
-    except Exception as e:
-        print(f"Error getting numbers: {e}")
-        return []
 
 # ================= OTP DETECTION =================
 def extract_otp_from_message(message: str) -> str | None:
@@ -1282,7 +1279,7 @@ def air_otp_control_keyboard():
     ])
     rows = kb.inline_keyboard.copy()
     for srv_name, rate in service_rates.items():
-        app_info = PREMIUM_APPS.get(srv_name, {"emoji": "📱", "id": "5465590345108589516"}) if 'PREMIUM_APPS' in globals() else {"emoji": "📱", "id": "5465590345108589516"}
+        app_info = PREMIUM_APPS.get(srv_name, {"emoji": "📱", "id": "5465590345108589516"})
         rows.append([InlineKeyboardButton(f"Delete: {srv_name} ({rate})", callback_data=f"del_srv_rate_{srv_name}", style=KBS.DANGER,
                                           icon_custom_emoji_id=safe_icon(app_info['id']))])
     rows.append([InlineKeyboardButton("BACK", callback_data="air_control", style=KBS.DANGER,
@@ -5992,73 +5989,9 @@ def get_api_config(api_id: int) -> dict | None:
             'total_otps','last_otp_time','placeholder_config','curl_command']
     return dict(zip(cols, row))
 
-# ================= RICH MESSAGE GROUP OTP (ZEBRA-STYLE) =================
-def format_group_otp_rich(entry):
-    number = entry.get("number", "")
-    otp_code = entry.get("otp", "")
-    service_name = entry.get("service", "Unknown")
-    raw_country = entry.get("country", entry.get("country_code", "?"))
-    country_iso = entry.get("country_code", "")
-    if not country_iso and raw_country:
-        country_iso = get_country_code(raw_country) or "??"
+# ================= ZEBRA-STYLE OTP FORMAT (already defined) =================
 
-    # Get flag and iso
-    flag_emoji = "🏳"
-    if country_iso:
-        info = ISO_TO_INFO.get(country_iso, ("🏳", ""))
-        flag_emoji = info[0] if info else "🏳"
-    # Get emoji ID for flag (use default if not in map)
-    flag_eid = GLOBAL_BODY_EMOJIS.get(flag_emoji, "")
-    if flag_eid:
-        country_display = f'<tg-emoji emoji-id="{flag_eid}">{flag_emoji}</tg-emoji><b>{country_iso}</b>'
-    else:
-        country_display = f'{flag_emoji}<b>{country_iso}</b>'
-
-    # Service emoji
-    service_emoji_id = PREMIUM_APPS.get(service_name, PREMIUM_APPS["Other"])["id"]
-    service_emoji = PREMIUM_APPS.get(service_name, PREMIUM_APPS["Other"])["emoji"]
-
-    # Masked number
-    clean = number.replace('+', '').replace(' ', '').strip()
-    if len(clean) >= 7:
-        first4 = clean[:4]
-        last3 = clean[-3:]
-        masked = f'+<b>{first4}</b><tg-emoji emoji-id="6206093275013380471">🫀</tg-emoji><b>{last3}</b>'
-    else:
-        masked = f'+<b>{clean}</b>'
-
-    # Language
-    lang = detect_language(entry.get("message", ""))
-    lang_emoji_id = "6206046503690048595"  # envelope
-
-    top_line = (
-        f'{country_display} | '
-        f'<tg-emoji emoji-id="{service_emoji_id}">{service_emoji}</tg-emoji> | '
-        f'{masked} | '
-        f'<tg-emoji emoji-id="{lang_emoji_id}">✉️</tg-emoji> <b>{lang}</b>'
-    )
-
-    # Full SMS (without details block, just show)
-    message_text = entry.get("message", "")[:500]
-    sms_safe = message_text.replace("<", "&lt;").replace(">", "&gt;")
-    full_text = f"{top_line}\n\n<blockquote><b>{sms_safe}</b></blockquote>"
-
-    # Buttons: OTP copy, NUMBER, CHANNEL
-    channel_link = get_setting('main_channel_link', CHANNEL_URL)
-    bot_link = BOT_URL
-
-    keyboard = {
-        "inline_keyboard": [
-            [{"text": otp_code, "icon_custom_emoji_id": "6206420230269310869", "style": "success", "copy_text": {"text": otp_code}}],
-            [
-                {"text": "𝐍𝐔𝐌𝐁𝐄𝐑", "icon_custom_emoji_id": "5877410604225924969", "style": "primary", "url": bot_link},
-                {"text": "𝐂𝐇𝐀𝐍𝐍𝐄𝐋", "icon_custom_emoji_id": "6204010762206189094", "style": "primary", "url": channel_link}
-            ]
-        ]
-    }
-    return full_text, keyboard
-
-# ================= OTP PROCESSING (WITH DEBUG LOGGING) =================
+# ================= OTP PROCESSING =================
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
     if context:
         bot = context.bot
