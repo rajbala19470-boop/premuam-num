@@ -781,6 +781,7 @@ COUNTRY_CODE_MAP = {
     "1876": ("JM", "🇯🇲", "Jamaica"),
     "1939": ("PR", "🇵🇷", "Puerto Rico"),
 }
+
 ISO_TO_INFO = {}
 for code, val in COUNTRY_CODE_MAP.items():
     if len(val) >= 3:
