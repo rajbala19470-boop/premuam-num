@@ -67,10 +67,76 @@ if GROUP_ID:
 
 # ================= EMOJIS (PREMIUM) =================
 GLOBAL_BODY_EMOJIS = {
-    # Only Bangladesh flag as default, others can be added later
-    "🇧🇩": "5911365056594973179",
-    # The rest of the flags are commented out, user can add them later
-    # "🇺🇸": "5913463998522592692", etc.
+    "🇺🇸": "5913463998522592692", "🇺🇦": "5911406692007941050", "🇵🇱": "5913550391789752571",
+    "🇰🇿": "5913724621433082323", "🇨🇳": "5913779335021466780", "🇦🇿": "5911197578640233518",
+    "🇪🇺": "5911106310585193018", "🇦🇲": "5913272455866093666", "🇷🇺": "5913274246867456342",
+    "🇺🇿": "5911051846104912282", "🇩🇪": "5911096835887337583", "🇯🇵": "5913293711659241040",
+    "🇹🇷": "5910995113881901195", "🇧🇾": "5911011185649521599", "🇬🇧": "5913443365499703513",
+    "🇮🇳": "5913754823643107921", "🇧🇷": "5911148568768418614", "🇿🇲": "5913564754160389778",
+    "🇾🇪": "5913346492512341993", "🏴󠁧󠁢󠁷󠁬󠁳󠁿": "5911297801702084799", "🇻🇳": "5913428887164949581",
+    "🇻🇦": "5911211932420938860", "🇻🇺": "5913511535220625585", "🇺🇾": "5913623088406204470",
+    "🇦🇪": "5913726554168365343", "🇺🇬": "5913488939397681980", "🇹🇲": "5913315521503170180",
+    "🇹🇳": "5911332947419468671", "🇹🇹": "5911228635548750294", "🇹🇬": "5913423260757790970",
+    "🇹🇭": "5913617968805187987", "🇹🇿": "5911418949844603556", "🇹🇯": "5911287639809463107",
+    "🇨🇭": "5913271227505448072", "🇸🇪": "5911156510162949403", "🇸🇿": "5913374525763883286",
+    "🇸🇷": "5913275539652611719", "🇸🇩": "5911387497799094470", "🇪🇸": "5911193287967904547",
+    "🇱🇰": "5911293163137406640", "🇸🇸": "5911406262511211744", "🇿🇦": "5911203119148044594",
+    "🇸🇴": "5911397852965244436", "🇸🇧": "5911482712929080608", "🇸🇮": "5913431983836368644",
+    "🇸🇰": "5913751666842145020", "🇸🇬": "5911531460808051849", "🇸🇱": "5911210450657218661",
+    "🇸🇨": "5911185183364616913", "🇷🇸": "5913592598433369871", "🇸🇳": "5910995302860461643",
+    "🏴󠁧󠁢󠁳󠁣󠁴󠁿": "5911460091336331851", "🇸🇹": "5913574331937462345", "🇸🇲": "5913587968458625465",
+    "🇼🇸": "5913325971158602854", "🇰🇳": "5913691898077253637", "🇻🇨": "5911318941531116255",
+    "🇱🇨": "5911243659344351824", "🇵🇸": "5913684768431541668", "🇷🇼": "5911455229433352234",
+    "🇷🇴": "5913460373570195273", "🇶🇦": "5911260864983339619", "🇵🇷": "5911504350974317480",
+    "🇵🇹": "5911023653939581472", "🇵🇭": "5911268638874145162", "🇵🇪": "5911207993935925780",
+    "🇵🇾": "5911014265141072316", "🇵🇬": "5911107251183030903", "🇵🇦": "5913428968769327174",
+    "🇵🇼": "5911283903187915549", "🇵🇰": "5913705895375672082", "🇴🇲": "5913570801474343473",
+    "🇳🇴": "5913617397574537046", "🇳🇬": "5911143844304393105", "🇳🇪": "5911270086278124251",
+    "🇳🇿": "5913640044937089340", "🇳🇱": "5913367645226275100", "🇳🇵": "5913496520014958723",
+    "🇳🇦": "5911108535378252443", "🇲🇿": "5911333419865871464", "🇲🇦": "5911482111633658301",
+    "🇲🇪": "5913239436157522151", "🇲🇳": "5911041383564580038", "🇲🇨": "5911245347266500057",
+    "🇲🇩": "5913456847402045950", "🇲🇻": "5913501399097806832", "🇲🇱": "5911305266355245916",
+    "🇲🇹": "5911023714069123567", "🇧🇲": "5913680005312811090", "🇲🇶": "5911378005921370347",
+    "🇲🇭": "5913235935759175692", "🇲🇺": "5913291113204027321", "🇲🇽": "5913687302462246518",
+    "🇫🇲": "5911271104185373336", "🇲🇾": "5913654360063087453", "🇰🇪": "5911154710571651231",
+    "🇲🇬": "5913766918271012920", "🇲🇰": "5913394029210374721", "🇱🇺": "5913390842344640293",
+    "🇱🇹": "5911172315642597775", "🇱🇮": "5911166650580734660", "🇱🇾": "5911236989260140996",
+    "🇱🇷": "5913324167272337727", "🇰🇮": "5911294443037660118", "🇽🇰": "5911433681582429010",
+    "🇰🇼": "5913290705182134003", "🇰🇬": "5911202161370337549", "🇱🇦": "5913718526874489279",
+    "🇱🇻": "5913738489882480243", "🇱🇧": "5911504273664905447", "🇱🇸": "5911059881988723711",
+    "🇮🇩": "5913479361620611038", "🇮🇷": "5911308891307643032", "🇮🇶": "5911382442622587735",
+    "🇮🇪": "5913440715504881532", "🇮🇱": "5911471936856134692", "🇮🇹": "5913688444923547525",
+    "🇯🇲": "5913232280742006526", "🇯🇴": "5913234136167878475", "🇮🇸": "5911047899029967246",
+    "🇭🇺": "5913767635530551104", "🇭🇳": "5911406889576436289", "🇭🇹": "5913459789454643194",
+    "🇬🇾": "5913579412883771480", "🇬🇼": "5911398694778836149", "🇬🇳": "5913471858312744319",
+    "🇬🇹": "5913324858762072330", "🇬🇩": "5913228063084121946", "🇬🇷": "5911210399117611448",
+    "🇬🇭": "5913391155877252952", "🇬🇪": "5913434771270144023", "🇬🇲": "5913657267755945883",
+    "🇬🇦": "5911037896051137264", "🇫🇷": "5913605586414473124", "🇫🇮": "5911041344909873378",
+    "🇫🇯": "5911393832875856716", "🇪🇹": "5911078333168227043", "🇩🇴": "5911152099231536123",
+    "🇹🇱": "5911141915864076479", "🇪🇨": "5911273865849347408", "🇪🇬": "5913694831539916769",
+    "🇸🇻": "5913238624408703010", "🏴󠁧󠁢󠁥󠁮󠁧󠁿": "5913475719488344315", "🇪🇪": "5910986042910969906",
+    "🇩🇲": "5911377121158107430", "🇩🇯": "5911407709915190157", "🇩🇰": "5911206009661034712",
+    "🇨🇾": "5911023550860366409", "🇭🇷": "5913692684056269311", "🇨🇷": "5911261745451635030",
+    "🇨🇬": "5911338788574990168", "🇨🇩": "5913770362834783827", "🇰🇲": "5911338582416560604",
+    "🇰🇭": "5913699998385573485", "🇨🇲": "5911172109484167745", "🇨🇦": "5913623736946265914",
+    "🇨🇻": "5913571501554012193", "🇨🇫": "5913443245240619222", "🇹🇩": "5913299849167507310",
+    "🇨🇿": "5911198691036764307", "🇨🇱": "5911470957603592832", "🇨🇴": "5913773060074246009",
+    "🇧🇮": "5913766441529642752", "🇧🇼": "5911513782722499475", "🇧🇦": "5913700002680541032",
+    "🇧🇴": "5913638795101606133", "🇧🇹": "5913236734623093021", "🇧🇯": "5913735869952430547",
+    "🇦🇷": "5913573356979884082", "🇦🇺": "5913632326880858455", "🇦🇹": "5911338831524664592",
+    "🇧🇸": "5911451643135660214", "🇧🇭": "5913581663446634403", "🇧🇩": "5911365056594973179",
+    "🇧🇧": "5911016996740272263", "🇧🇪": "5913529642802745141", "🇧🇿": "5913355005137522807",
+    "🇦🇬": "5913389025573475085", "🇦🇴": "5913753316109586411", "🇦🇩": "5911314702398396902",
+    "🇩🇿": "5913782968563800236", "🇦🇱": "5911357458797826163", "🇦🇫": "5913492040364068694",
+    "🇿🇼": "5911092502265336396", "🇨🇺": "5431551436502611633", "🇰🇵": "5434142701941437163",
+    "🇻🇪": "5434009132753499322", "🇸🇾": "5433910876786670092", "🇲🇲": "5433666360003540231",
+    "🇳🇮": "5334807849418003620", "🇰🇷": "5913371673905598425", "🇬🇶": "5911306279967529251",
+    "🇬🇱": "5292014752283774878", "🇫🇴": "5296469342039327674", "🇨🇮": "5222233374948602940",
+    "🇧🇳": "5911336409163109113", "🇧🇬": "5294329219965272288", "🇧🇫": "5913407764515786948",
+    "🇪🇷": "5433723401464198287", "🇲🇼": "5433968339154122439", "🇲🇷": "5433859405898594234",
+    "🇳🇷": "5434131139889478358", "🇸🇦": "4985897134424328239", "🇹🇴": "5433640100573491806",
+    "🇹🇻": "5433684690923961019", "🇹🇼": "5366187256937726720", "🇭🇰": "5292166459118606932",
+    "🇲🇴": "6323557758096377611"
 }
 def apply_emojis(text):
     for char, eid in GLOBAL_BODY_EMOJIS.items():
@@ -490,8 +556,239 @@ def get_numbers_from_stock(country, service, count=3):
 
 # ================= COUNTRY MAP (ONLY BANGLADESH AS DEFAULT) =================
 COUNTRY_CODE_MAP = {
+    "1": ("US", "🇺🇸", "United States / Canada"),
+    "7": ("RU", "🇷🇺", "Russia / Kazakhstan"),
+    "20": ("EG", "🇪🇬", "Egypt"),
+    "27": ("ZA", "🇿🇦", "South Africa"),
+    "30": ("GR", "🇬🇷", "Greece"),
+    "31": ("NL", "🇳🇱", "Netherlands"),
+    "32": ("BE", "🇧🇪", "Belgium"),
+    "33": ("FR", "🇫🇷", "France"),
+    "34": ("ES", "🇪🇸", "Spain"),
+    "36": ("HU", "🇭🇺", "Hungary"),
+    "39": ("IT", "🇮🇹", "Italy"),
+    "40": ("RO", "🇷🇴", "Romania"),
+    "41": ("CH", "🇨🇭", "Switzerland"),
+    "43": ("AT", "🇦🇹", "Austria"),
+    "44": ("GB", "🇬🇧", "United Kingdom"),
+    "45": ("DK", "🇩🇰", "Denmark"),
+    "46": ("SE", "🇸🇪", "Sweden"),
+    "47": ("NO", "🇳🇴", "Norway"),
+    "48": ("PL", "🇵🇱", "Poland"),
+    "49": ("DE", "🇩🇪", "Germany"),
+    "51": ("PE", "🇵🇪", "Peru"),
+    "52": ("MX", "🇲🇽", "Mexico"),
+    "53": ("CU", "🇨🇺", "Cuba"),
+    "54": ("AR", "🇦🇷", "Argentina"),
+    "55": ("BR", "🇧🇷", "Brazil"),
+    "56": ("CL", "🇨🇱", "Chile"),
+    "57": ("CO", "🇨🇴", "Colombia"),
+    "58": ("VE", "🇻🇪", "Venezuela"),
+    "60": ("MY", "🇲🇾", "Malaysia"),
+    "61": ("AU", "🇦🇺", "Australia"),
+    "62": ("ID", "🇮🇩", "Indonesia"),
+    "63": ("PH", "🇵🇭", "Philippines"),
+    "64": ("NZ", "🇳🇿", "New Zealand"),
+    "65": ("SG", "🇸🇬", "Singapore"),
+    "66": ("TH", "🇹🇭", "Thailand"),
+    "81": ("JP", "🇯🇵", "Japan"),
+    "82": ("KR", "🇰🇷", "South Korea"),
+    "84": ("VN", "🇻🇳", "Vietnam"),
+    "86": ("CN", "🇨🇳", "China"),
+    "90": ("TR", "🇹🇷", "Turkey"),
+    "91": ("IN", "🇮🇳", "India"),
+    "92": ("PK", "🇵🇰", "Pakistan"),
+    "93": ("AF", "🇦🇫", "Afghanistan"),
+    "94": ("LK", "🇱🇰", "Sri Lanka"),
+    "95": ("MM", "🇲🇲", "Myanmar"),
+    "98": ("IR", "🇮🇷", "Iran"),
+    "211": ("SS", "🇸🇸", "South Sudan"),
+    "212": ("MA", "🇲🇦", "Morocco"),
+    "213": ("DZ", "🇩🇿", "Algeria"),
+    "216": ("TN", "🇹🇳", "Tunisia"),
+    "218": ("LY", "🇱🇾", "Libya"),
+    "220": ("GM", "🇬🇲", "Gambia"),
+    "221": ("SN", "🇸🇳", "Senegal"),
+    "222": ("MR", "🇲🇷", "Mauritania"),
+    "223": ("ML", "🇲🇱", "Mali"),
+    "224": ("GN", "🇬🇳", "Guinea"),
+    "225": ("CI", "🇨🇮", "Ivory Coast"),
+    "226": ("BF", "🇧🇫", "Burkina Faso"),
+    "227": ("NE", "🇳🇪", "Niger"),
+    "228": ("TG", "🇹🇬", "Togo"),
+    "229": ("BJ", "🇧🇯", "Benin"),
+    "230": ("MU", "🇲🇺", "Mauritius"),
+    "231": ("LR", "🇱🇷", "Liberia"),
+    "232": ("SL", "🇸🇱", "Sierra Leone"),
+    "233": ("GH", "🇬🇭", "Ghana"),
+    "234": ("NG", "🇳🇬", "Nigeria"),
+    "235": ("TD", "🇹🇩", "Chad"),
+    "236": ("CF", "🇨🇫", "Central African Republic"),
+    "237": ("CM", "🇨🇲", "Cameroon"),
+    "238": ("CV", "🇨🇻", "Cape Verde"),
+    "239": ("ST", "🇸🇹", "Sao Tome and Principe"),
+    "240": ("GQ", "🇬🇶", "Equatorial Guinea"),
+    "241": ("GA", "🇬🇦", "Gabon"),
+    "242": ("CG", "🇨🇬", "Congo"),
+    "243": ("CD", "🇨🇩", "DR Congo"),
+    "244": ("AO", "🇦🇴", "Angola"),
+    "245": ("GW", "🇬🇼", "Guinea-Bissau"),
+    "246": ("IO", "🇮🇴", "British Indian Ocean Territory"),
+    "247": ("AC", "🇦🇨", "Ascension Island"),
+    "248": ("SC", "🇸🇨", "Seychelles"),
+    "249": ("SD", "🇸🇩", "Sudan"),
+    "250": ("RW", "🇷🇼", "Rwanda"),
+    "251": ("ET", "🇪🇹", "Ethiopia"),
+    "252": ("SO", "🇸🇴", "Somalia"),
+    "253": ("DJ", "🇩🇯", "Djibouti"),
+    "254": ("KE", "🇰🇪", "Kenya"),
+    "255": ("TZ", "🇹🇿", "Tanzania"),
+    "256": ("UG", "🇺🇬", "Uganda"),
+    "257": ("BI", "🇧🇮", "Burundi"),
+    "258": ("MZ", "🇲🇿", "Mozambique"),
+    "260": ("ZM", "🇿🇲", "Zambia"),
+    "261": ("MG", "🇲🇬", "Madagascar"),
+    "262": ("RE", "🇷🇪", "Reunion / Mayotte"),
+    "263": ("ZW", "🇿🇼", "Zimbabwe"),
+    "264": ("NA", "🇳🇦", "Namibia"),
+    "265": ("MW", "🇲🇼", "Malawi"),
+    "266": ("LS", "🇱🇸", "Lesotho"),
+    "267": ("BW", "🇧🇼", "Botswana"),
+    "268": ("SZ", "🇸🇿", "Eswatini"),
+    "269": ("KM", "🇰🇲", "Comoros"),
+    "290": ("SH", "🇸🇭", "Saint Helena / Tristan da Cunha"),
+    "291": ("ER", "🇪🇷", "Eritrea"),
+    "297": ("AW", "🇦🇼", "Aruba"),
+    "298": ("FO", "🇫🇴", "Faroe Islands"),
+    "299": ("GL", "🇬🇱", "Greenland"),
+    "350": ("GI", "🇬🇮", "Gibraltar"),
+    "351": ("PT", "🇵🇹", "Portugal"),
+    "352": ("LU", "🇱🇺", "Luxembourg"),
+    "353": ("IE", "🇮🇪", "Ireland"),
+    "354": ("IS", "🇮🇸", "Iceland"),
+    "355": ("AL", "🇦🇱", "Albania"),
+    "356": ("MT", "🇲🇹", "Malta"),
+    "357": ("CY", "🇨🇾", "Cyprus"),
+    "358": ("FI", "🇫🇮", "Finland / Åland Islands"),
+    "359": ("BG", "🇧🇬", "Bulgaria"),
+    "370": ("LT", "🇱🇹", "Lithuania"),
+    "371": ("LV", "🇱🇻", "Latvia"),
+    "372": ("EE", "🇪🇪", "Estonia"),
+    "373": ("MD", "🇲🇩", "Moldova"),
+    "374": ("AM", "🇦🇲", "Armenia"),
+    "375": ("BY", "🇧🇾", "Belarus"),
+    "376": ("AD", "🇦🇩", "Andorra"),
+    "377": ("MC", "🇲🇨", "Monaco"),
+    "378": ("SM", "🇸🇲", "San Marino"),
+    "379": ("VA", "🇻🇦", "Vatican City"),
+    "380": ("UA", "🇺🇦", "Ukraine"),
+    "381": ("RS", "🇷🇸", "Serbia"),
+    "382": ("ME", "🇲🇪", "Montenegro"),
+    "383": ("XK", "🇽🇰", "Kosovo"),
+    "385": ("HR", "🇭🇷", "Croatia"),
+    "386": ("SI", "🇸🇮", "Slovenia"),
+    "387": ("BA", "🇧🇦", "Bosnia and Herzegovina"),
+    "389": ("MK", "🇲🇰", "North Macedonia"),
+    "420": ("CZ", "🇨🇿", "Czech Republic"),
+    "421": ("SK", "🇸🇰", "Slovakia"),
+    "423": ("LI", "🇱🇮", "Liechtenstein"),
+    "500": ("FK", "🇫🇰", "Falkland Islands"),
+    "501": ("BZ", "🇧🇿", "Belize"),
+    "502": ("GT", "🇬🇹", "Guatemala"),
+    "503": ("SV", "🇸🇻", "El Salvador"),
+    "504": ("HN", "🇭🇳", "Honduras"),
+    "505": ("NI", "🇳🇮", "Nicaragua"),
+    "506": ("CR", "🇨🇷", "Costa Rica"),
+    "507": ("PA", "🇵🇦", "Panama"),
+    "508": ("PM", "🇵🇲", "Saint Pierre and Miquelon"),
+    "509": ("HT", "🇭🇹", "Haiti"),
+    "590": ("GP", "🇬🇵", "Guadeloupe / Saint Martin / Saint Barthélemy"),
+    "591": ("BO", "🇧🇴", "Bolivia"),
+    "592": ("GY", "🇬🇾", "Guyana"),
+    "593": ("EC", "🇪🇨", "Ecuador"),
+    "594": ("GF", "🇬🇫", "French Guiana"),
+    "595": ("PY", "🇵🇾", "Paraguay"),
+    "596": ("MQ", "🇲🇶", "Martinique"),
+    "597": ("SR", "🇸🇷", "Suriname"),
+    "598": ("UY", "🇺🇾", "Uruguay"),
+    "599": ("CW", "🇨🇼", "Curaçao / Caribbean Netherlands"),
+    "670": ("TL", "🇹🇱", "East Timor"),
+    "672": ("NF", "🇳🇫", "Norfolk Island / Australian External Territories"),
+    "673": ("BN", "🇧🇳", "Brunei"),
+    "674": ("NR", "🇳🇷", "Nauru"),
+    "675": ("PG", "🇵🇬", "Papua New Guinea"),
+    "676": ("TO", "🇹🇴", "Tonga"),
+    "677": ("SB", "🇸🇧", "Solomon Islands"),
+    "678": ("VU", "🇻🇺", "Vanuatu"),
+    "679": ("FJ", "🇫🇯", "Fiji"),
+    "680": ("PW", "🇵🇼", "Palau"),
+    "681": ("WF", "🇼🇫", "Wallis and Futuna"),
+    "682": ("CK", "🇨🇰", "Cook Islands"),
+    "683": ("NU", "🇳🇺", "Niue"),
+    "685": ("WS", "🇼🇸", "Samoa"),
+    "686": ("KI", "🇰🇮", "Kiribati"),
+    "687": ("NC", "🇳🇨", "New Caledonia"),
+    "688": ("TV", "🇹🇻", "Tuvalu"),
+    "689": ("PF", "🇵🇫", "French Polynesia"),
+    "690": ("TK", "🇹🇰", "Tokelau"),
+    "691": ("FM", "🇫🇲", "Micronesia"),
+    "692": ("MH", "🇲🇭", "Marshall Islands"),
+    "850": ("KP", "🇰🇵", "North Korea"),
+    "852": ("HK", "🇭🇰", "Hong Kong"),
+    "853": ("MO", "🇲🇴", "Macau"),
+    "855": ("KH", "🇰🇭", "Cambodia"),
+    "856": ("LA", "🇱🇦", "Laos"),
     "880": ("BD", "🇧🇩", "Bangladesh"),
-    # Add more countries here later
+    "886": ("TW", "🇹🇼", "Taiwan"),
+    "960": ("MV", "🇲🇻", "Maldives"),
+    "961": ("LB", "🇱🇧", "Lebanon"),
+    "962": ("JO", "🇯🇴", "Jordan"),
+    "963": ("SY", "🇸🇾", "Syria"),
+    "964": ("IQ", "🇮🇶", "Iraq"),
+    "965": ("KW", "🇰🇼", "Kuwait"),
+    "966": ("SA", "🇸🇦", "Saudi Arabia"),
+    "967": ("YE", "🇾🇪", "Yemen"),
+    "968": ("OM", "🇴🇲", "Oman"),
+    "970": ("PS", "🇵🇸", "Palestine"),
+    "971": ("AE", "🇦🇪", "UAE"),
+    "972": ("IL", "🇮🇱", "Israel"),
+    "973": ("BH", "🇧🇭", "Bahrain"),
+    "974": ("QA", "🇶🇦", "Qatar"),
+    "975": ("BT", "🇧🇹", "Bhutan"),
+    "976": ("MN", "🇲🇳", "Mongolia"),
+    "977": ("NP", "🇳🇵", "Nepal"),
+    "992": ("TJ", "🇹🇯", "Tajikistan"),
+    "993": ("TM", "🇹🇲", "Turkmenistan"),
+    "994": ("AZ", "🇦🇿", "Azerbaijan"),
+    "995": ("GE", "🇬🇪", "Georgia"),
+    "996": ("KG", "🇰🇬", "Kyrgyzstan"),
+    "998": ("UZ", "🇺🇿", "Uzbekistan"),
+    "1242": ("BS", "🇧🇸", "Bahamas"),
+    "1246": ("BB", "🇧🇧", "Barbados"),
+    "1264": ("AI", "🇦🇮", "Anguilla"),
+    "1268": ("AG", "🇦🇬", "Antigua and Barbuda"),
+    "1284": ("VG", "🇻🇬", "British Virgin Islands"),
+    "1340": ("VI", "🇻🇮", "U.S. Virgin Islands"),
+    "1345": ("KY", "🇰🇾", "Cayman Islands"),
+    "1441": ("BM", "🇧🇲", "Bermuda"),
+    "1473": ("GD", "🇬🇩", "Grenada"),
+    "1649": ("TC", "🇹🇨", "Turks and Caicos"),
+    "1664": ("MS", "🇲🇸", "Montserrat"),
+    "1670": ("MP", "🇲🇵", "Northern Mariana Islands"),
+    "1671": ("GU", "🇬🇺", "Guam"),
+    "1684": ("AS", "🇦🇸", "American Samoa"),
+    "1721": ("SX", "🇸🇽", "Sint Maarten"),
+    "1758": ("LC", "🇱🇨", "Saint Lucia"),
+    "1767": ("DM", "🇩🇲", "Dominica"),
+    "1784": ("VC", "🇻🇨", "Saint Vincent and the Grenadines"),
+    "1787": ("PR", "🇵🇷", "Puerto Rico"),
+    "1809": ("DO", "🇩🇴", "Dominican Republic"),
+    "1829": ("DO", "🇩🇴", "Dominican Republic"),
+    "1849": ("DO", "🇩🇴", "Dominican Republic"),
+    "1868": ("TT", "🇹🇹", "Trinidad and Tobago"),
+    "1869": ("KN", "🇰🇳", "Saint Kitts and Nevis"),
+    "1876": ("JM", "🇯🇲", "Jamaica"),
+    "1939": ("PR", "🇵🇷", "Puerto Rico"),
 }
 ISO_TO_INFO = {}
 for code, val in COUNTRY_CODE_MAP.items():
@@ -3325,7 +3622,7 @@ async def send_admin_panel_msg(update: Update, context: ContextTypes.DEFAULT_TYP
     admin_panel_state[user_id] = "main"
     await send_clean_message(update, context, "ADMIN PANEL\n\nDeveloper: 𝐖𝐀 𝐂𝐑𝐄𝐀𝐓𝐈𝐎𝐍 𝐑 𝐁𝐎𝐓", reply_markup=admin_panel_keyboard(), auto_delete=False)
 
-# ================= CURL PARSER (unchanged) =================
+# ================= CURL PARSER =================
 import re
 import json
 from urllib.parse import urlparse, parse_qs
@@ -3464,7 +3761,7 @@ def build_request_from_curl(parsed: dict, placeholders: dict = None) -> dict:
             "data": data, "base_url": parsed.get("base_url", ""), "endpoint": parsed.get("endpoint", ""),
             "placeholders": placeholders}
 
-# ================= API ADD STEPS (unchanged) =================
+# ================= API ADD STEPS =================
 STEP_ORDER = [
     "api_add_name", "api_add_base_url", "api_add_endpoint", "api_add_token",
     "api_add_interval", "api_add_otp_list_path", "api_add_number_path",
@@ -4033,7 +4330,7 @@ async def start_all_polling():
     for (api_id,) in apis:
         await start_polling_for_api(api_id)
 
-# ================= API SYSTEM GRID (unchanged) =================
+# ================= API SYSTEM GRID =================
 async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     if not is_admin(user_id):
         if isinstance(update, CallbackQuery):
@@ -4071,7 +4368,7 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     text = f"{emoji_tag(CUSTOM_EMOJIS['API_SYSTEM'], '🖥️')} <b>API SYSTEM</b> ({len(apis)} configured)"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
-# ================= API ADD CHOICE (unchanged) =================
+# ================= API ADD CHOICE =================
 async def api_add_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -4102,7 +4399,7 @@ async def api_choice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await cdr_add_start(update, context, user_id)
 
-# ================= CDR PANEL MANAGEMENT (unchanged) =================
+# ================= CDR PANEL MANAGEMENT =================
 async def _solve_captcha(page) -> str | None:
     body_text = await page.locator("body").inner_text()
     match = re.search(r"(\d+)\s*([\+\-])\s*(\d+)", body_text)
@@ -4358,7 +4655,7 @@ async def cdr_handle_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         await cdr_show_confirm_step(update, context, user_id)
     return True
 
-# ================= CDR PANEL DETAIL (improved) =================
+# ================= CDR PANEL DETAIL =================
 async def cdr_test_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -5233,6 +5530,419 @@ async def api_edit_field_prompt(update: Update, context: ContextTypes.DEFAULT_TY
                                   reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data=f"api_edit|{api_id}", style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]]),
                                   parse_mode='HTML')
 
+# ================= handle_edit_value_text (MISSING) =================
+async def handle_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = admin_panel_state.get(user_id)
+    if not state or not state.startswith("api_edit_value_"):
+        return False
+    api_id = int(state.split("_")[-1])
+    data = admin_temp_data.get(user_id, {})
+    field = data.get("field")
+    if not field:
+        await update.message.reply_text("Session expired. Please start over.")
+        return True
+    new_value = update.message.text.strip()
+    if new_value.lower() == "/cancel":
+        await api_edit_menu(update, context, api_id, user_id)
+        return True
+    if field in ["interval_sec", "max_records", "retry_count"]:
+        try:
+            new_value = int(new_value)
+            if field == "interval_sec" and new_value < 1:
+                await update.message.reply_text("Interval must be at least 1 second.")
+                return True
+        except ValueError:
+            await update.message.reply_text("Please enter a valid number.")
+            return True
+    elif field == "method":
+        if new_value.upper() not in ["GET", "POST", "PUT", "DELETE"]:
+            await update.message.reply_text("Method must be GET, POST, PUT, or DELETE.")
+            return True
+    elif field == "base_url":
+        if not new_value.startswith(("http://", "https://")):
+            await update.message.reply_text("Base URL must start with http:// or https://")
+            return True
+    elif field == "placeholder_config":
+        try:
+            new_value = json.loads(new_value)
+            db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (json.dumps(new_value), api_id))
+        except:
+            try:
+                parts = [p.strip() for p in new_value.split(',')]
+                new_placeholders = {}
+                for part in parts:
+                    if '=' in part:
+                        k, v = part.split('=', 1)
+                        new_placeholders[k.strip()] = v.strip()
+                db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (json.dumps(new_placeholders), api_id))
+            except:
+                await update.message.reply_text("Invalid format. Use JSON or key1=value1,key2=value2")
+                return True
+        admin_temp_data.pop(user_id, None)
+        admin_panel_state[user_id] = "main"
+        await update.message.reply_text(f"✅ {field} updated successfully!")
+        await api_detail_page(update, context, api_id, user_id)
+        return True
+    db_exec(f"UPDATE api_keys SET {field} = ? WHERE id = ?", (new_value, api_id))
+    admin_temp_data.pop(user_id, None)
+    admin_panel_state[user_id] = "main"
+    await update.message.reply_text(f"✅ {field} updated successfully!")
+    await api_detail_page(update, context, api_id, user_id)
+    return True
+
+# ================= RESPONSE PARSER =================
+class ResponseParser:
+    @staticmethod
+    def _get_json_path(data, path, default=None):
+        if not path:
+            return data
+        parts = path.split('.')
+        current = data
+        for part in parts:
+            if part.isdigit():
+                try:
+                    idx = int(part)
+                    if isinstance(current, list) and idx < len(current):
+                        current = current[idx]
+                    else:
+                        return default
+                except:
+                    return default
+            elif isinstance(current, dict):
+                if part in current:
+                    current = current[part]
+                else:
+                    found = False
+                    for key in current:
+                        if key.lower() == part.lower():
+                            current = current[key]
+                            found = True
+                            break
+                    if not found:
+                        return default
+            else:
+                return default
+        return current if current is not None else default
+
+    @staticmethod
+    def parse_json_response(content: dict, config: dict) -> list[dict]:
+        otp_list_path = config.get('otp_list_path', 'data')
+        if not otp_list_path:
+            data = content
+        else:
+            data = ResponseParser._get_json_path(content, otp_list_path)
+        if data is None:
+            for key, value in content.items():
+                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                    data = value
+                    break
+            if data is None:
+                return []
+        if isinstance(data, dict):
+            data = [data]
+        if not isinstance(data, list):
+            return []
+        result = []
+        number_path = config.get('number_path')
+        message_path = config.get('message_path')
+        service_path = config.get('service_path')
+        timestamp_path = config.get('timestamp_path')
+        country_path = config.get('country_path')
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            entry = {}
+            if number_path:
+                entry["number"] = ResponseParser._get_json_path(item, number_path, "")
+            if message_path:
+                entry["message"] = ResponseParser._get_json_path(item, message_path, "")
+            else:
+                for key, value in item.items():
+                    if isinstance(value, str) and len(value) > 10:
+                        entry["message"] = value
+                        break
+            if service_path:
+                entry["service"] = ResponseParser._get_json_path(item, service_path, "")
+            if timestamp_path:
+                entry["timestamp"] = ResponseParser._get_json_path(item, timestamp_path, "")
+            if country_path:
+                entry["country"] = ResponseParser._get_json_path(item, country_path, "")
+            if "message" in entry and entry["message"]:
+                otp = extract_otp_from_message(entry["message"])
+                if otp:
+                    entry["otp"] = otp
+            if "otp" not in entry:
+                for key in ["otp", "code", "pin", "password"]:
+                    if key in item and item[key]:
+                        entry["otp"] = str(item[key])
+                        break
+            entry = {k: v for k, v in entry.items() if v}
+            if entry.get("number") or entry.get("otp"):
+                result.append(entry)
+        return result
+
+    @staticmethod
+    def parse_response(content, config: dict) -> list[dict]:
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except:
+                otps = extract_all_otps_from_message(content)
+                if otps:
+                    return [{"message": content[:200], "otp": otp} for otp in otps]
+                else:
+                    return [{"message": content[:200], "otp": "N/A"}]
+        if isinstance(content, dict):
+            return ResponseParser.parse_json_response(content, config)
+        return []
+
+# ================= GET API CONFIG =================
+def get_api_config(api_id: int) -> dict | None:
+    row = db_fetch_one("""
+        SELECT id, panel_name, base_url, token, interval_sec, active,
+               endpoint, method, headers, body_template, response_type,
+               otp_list_path, number_path, message_path, country_path,
+               service_path, timestamp_path, success_path, success_value,
+               max_records, retry_count, retry_delay, error_count, last_poll_time,
+               total_otps, last_otp_time, placeholder_config, curl_command
+        FROM api_keys WHERE id = ?
+    """, (api_id,))
+    if not row:
+        return None
+    cols = ['id','panel_name','base_url','token','interval_sec','active',
+            'endpoint','method','headers','body_template','response_type',
+            'otp_list_path','number_path','message_path','country_path',
+            'service_path','timestamp_path','success_path','success_value',
+            'max_records','retry_count','retry_delay','error_count','last_poll_time',
+            'total_otps','last_otp_time','placeholder_config','curl_command']
+    return dict(zip(cols, row))
+
+# ================= OTP PROCESSING =================
+async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
+    if context:
+        bot = context.bot
+    if not bot:
+        if application and application.bot:
+            bot = application.bot
+        else:
+            print("❌ process_otps: No bot instance!")
+            return 0
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    active_rows = db_fetch_all(
+        "SELECT number, user_id, country, assigned_date FROM numbers WHERE status='active' AND expiry_time > ?",
+        (now_str,))
+    num_map = {}
+    for num, uid, country, assigned in active_rows:
+        clean = num.replace('+', '')
+        num_map.setdefault(clean, []).append((uid, country, assigned))
+    group_ids = GROUP_IDS
+    semaphore = asyncio.Semaphore(50)
+    new_otp_count = 0
+
+    async def safe_send_message(chat_id, text, reply_markup=None, parse_mode='HTML'):
+        async with semaphore:
+            try:
+                await bot.send_message(chat_id=chat_id, text=apply_emojis(text), reply_markup=reply_markup, parse_mode=parse_mode)
+            except Exception as e:
+                print(f"Failed to send to {chat_id}: {e}")
+
+    async def process_single_otp(otp_entry):
+        nonlocal new_otp_count
+        number = otp_entry.get("number", "")
+        message = otp_entry.get("message", "")
+        service_name = otp_entry.get("service", "Unknown")
+        otp_timestamp_str = otp_entry.get("timestamp", now_str)
+        if not otp_entry.get('country'):
+            country = get_country_from_number(number)
+            if country:
+                otp_entry['country'] = country
+        otp_code = extract_otp_from_message(message)
+        if otp_code is None:
+            otp_code = otp_entry.get("otp", "")
+            if not otp_code:
+                otp_code = "N/A"
+        if not number:
+            return 0
+
+        # DEDUPLICATION: 1 second window (global)
+        existing = db_fetch_one(
+            "SELECT id, timestamp FROM otps WHERE number=? AND otp=? AND (user_id=0 OR user_id>0) ORDER BY timestamp DESC LIMIT 1",
+            (number, otp_code)
+        )
+        if existing:
+            try:
+                last_ts = datetime.strptime(existing[1], "%Y-%m-%d %H:%M:%S")
+                if (now - last_ts).total_seconds() < 1:
+                    return 0
+            except:
+                pass
+
+        if not existing:
+            db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
+                    (number, otp_code, message, otp_timestamp_str))
+            
+            # Send to group only if new globally
+            if group_ids:
+                try:
+                    grp_text, grp_kb = format_group_otp_rich({
+                        "number": number,
+                        "otp": otp_code,
+                        "service": service_name,
+                        "country_code": otp_entry.get("country_code", ""),
+                        "country": otp_entry.get("country", ""),
+                        "message": message
+                    })
+                    for gid in group_ids:
+                        await bot.send_message(chat_id=gid, text=apply_emojis(grp_text), reply_markup=InlineKeyboardMarkup(grp_kb['inline_keyboard']), parse_mode='HTML')
+                except Exception as e:
+                    print(f"Group send failed: {e}")
+
+        clean_number = number.replace('+', '')
+        local_tasks = []
+        if clean_number in num_map:
+            print(f"✅ Found {len(num_map[clean_number])} active users for number {clean_number}")
+            try:
+                otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
+            except:
+                otp_timestamp = now
+            for uid, country, assigned_date_str in num_map[clean_number]:
+                if db_fetch_one("SELECT banned FROM users WHERE user_id=? AND banned=1", (uid,)):
+                    continue
+                try:
+                    assigned_date = datetime.strptime(assigned_date_str, "%Y-%m-%d %H:%M:%S")
+                except:
+                    assigned_date = now
+                if otp_timestamp < assigned_date:
+                    continue
+                # Check duplicate for this specific user
+                user_otp_exists = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=?", (number, otp_code, uid))
+                if user_otp_exists:
+                    continue
+                user_recent = db_fetch_one(
+                    "SELECT timestamp FROM otps WHERE number=? AND otp=? AND user_id=? ORDER BY timestamp DESC LIMIT 1",
+                    (number, otp_code, uid)
+                )
+                if user_recent:
+                    try:
+                        last_ts = datetime.strptime(user_recent[0], "%Y-%m-%d %H:%M:%S")
+                        if (now - last_ts).total_seconds() < 1:
+                            continue
+                    except:
+                        pass
+
+                # Send to user
+                country_data = get_country_info(country)
+                payout_str = country_data.get("payout", "0.001$")
+                try:
+                    reward = parse_payout(payout_str)
+                except:
+                    reward = 0.001
+                db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
+                        (reward, uid))
+                db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
+                        (number, otp_code, message, otp_timestamp_str, uid))
+                flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
+                country_iso = country_data.get("iso", "").upper()
+                svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
+                svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
+                header = (
+                    f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
+                    f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b> '
+                    f'{emoji_tag("6100453534422013617", "✨")}\n'
+                    f'{emoji_tag("6204108584381322968", "📱")} <b>NUMBER</b>: <code>+{number}</code>\n'
+                    f'{emoji_tag("5976327845696251345", "📲")} <b>APP</b>: {emoji_tag(svc_eid, "⚙️")} <b>{service_name}</b>\n'
+                    f'💰 <b>BALANCE ADDED</b>: <code>+${reward}</code>{emoji_tag("5976788549658221281", "💵")}'
+                )
+                button = InlineKeyboardMarkup([[InlineKeyboardButton(text=otp_code, copy_text=CopyTextButton(text=otp_code), style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon("5330115548900501467"))]])
+                local_tasks.append(safe_send_message(uid, header, button))
+                new_otp_count += 1
+        else:
+            print(f"❌ No active user found for number: {clean_number}")
+
+        if local_tasks:
+            await asyncio.gather(*local_tasks)
+        return 1 if existing is None else 0
+
+    tasks = [process_single_otp(otp) for otp in otps_list]
+    results = await asyncio.gather(*tasks)
+    total_global_new = sum(results)
+    save_user_data_json()
+    return total_global_new
+
+# ================= GENERIC TEXT HANDLER =================
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+    if await handle_admin_text(update, context):
+        return
+    if await handle_api_add_text(update, context):
+        return
+    if await handle_edit_value_text(update, context):
+        return
+    if await cdr_handle_add_text(update, context):
+        return
+    if await cdr_edit_value_text(update, context):
+        return
+    if await force_join_text_handler(update, context):
+        return
+    user_id = update.effective_user.id
+    if await ban_check(update, context):
+        return
+    text = update.message.text.strip()
+    if text == BTN_GET_NUMBER:
+        await send_get_number_panel(update, context)
+    elif text == BTN_BALANCE:
+        await send_balance_panel(update, context)
+    elif text == BTN_INVITE:
+        await show_invite(update, context)
+    elif text == BTN_SUPPORT:
+        await send_support_panel(update, context)
+    elif text == BTN_ADMIN:
+        await send_admin_panel_msg(update, context)
+
+# ================= FORCE JOIN TEXT HANDLER =================
+async def force_join_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = admin_panel_state.get(user_id)
+    if state == "waiting_fj_channel":
+        chat_identifier = update.message.text.strip()
+        # Try to fetch channel info
+        try:
+            res = requests.get(BASE_URL + f"getChat?chat_id={chat_identifier}").json()
+            if res.get('ok'):
+                chat = res['result']
+                if chat['type'] in ['channel', 'supergroup']:
+                    invite_link = None
+                    try:
+                        inv = requests.post(BASE_URL + f"exportChatInviteLink?chat_id={chat['id']}").json()
+                        if inv.get('ok'):
+                            invite_link = inv['result']
+                    except:
+                        pass
+                    channel_data = {
+                        'id': chat['id'],
+                        'username': chat.get('username', ''),
+                        'title': chat.get('title', 'Channel'),
+                        'invite_link': invite_link or ''
+                    }
+                    channels = get_force_join_channels()
+                    channels.append(channel_data)
+                    set_force_join_channels(channels)
+                    await update.message.reply_text(f"✅ Channel '{chat.get('title')}' added successfully!")
+                    await admin_force_join(update, context)
+                    admin_panel_state[user_id] = None
+                else:
+                    await update.message.reply_text("❌ This is not a channel or supergroup.")
+            else:
+                await update.message.reply_text("❌ Failed to fetch channel. Ensure the bot is admin and the chat ID/username is correct.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {e}")
+        return True
+    return False
+
+# ================= API TEST, STATS, LOGS, DELETE, FORCE POLL (unchanged) =================
 async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -5529,340 +6239,6 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = f"❌ Exception: {str(e)}"
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data=f"api_detail|{api_id}", style=KBS.PRIMARY, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
     await query.edit_message_text(f"{emoji_tag(CUSTOM_EMOJIS['API_FORCE_POLL'], '🔄')} <b>Force Poll Result: {config['panel_name']}</b>\n\n{result}", reply_markup=kb, parse_mode='HTML')
-
-# ================= WRAPPERS =================
-async def api_detail_page_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    api_id = int(query.data.split('|')[1])
-    await api_detail_page(update, context, api_id, user_id)
-
-async def api_edit_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    api_id = int(query.data.split('|')[1])
-    await api_edit_menu(update, context, api_id, user_id)
-
-async def api_add_start_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    await api_add_start(update, context, user_id)
-
-async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    await manage_api_menu(update, context, user_id)
-
-# ================= RESPONSE PARSER =================
-class ResponseParser:
-    @staticmethod
-    def _get_json_path(data, path, default=None):
-        if not path:
-            return data
-        parts = path.split('.')
-        current = data
-        for part in parts:
-            if part.isdigit():
-                try:
-                    idx = int(part)
-                    if isinstance(current, list) and idx < len(current):
-                        current = current[idx]
-                    else:
-                        return default
-                except:
-                    return default
-            elif isinstance(current, dict):
-                if part in current:
-                    current = current[part]
-                else:
-                    found = False
-                    for key in current:
-                        if key.lower() == part.lower():
-                            current = current[key]
-                            found = True
-                            break
-                    if not found:
-                        return default
-            else:
-                return default
-        return current if current is not None else default
-
-    @staticmethod
-    def parse_json_response(content: dict, config: dict) -> list[dict]:
-        otp_list_path = config.get('otp_list_path', 'data')
-        if not otp_list_path:
-            data = content
-        else:
-            data = ResponseParser._get_json_path(content, otp_list_path)
-        if data is None:
-            for key, value in content.items():
-                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                    data = value
-                    break
-            if data is None:
-                return []
-        if isinstance(data, dict):
-            data = [data]
-        if not isinstance(data, list):
-            return []
-        result = []
-        number_path = config.get('number_path')
-        message_path = config.get('message_path')
-        service_path = config.get('service_path')
-        timestamp_path = config.get('timestamp_path')
-        country_path = config.get('country_path')
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            entry = {}
-            if number_path:
-                entry["number"] = ResponseParser._get_json_path(item, number_path, "")
-            if message_path:
-                entry["message"] = ResponseParser._get_json_path(item, message_path, "")
-            else:
-                for key, value in item.items():
-                    if isinstance(value, str) and len(value) > 10:
-                        entry["message"] = value
-                        break
-            if service_path:
-                entry["service"] = ResponseParser._get_json_path(item, service_path, "")
-            if timestamp_path:
-                entry["timestamp"] = ResponseParser._get_json_path(item, timestamp_path, "")
-            if country_path:
-                entry["country"] = ResponseParser._get_json_path(item, country_path, "")
-            if "message" in entry and entry["message"]:
-                otp = extract_otp_from_message(entry["message"])
-                if otp:
-                    entry["otp"] = otp
-            if "otp" not in entry:
-                for key in ["otp", "code", "pin", "password"]:
-                    if key in item and item[key]:
-                        entry["otp"] = str(item[key])
-                        break
-            entry = {k: v for k, v in entry.items() if v}
-            if entry.get("number") or entry.get("otp"):
-                result.append(entry)
-        return result
-
-    @staticmethod
-    def parse_response(content, config: dict) -> list[dict]:
-        if isinstance(content, str):
-            try:
-                content = json.loads(content)
-            except:
-                otps = extract_all_otps_from_message(content)
-                if otps:
-                    return [{"message": content[:200], "otp": otp} for otp in otps]
-                else:
-                    return [{"message": content[:200], "otp": "N/A"}]
-        if isinstance(content, dict):
-            return ResponseParser.parse_json_response(content, config)
-        return []
-
-# ================= GET API CONFIG =================
-def get_api_config(api_id: int) -> dict | None:
-    row = db_fetch_one("""
-        SELECT id, panel_name, base_url, token, interval_sec, active,
-               endpoint, method, headers, body_template, response_type,
-               otp_list_path, number_path, message_path, country_path,
-               service_path, timestamp_path, success_path, success_value,
-               max_records, retry_count, retry_delay, error_count, last_poll_time,
-               total_otps, last_otp_time, placeholder_config, curl_command
-        FROM api_keys WHERE id = ?
-    """, (api_id,))
-    if not row:
-        return None
-    cols = ['id','panel_name','base_url','token','interval_sec','active',
-            'endpoint','method','headers','body_template','response_type',
-            'otp_list_path','number_path','message_path','country_path',
-            'service_path','timestamp_path','success_path','success_value',
-            'max_records','retry_count','retry_delay','error_count','last_poll_time',
-            'total_otps','last_otp_time','placeholder_config','curl_command']
-    return dict(zip(cols, row))
-
-# ================= ZEBRA-STYLE OTP FORMAT (already defined) =================
-
-# ================= OTP PROCESSING =================
-async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
-    if context:
-        bot = context.bot
-    if not bot:
-        if application and application.bot:
-            bot = application.bot
-        else:
-            print("❌ process_otps: No bot instance!")
-            return 0
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    active_rows = db_fetch_all(
-        "SELECT number, user_id, country, assigned_date FROM numbers WHERE status='active' AND expiry_time > ?",
-        (now_str,))
-    num_map = {}
-    for num, uid, country, assigned in active_rows:
-        clean = num.replace('+', '')
-        num_map.setdefault(clean, []).append((uid, country, assigned))
-    group_ids = GROUP_IDS
-    semaphore = asyncio.Semaphore(50)
-    new_otp_count = 0
-
-    async def safe_send_message(chat_id, text, reply_markup=None, parse_mode='HTML'):
-        async with semaphore:
-            try:
-                await bot.send_message(chat_id=chat_id, text=apply_emojis(text), reply_markup=reply_markup, parse_mode=parse_mode)
-            except Exception as e:
-                print(f"Failed to send to {chat_id}: {e}")
-
-    async def process_single_otp(otp_entry):
-        nonlocal new_otp_count
-        number = otp_entry.get("number", "")
-        message = otp_entry.get("message", "")
-        service_name = otp_entry.get("service", "Unknown")
-        otp_timestamp_str = otp_entry.get("timestamp", now_str)
-        if not otp_entry.get('country'):
-            country = get_country_from_number(number)
-            if country:
-                otp_entry['country'] = country
-        otp_code = extract_otp_from_message(message)
-        if otp_code is None:
-            otp_code = otp_entry.get("otp", "")
-            if not otp_code:
-                otp_code = "N/A"
-        if not number:
-            return 0
-
-        # DEDUPLICATION: 1 second window (global)
-        existing = db_fetch_one(
-            "SELECT id, timestamp FROM otps WHERE number=? AND otp=? AND (user_id=0 OR user_id>0) ORDER BY timestamp DESC LIMIT 1",
-            (number, otp_code)
-        )
-        if existing:
-            try:
-                last_ts = datetime.strptime(existing[1], "%Y-%m-%d %H:%M:%S")
-                if (now - last_ts).total_seconds() < 1:
-                    return 0
-            except:
-                pass
-
-        if not existing:
-            db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
-                    (number, otp_code, message, otp_timestamp_str))
-            
-            # Send to group only if new globally
-            if group_ids:
-                try:
-                    grp_text, grp_kb = format_group_otp_rich({
-                        "number": number,
-                        "otp": otp_code,
-                        "service": service_name,
-                        "country_code": otp_entry.get("country_code", ""),
-                        "country": otp_entry.get("country", ""),
-                        "message": message
-                    })
-                    for gid in group_ids:
-                        await bot.send_message(chat_id=gid, text=apply_emojis(grp_text), reply_markup=InlineKeyboardMarkup(grp_kb['inline_keyboard']), parse_mode='HTML')
-                except Exception as e:
-                    print(f"Group send failed: {e}")
-
-        clean_number = number.replace('+', '')
-        local_tasks = []
-        if clean_number in num_map:
-            print(f"✅ Found {len(num_map[clean_number])} active users for number {clean_number}")
-            try:
-                otp_timestamp = datetime.strptime(otp_timestamp_str, "%Y-%m-%d %H:%M:%S")
-            except:
-                otp_timestamp = now
-            for uid, country, assigned_date_str in num_map[clean_number]:
-                if db_fetch_one("SELECT banned FROM users WHERE user_id=? AND banned=1", (uid,)):
-                    continue
-                try:
-                    assigned_date = datetime.strptime(assigned_date_str, "%Y-%m-%d %H:%M:%S")
-                except:
-                    assigned_date = now
-                if otp_timestamp < assigned_date:
-                    continue
-                # Check duplicate for this specific user
-                user_otp_exists = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=?", (number, otp_code, uid))
-                if user_otp_exists:
-                    continue
-                user_recent = db_fetch_one(
-                    "SELECT timestamp FROM otps WHERE number=? AND otp=? AND user_id=? ORDER BY timestamp DESC LIMIT 1",
-                    (number, otp_code, uid)
-                )
-                if user_recent:
-                    try:
-                        last_ts = datetime.strptime(user_recent[0], "%Y-%m-%d %H:%M:%S")
-                        if (now - last_ts).total_seconds() < 1:
-                            continue
-                    except:
-                        pass
-
-                # Send to user
-                country_data = get_country_info(country)
-                payout_str = country_data.get("payout", "0.001$")
-                try:
-                    reward = parse_payout(payout_str)
-                except:
-                    reward = 0.001
-                db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
-                        (reward, uid))
-                db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
-                        (number, otp_code, message, otp_timestamp_str, uid))
-                flag_eid = country_data.get("emoji_id") or CUSTOM_EMOJIS["DEFAULT_FLAG"]
-                country_iso = country_data.get("iso", "").upper()
-                svc_row = db_fetch_one("SELECT emoji_id FROM services WHERE LOWER(name) = LOWER(?)", (service_name,))
-                svc_eid = svc_row[0] if svc_row and svc_row[0] else CUSTOM_EMOJIS["DEFAULT_SERVICE"]
-                header = (
-                    f'{emoji_tag("5278576134622056695", "🆕")} <b>NEW</b> '
-                    f'{emoji_tag(flag_eid, "🏁")}<b>{country_iso} OTP ARRIVED</b> '
-                    f'{emoji_tag("6100453534422013617", "✨")}\n'
-                    f'{emoji_tag("6204108584381322968", "📱")} <b>NUMBER</b>: <code>+{number}</code>\n'
-                    f'{emoji_tag("5976327845696251345", "📲")} <b>APP</b>: {emoji_tag(svc_eid, "⚙️")} <b>{service_name}</b>\n'
-                    f'💰 <b>BALANCE ADDED</b>: <code>+${reward}</code>{emoji_tag("5976788549658221281", "💵")}'
-                )
-                button = InlineKeyboardMarkup([[InlineKeyboardButton(text=otp_code, copy_text=CopyTextButton(text=otp_code), style=KBS.SUCCESS, icon_custom_emoji_id=safe_icon("5330115548900501467"))]])
-                local_tasks.append(safe_send_message(uid, header, button))
-                new_otp_count += 1
-        else:
-            print(f"❌ No active user found for number: {clean_number}")
-
-        if local_tasks:
-            await asyncio.gather(*local_tasks)
-        return 1 if existing is None else 0
-
-    tasks = [process_single_otp(otp) for otp in otps_list]
-    results = await asyncio.gather(*tasks)
-    total_global_new = sum(results)
-    save_user_data_json()
-    return total_global_new
-
-# ================= GENERIC TEXT HANDLER =================
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-    if await handle_admin_text(update, context):
-        return
-    if await handle_api_add_text(update, context):
-        return
-    if await handle_edit_value_text(update, context):
-        return
-    if await cdr_handle_add_text(update, context):
-        return
-    if await cdr_edit_value_text(update, context):
-        return
-    if await force_join_text_handler(update, context):
-        return
-    user_id = update.effective_user.id
-    if await ban_check(update, context):
-        return
-    text = update.message.text.strip()
-    if text == BTN_GET_NUMBER:
-        await send_get_number_panel(update, context)
-    elif text == BTN_BALANCE:
-        await send_balance_panel(update, context)
-    elif text == BTN_INVITE:
-        await show_invite(update, context)
-    elif text == BTN_SUPPORT:
-        await send_support_panel(update, context)
-    elif text == BTN_ADMIN:
-        await send_admin_panel_msg(update, context)
 
 # ================= ERROR HANDLER =================
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
