@@ -165,7 +165,6 @@ SEND_EMOJI = "5433614747381538714"
 SKIP_EMOJI = "6267262260243076354"
 DATABASE_EMOJI = "5818955300463447293"
 
-# Additional emoji IDs from test.py
 UPLOAD_EMOJI = "6206046503690048595"
 DOWNLOAD_EMOJI = "5229010262111041311"
 REFRESH_EMOJI = "5229111790842952353"
@@ -422,7 +421,7 @@ for service in default_services:
 conn.commit()
 print("✅ Database setup completed")
 
-# ================= PREMIUM APPS & SERVICE DETECTION (from test.py) =================
+# ================= PREMIUM APPS & SERVICE DETECTION (DEMO - only one) =================
 PREMIUM_APPS = {
     "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
     "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
@@ -472,7 +471,7 @@ SERVICE_SMS_KEYWORDS = {
     "Imo": ["imo code", "imo"]
 }
 
-# ================= COUNTRY CODES (MINIMAL – ADD MORE LATER) =================
+# ================= COUNTRY CODES (MINIMAL – only Bangladesh) =================
 COUNTRY_CODES = {
     "1": {"flag": "🇺🇸", "name": "United States / Canada", "iso2": "US"},
     "7": {"flag": "🇷🇺", "name": "Russia / Kazakhstan", "iso2": "RU"},
@@ -709,7 +708,6 @@ COUNTRY_CODES = {
     "1939": {"flag": "🇵🇷", "name": "Puerto Rico", "iso2": "PR"},
 }
 
-# You can add more as in test.py
 
 def get_country_info(range_str):
     clean_range = str(range_str or "").replace("X", "")
@@ -738,7 +736,7 @@ def detect_language(text):
     except:
         return "Unknown"
 
-# ================= OTP DETECTION & FORMATTING (from test.py) =================
+# ================= OTP DETECTION & FORMATTING =================
 def extract_otp_from_message(message: str) -> str | None:
     if not message:
         return None
@@ -817,7 +815,7 @@ def detect_service(message_text, raw_sid=""):
     return "Other"
 
 def get_service_info_html(service_name):
-    app_info = PREMIUM_APPS.get(service_name, PREMIUM_APPS["Other"])
+    app_info = PREMIUM_APPS.get(service_name, {"emoji": "📱", "id": "5465590345108589516"})
     emoji_id = app_info["id"]
     normal_emoji = app_info["emoji"]
     short_name = service_name.upper()
@@ -832,10 +830,15 @@ def extract_otp_code(message_text):
     return "COPY"
 
 def generate_otp_display(service_name, raw_number, message_text, lang):
-    # Get country info
-    code, flag, name, iso2 = get_country_info(raw_number)
+    # Get country info - safe unpack
+    try:
+        code, flag, name, iso2 = get_country_info(raw_number)
+    except Exception:
+        # fallback
+        flag, name, iso2 = "🏳️", "Unknown", "XX"
+        code = ""
     
-    app_info = PREMIUM_APPS.get(service_name, PREMIUM_APPS["Other"])
+    app_info = PREMIUM_APPS.get(service_name, {"emoji": "📱", "id": "5465590345108589516"})
     service_emoji = app_info["emoji"]
     service_emoji_id = app_info["id"]
 
@@ -843,7 +846,6 @@ def generate_otp_display(service_name, raw_number, message_text, lang):
     first4 = clean_number[:4] if len(clean_number) >= 4 else clean_number
     last3 = clean_number[-3:] if len(clean_number) >= 3 else clean_number
 
-    # New format: {flag}{iso2} | {service_emoji} | +{first4}🔹{last3} | ✉️ {lang}
     text = (
         f"{flag}<b>{iso2}</b> | "
         f'<tg-emoji emoji-id="{service_emoji_id}">{service_emoji}</tg-emoji> | '
@@ -894,8 +896,8 @@ def deliver_to_inbox(user_id, service_name, raw_number, msg_text, current_balanc
     text = (
         f"— — — — — — — — — —\n"
         f"<blockquote>{service_html} <code>+{clean_raw_number}</code></blockquote>\n"
-        f"<blockquote><tg-emoji emoji-id=\"5420323438508155202\">➕</tg-emoji> <b>ADDED</b>  ➜ {reward:.2f} TK</blockquote>\n"
-        f"<blockquote><tg-emoji emoji-id=\"5190899075968441286\">💳</tg-emoji> <b>BALANCE</b> ➜ {current_balance:.2f} TK</blockquote>\n"
+        f"<blockquote><tg-emoji emoji-id=\"5420323438508155202\">➕</tg-emoji> <b>ADDED</b>  ➜ ${reward:.2f}</blockquote>\n"
+        f"<blockquote><tg-emoji emoji-id=\"5190899075968441286\">💳</tg-emoji> <b>BALANCE</b> ➜ ${current_balance:.2f}</blockquote>\n"
         f"— — — — — — — — — —"
     )
     otp = extract_otp_code(msg_text)
@@ -907,7 +909,7 @@ def get_otp_reward(service_name):
     val = rates.get(service_name, get_setting("otp_default_rate", 0.5))
     return float(val)
 
-# ================= HELPER FUNCTIONS (from bot(9).py) =================
+# ================= HELPER FUNCTIONS =================
 def safe_url(url: str) -> str | None:
     if url and isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("tg://")):
         return url
@@ -1064,10 +1066,9 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-# ================= COUNTRY MAP (ONLY BANGLADESH AS DEFAULT) =================
+# ================= COUNTRY MAP (ONLY BANGLADESH) =================
 COUNTRY_CODE_MAP = {
     "880": ("BD", "🇧🇩", "Bangladesh"),
-    # Add more countries here later
 }
 ISO_TO_INFO = {}
 for code, val in COUNTRY_CODE_MAP.items():
@@ -1195,15 +1196,10 @@ def get_country_name_by_iso(iso2: str) -> str | None:
 
 DEFAULT_EMOJIS = {
     "services": {
-        "uber": "5298715455316303708",
-        "bolt": "5343587658717219067",
         "whatsapp": "5298715455316303708",
-        "telegram": "5339267587337370029",
-        "casushi": "5346008706012169915",
     },
     "countries": {
-        "gb": "5293993521026453119",
-        "af": "5292108962391414885",
+        "bd": "5911365056594973179",
     }
 }
 
@@ -1421,7 +1417,6 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("Database", callback_data="admin_database", style=KBS.SUCCESS,
                                  icon_custom_emoji_id=safe_icon(DATABASE_EMOJI)),
         ],
-        # NEW BUTTONS: AIR CONTROL and FORCE JOIN
         [
             InlineKeyboardButton("AIR CONTROL", callback_data="admin_air_control", style=KBS.DANGER,
                                  icon_custom_emoji_id=safe_icon("6206236607532504295")),
@@ -1614,7 +1609,7 @@ async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
             when=delay
         )
 
-async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = True, delete_after: int = None):
+async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = False, delete_after: int = None):
     user_id = update.effective_user.id
     await delete_previous_messages(update, context)
     try:
@@ -1639,7 +1634,7 @@ async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, use
         await send_clean_message(update, context, main_text, reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML', auto_delete=False)
 
 # ================= SAFE EDIT/SEND =================
-async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, delete_after: int = None):
+async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = False, delete_after: int = None):
     user_id = query.from_user.id
     try:
         await query.edit_message_text(apply_emojis(text), reply_markup=reply_markup, parse_mode=parse_mode)
@@ -1674,7 +1669,7 @@ async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse
             return sent
         return None
 
-async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = True, delete_after: int = None):
+async def reply_or_edit(target, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = False, delete_after: int = None):
     if isinstance(target, CallbackQuery):
         await edit_or_send(target, text, reply_markup=reply_markup, parse_mode=parse_mode, context=context, auto_delete=auto_delete, delete_after=delete_after)
     elif hasattr(target, 'callback_query') and target.callback_query:
@@ -1716,7 +1711,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     db_exec("UPDATE users SET balance = balance + ?, total_invites = total_invites + 1 WHERE user_id = ?", (reward, inviter_id))
                     db_exec("UPDATE users SET invited_by = ? WHERE user_id = ?", (inviter_id, user_id))
                     try:
-                        await context.bot.send_message(inviter_id, f"🎉 <b>New Referral!</b>\nSomeone joined using your link. You received {reward} BDT.", parse_mode='HTML')
+                        await context.bot.send_message(inviter_id, f"🎉 <b>New Referral!</b>\nSomeone joined using your link. You received ${reward:.2f}.", parse_mode='HTML')
                     except:
                         pass
 
@@ -1835,7 +1830,6 @@ async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TY
             await send_clean_message(update, context, text, reply_markup=kb, parse_mode='HTML', auto_delete=False)
 
 async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
-    # Show withdraw methods and start flow
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     balance = db_fetch_one("SELECT balance FROM users WHERE user_id=?", (user_id,))
     if not balance:
@@ -1853,7 +1847,6 @@ async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_T
         )
         await reply_or_edit(update, text, reply_markup=None, context=context, auto_delete=False)
         return
-    # Show methods
     methods = get_setting('w_methods', [])
     if not methods:
         await reply_or_edit(update, "❌ No withdraw methods configured by admin.", context=context, auto_delete=False)
@@ -1863,7 +1856,7 @@ async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_T
     text = (
         f"{emoji_tag(WALLET_EMOJI, '💰')} <b>YOUR WALLET</b>\n"
         f"— — — — — — — — — —\n"
-        f"{emoji_tag('5352861489541714456', '👤')} <b>BALANCE : {balance:.2f} BDT</b>\n"
+        f"{emoji_tag('5352861489541714456', '👤')} <b>BALANCE : ${balance:.2f}</b>\n"
         f"— — — — — — — — — —\n"
         f"{emoji_tag('5190899075968441286', '💳')} <b>WITHDRAWAL METHODS :</b>"
     )
@@ -1880,10 +1873,10 @@ async def user_withdraw_method(update: Update, context: ContextTypes.DEFAULT_TYP
     balance = user_data[0] or 0.0
     min_w = float(get_setting('min_withdraw', '10.0'))
     if balance < min_w:
-        await query.answer(f"❌ Minimum withdraw is {min_w} BDT. You have {balance:.2f} BDT.", show_alert=True)
+        await query.answer(f"❌ Minimum withdraw is ${min_w}. You have ${balance:.2f}.", show_alert=True)
         return
     user_states[user_id] = {"state": f"waiting_withdraw_amount_{method}", "msg_id": query.message.message_id}
-    await edit_or_send(query, f"💳 <b>Withdraw via {method}</b>\n\n💵 Your Balance: {balance:.2f} BDT\n💬 <b>Enter the amount you want to withdraw:</b>",
+    await edit_or_send(query, f"💳 <b>Withdraw via {method}</b>\n\n💵 Your Balance: ${balance:.2f}\n💬 <b>Enter the amount you want to withdraw:</b>",
                        reply_markup=get_back_only_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
 
 async def handle_withdraw_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1909,14 +1902,13 @@ async def handle_withdraw_text(update: Update, context: ContextTypes.DEFAULT_TYP
     balance = user_balance[0] or 0.0
     min_w = float(get_setting('min_withdraw', '10.0'))
     if amount < min_w:
-        await update.message.reply_text(f"❌ Minimum withdraw is {min_w} BDT.", reply_markup=get_back_only_keyboard())
+        await update.message.reply_text(f"❌ Minimum withdraw is ${min_w}.", reply_markup=get_back_only_keyboard())
         return True
     if amount > balance:
-        await update.message.reply_text(f"❌ Insufficient balance! You only have {balance:.2f} BDT.", reply_markup=get_back_only_keyboard())
+        await update.message.reply_text(f"❌ Insufficient balance! You only have ${balance:.2f}.", reply_markup=get_back_only_keyboard())
         return True
-    # Store amount and ask for account number
     user_states[user_id] = {"state": f"waiting_withdraw_number_{method}_{amount}", "msg_id": target_msg_id}
-    await update.message.reply_text(f"✅ Amount Set: {amount:.2f} BDT\n\n💳 Method: {method}\n💬 Now send your {method} account number:", reply_markup=get_back_only_keyboard())
+    await update.message.reply_text(f"✅ Amount Set: ${amount:.2f}\n\n💳 Method: {method}\n💬 Now send your {method} account number:", reply_markup=get_back_only_keyboard())
     if target_msg_id:
         try:
             await context.bot.delete_message(chat_id=user_id, message_id=target_msg_id)
@@ -1945,9 +1937,7 @@ async def handle_withdraw_account(update: Update, context: ContextTypes.DEFAULT_
     if balance < amount:
         await update.message.reply_text("❌ Insufficient balance!")
         return True
-    # Deduct balance
     db_exec("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
-    # Send to w_group
     w_group = get_setting("w_group", "")
     if w_group:
         first_name = update.effective_user.first_name or "User"
@@ -1958,7 +1948,7 @@ async def handle_withdraw_account(update: Update, context: ContextTypes.DEFAULT_
             f"— — — — — — — — — —\n"
             f"<tg-emoji emoji-id=\"5226929552319594190\">🆔</tg-emoji> <b>ID:</b> <code>{user_id}</code>\n"
             f"— — — — — — — — — —\n"
-            f"<tg-emoji emoji-id=\"5429612421977253466\">💵</tg-emoji> <b>Amount:</b> <b>{amount:.2f} BDT</b>\n"
+            f"<tg-emoji emoji-id=\"5429612421977253466\">💵</tg-emoji> <b>Amount:</b> <b>${amount:.2f}</b>\n"
             f"— — — — — — — — — —\n"
             f"<tg-emoji emoji-id=\"5190899075968441286\">💳</tg-emoji> <b>Method:</b> {method}\n"
             f"— — — — — — — — — —\n"
@@ -1979,7 +1969,7 @@ async def handle_withdraw_account(update: Update, context: ContextTypes.DEFAULT_
             print(f"Failed to send to w_group: {e}")
     success_msg = (
         f"━━━━━━━━━━━━━━━━━\n"
-        f"<tg-emoji emoji-id=\"5429612421977253466\">💵</tg-emoji> <b>Amount:</b> {amount:.2f} BDT\n"
+        f"<tg-emoji emoji-id=\"5429612421977253466\">💵</tg-emoji> <b>Amount:</b> ${amount:.2f}\n"
         f"— — — — — — — — — —\n"
         f"<tg-emoji emoji-id=\"5190899075968441286\">💳</tg-emoji> <b>Method:</b> {method}\n"
         f"— — — — — — — — — —\n"
@@ -2008,20 +1998,17 @@ async def admin_withdraw_callback(update: Update, context: ContextTypes.DEFAULT_
     req_user_id = int(parts[3])
     amount = float(parts[4])
     acc_number = parts[5]
-    # Update message
     if action == "approve":
         btn_text = "APPROVED BY ADMIN"
         btn_style = KBS.SUCCESS
         btn_icon = SUCCESS_EMOJI
-        await context.bot.send_message(req_user_id, f"<tg-emoji emoji-id=\"5420396762189831222\">🎉</tg-emoji> <b>Withdrawal Approved!</b>\nYour request of {amount:.2f} BDT has been sent to <code>{acc_number}</code>.", parse_mode='HTML')
+        await context.bot.send_message(req_user_id, f"<tg-emoji emoji-id=\"5420396762189831222\">🎉</tg-emoji> <b>Withdrawal Approved!</b>\nYour request of ${amount:.2f} has been sent to <code>{acc_number}</code>.", parse_mode='HTML')
     else:
         btn_text = "REJECTED BY ADMIN"
         btn_style = KBS.DANGER
         btn_icon = DANGER_EMOJI
-        # Refund
         db_exec("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, req_user_id))
-        await context.bot.send_message(req_user_id, f"<tg-emoji emoji-id=\"5336944168944047463\">⚠️</tg-emoji> <b>Withdrawal Rejected!</b>\nYour request of {amount:.2f} BDT to <code>{acc_number}</code> was rejected and refunded.", parse_mode='HTML')
-    # Update the admin message
+        await context.bot.send_message(req_user_id, f"<tg-emoji emoji-id=\"5336944168944047463\">⚠️</tg-emoji> <b>Withdrawal Rejected!</b>\nYour request of ${amount:.2f} to <code>{acc_number}</code> was rejected and refunded.", parse_mode='HTML')
     try:
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton(btn_text, callback_data="ignore_action", style=btn_style, icon_custom_emoji_id=safe_icon(btn_icon))
@@ -2055,7 +2042,7 @@ async def show_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<tg-emoji emoji-id=\"5420517437885943844\">🔗</tg-emoji> <b>Your Invite Link:</b>\n"
         f"<code>{invite_link}</code>\n"
         f"— — — — — — — — — —\n"
-        f"<tg-emoji emoji-id=\"5420396762189831222\">🎁</tg-emoji> <b>PER INVITE : {ref_reward} TK</b>\n"
+        f"<tg-emoji emoji-id=\"5420396762189831222\">🎁</tg-emoji> <b>PER INVITE : ${ref_reward}</b>\n"
         f"— — — — — — — — — —\n"
         f"<tg-emoji emoji-id=\"5353032893096567467\">📊</tg-emoji> <b>Total Invites:</b> {total_invites}\n"
         f"━━━━━━━━━━━━━━━━━"
@@ -2664,7 +2651,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             val = float(text.strip())
             update_setting('min_withdraw', str(val))
-            await update.message.reply_text(f"✅ Min withdraw set to {val}")
+            await update.message.reply_text(f"✅ Min withdraw set to ${val}")
             await admin_air_control(update, context)
             return True
         except:
@@ -2674,7 +2661,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             val = float(text.strip())
             update_setting('refer_reward', str(val))
-            await update.message.reply_text(f"✅ Referral reward set to {val}")
+            await update.message.reply_text(f"✅ Referral reward set to ${val}")
             await admin_air_control(update, context)
             return True
         except:
@@ -2705,7 +2692,6 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif state == "waiting_air_w_group":
         try:
             chat_id = int(text.strip())
-            # Verify it's a group
             chat_info = requests.get(BASE_URL + f"getChat?chat_id={chat_id}").json()
             if chat_info.get('ok') and chat_info['result']['type'] in ['group', 'supergroup']:
                 update_setting('w_group', str(chat_id))
@@ -3112,10 +3098,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _database_wrapper(update, context)
     elif action == "manage_api":
         await _manage_api_wrapper(update, context)
-    # AIR CONTROL
     elif action == "air_control":
         await admin_air_control(update, context)
-    # FORCE JOIN
     elif action == "force_join":
         await admin_force_join(update, context)
     elif action == "exit":
@@ -4184,7 +4168,6 @@ async def api_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     admin_panel_state[user_id] = "api_add_name"
     await api_add_step(update, context, user_id, "api_add_name")
 
-# ================= WRAPPER FOR api_add_start =================
 async def api_add_start_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_add_start(update, context, user_id)
@@ -4598,7 +4581,6 @@ async def api_system_grid(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     text = f"{emoji_tag(CUSTOM_EMOJIS['API_SYSTEM'], '🖥️')} <b>API SYSTEM</b> ({len(apis)} configured)"
     await reply_or_edit(update, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode='HTML', context=context, auto_delete=False)
 
-# ================= WRAPPER FOR api_system_grid =================
 async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_system_grid(update, context, user_id)
@@ -5606,7 +5588,6 @@ async def manage_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     ])
     await reply_or_edit(update, "🔧 MANAGE API & PANELS\n\nSelect an option:", reply_markup=kb, context=context, auto_delete=False)
 
-# ================= MANAGE API MENU WRAPPER (MISSING) =================
 async def manage_api_menu_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await manage_api_menu(update, context, user_id)
@@ -5639,7 +5620,6 @@ async def api_list_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_list(update, context, user_id)
 
-# ================= API SYSTEM GRID WRAPPER =================
 async def api_system_grid_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await api_system_grid(update, context, user_id)
@@ -6345,7 +6325,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
     user_id = update.effective_user.id
-    # Check for withdraw flows first
     if await handle_withdraw_text(update, context):
         return
     if await handle_withdraw_account(update, context):
@@ -6415,7 +6394,6 @@ async def force_join_text_handler(update: Update, context: ContextTypes.DEFAULT_
         return True
     return False
 
-# ================= handle_edit_value_text (MISSING) =================
 async def handle_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     state = admin_panel_state.get(user_id)
@@ -6484,7 +6462,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 def main():
     global application, BOT_USERNAME
     os.system('cls' if os.name == 'nt' else 'clear')
-    # Fetch bot username
     try:
         res = requests.get(BASE_URL + "getMe").json()
         if res.get('ok'):
@@ -6592,20 +6569,17 @@ def main():
     application.add_handler(CallbackQueryHandler(cdr_stats, pattern=r"^cdr_stats\|(\d+)$"))
     application.add_handler(CallbackQueryHandler(cdr_logs, pattern=r"^cdr_logs\|(\d+)$"))
 
-    # AIR CONTROL callbacks
     application.add_handler(CallbackQueryHandler(admin_air_control, pattern="^admin_air_control$"))
     application.add_handler(CallbackQueryHandler(admin_air_otp_control, pattern="^air_otp_control$"))
     application.add_handler(CallbackQueryHandler(admin_air_otp_control_edit, pattern="^(air_def_rate|air_srv_rate|del_srv_rate_.+)$"))
     application.add_handler(CallbackQueryHandler(air_control_edit, pattern="^(air_min_w|air_ref_r|air_cool|air_num_req|air_w_group|manage_w_methods|add_w_method|del_w_method_.+)$"))
 
-    # Force Join callbacks
     application.add_handler(CallbackQueryHandler(admin_force_join, pattern="^admin_force_join$"))
     application.add_handler(CallbackQueryHandler(force_join_toggle, pattern="^toggle_fj$"))
     application.add_handler(CallbackQueryHandler(force_join_add_channel, pattern="^add_fj$"))
     application.add_handler(CallbackQueryHandler(force_join_delete_channel, pattern=r"^del_fj_\d+$"))
     application.add_handler(CallbackQueryHandler(force_join_check, pattern="^check_fj_joined$"))
 
-    # User withdraw flow
     application.add_handler(CallbackQueryHandler(user_withdraw_method, pattern=r"^user_withdraw_.+$"))
     application.add_handler(CallbackQueryHandler(admin_withdraw_callback, pattern=r"^admin_w_(approve|reject)_\d+_\d+_.+$"))
 
