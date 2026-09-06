@@ -24,7 +24,7 @@ from playwright.async_api import async_playwright
 import langdetect
 from langdetect import detect
 
-# ================= GLOBAL STATE (DEFINED EARLY) =================
+# ================= GLOBAL STATE =================
 admin_mode = {}
 admin_panel_state = {}
 admin_temp_data = {}
@@ -33,14 +33,14 @@ polling_tasks = {}
 cdr_polling_tasks = {}
 polling_cycle_counts = {}
 application = None
-user_states = {}  # for withdraw/air/force-join flows
-user_cooldowns = {}  # for number request cooldown
+user_states = {}
+user_cooldowns = {}
 
 # ================= CONFIGURATION =================
 BOT_TOKEN = "8769374062:AAHTIxugF2XHffjlg6p2Xrd4Br-OUezroro"
 SUPER_ADMIN_IDS = [8744359777]
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
-BOT_USERNAME = ""  # will be fetched
+BOT_USERNAME = ""
 
 AUTO_DELETE_DELAY = 2
 MAIN_MENU_DELETE = 120
@@ -51,7 +51,7 @@ ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
 GROUP_ID = "-1004334030635"
-CHANNEL_URL = "https://t.me/A_S_COMMUNITY_9_x"
+CHANNEL_URL = "https://t.me/AIR_MAIN_CHANEL"
 BOT_URL = "https://t.me/AIR_NUMBER_BOT?start=1"
 
 GROUP_IDS = []
@@ -69,7 +69,7 @@ if GROUP_ID:
         except (ValueError, TypeError):
             GROUP_IDS = []
 
-# ================= EMOJIS (PREMIUM) =================
+# ================= EMOJIS (DEMO – add more later) =================
 GLOBAL_BODY_EMOJIS = {
     "🇺🇸": "5913463998522592692", "🇺🇦": "5911406692007941050", "🇵🇱": "5913550391789752571",
     "🇰🇿": "5913724621433082323", "🇨🇳": "5913779335021466780", "🇦🇿": "5911197578640233518",
@@ -358,7 +358,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS api_keys
               message_path TEXT DEFAULT 'message', country_path TEXT DEFAULT 'country',
               service_path TEXT DEFAULT 'cli', timestamp_path TEXT DEFAULT 'dt',
               success_path TEXT DEFAULT 'status', success_value TEXT DEFAULT 'success',
-              max_records INTEGER DEFAULT 200, retry_count INTEGER DEFAULT 3,
+              max_records INTEGER DEFAULT 10000, retry_count INTEGER DEFAULT 3,
               retry_delay INTEGER DEFAULT 5, error_count INTEGER DEFAULT 0,
               last_poll_time TEXT, total_otps INTEGER DEFAULT 0, last_otp_time TEXT,
               created_by INTEGER, created_at TEXT, updated_at TEXT,
@@ -381,7 +381,6 @@ c.execute('''CREATE TABLE IF NOT EXISTS cdr_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     panel_id INTEGER, timestamp TEXT, status TEXT, message TEXT, otp_count INTEGER)''')
 
-# Bot settings table
 c.execute('''CREATE TABLE IF NOT EXISTS bot_settings (
     key TEXT PRIMARY KEY, value TEXT)''')
 default_settings = {
@@ -392,7 +391,7 @@ default_settings = {
     "auto_br_on": "False",
     "auto_br_interval": "60",
     "cooldown": "5",
-    "num_req": "1",
+    "num_req": "3",
     "w_methods": '["bKash", "Nagad"]',
     "otp_default_rate": "0.5",
     "otp_service_rates": "{}",
@@ -421,7 +420,7 @@ for service in default_services:
 conn.commit()
 print("✅ Database setup completed")
 
-# ================= PREMIUM APPS & SERVICE DETECTION (DEMO - only one) =================
+# ================= PREMIUM APPS (DEMO – add more) =================
 PREMIUM_APPS = {
     "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
     "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
@@ -471,7 +470,7 @@ SERVICE_SMS_KEYWORDS = {
     "Imo": ["imo code", "imo"]
 }
 
-# ================= COUNTRY CODES (MINIMAL – only Bangladesh) =================
+# ================= COUNTRY CODES (DEMO – add more) =================
 COUNTRY_CODES = {
     "1": {"flag": "🇺🇸", "name": "United States / Canada", "iso2": "US"},
     "7": {"flag": "🇷🇺", "name": "Russia / Kazakhstan", "iso2": "RU"},
@@ -708,13 +707,12 @@ COUNTRY_CODES = {
     "1939": {"flag": "🇵🇷", "name": "Puerto Rico", "iso2": "PR"},
 }
 
-
 def get_country_info(range_str):
     clean_range = str(range_str or "").replace("X", "")
     for code, info in sorted(COUNTRY_CODES.items(), key=lambda x: len(x[0]), reverse=True):
         if clean_range.startswith(code):
             return code, info["flag"], info["name"], info["iso2"]
-    return clean_range[:3], "🏳️", "Other", clean_range[:3].upper()
+    return clean_range[:3], "🌍", "Other", clean_range[:3].upper()
 
 # ================= LANGUAGE DETECTION =================
 def detect_language(text):
@@ -827,15 +825,13 @@ def get_service_info_html(service_name):
 def extract_otp_code(message_text):
     match = re.search(r'\b(\d{3}[\s-]?\d{3,4}|\d{4,8})\b', str(message_text))
     if match: return match.group(1)
-    return "COPY"
+    return "N/A"
 
 def generate_otp_display(service_name, raw_number, message_text, lang):
-    # Get country info - safe unpack
     try:
         code, flag, name, iso2 = get_country_info(raw_number)
-    except Exception:
-        # fallback
-        flag, name, iso2 = "🏳️", "Unknown", "XX"
+    except:
+        flag, name, iso2 = "🌍", "Unknown", "XX"
         code = ""
     
     app_info = PREMIUM_APPS.get(service_name, {"emoji": "📱", "id": "5465590345108589516"})
@@ -1066,7 +1062,7 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-# ================= COUNTRY MAP (ONLY BANGLADESH) =================
+# ================= COUNTRY MAP (DEMO) =================
 COUNTRY_CODE_MAP = {
     "880": ("BD", "🇧🇩", "Bangladesh"),
 }
@@ -1094,7 +1090,7 @@ def get_country_from_number(number: str) -> str | None:
             return COUNTRY_CODE_MAP[code][2] if len(COUNTRY_CODE_MAP[code]) >= 3 else None
     return None
 
-# ================= BOT SETTINGS (AIR CONTROL) =================
+# ================= BOT SETTINGS =================
 def get_bot_setting(key, default=None):
     row = db_fetch_one("SELECT value FROM bot_settings WHERE key=?", (key,))
     if row:
@@ -1461,7 +1457,7 @@ def air_control_keyboard():
     min_w = get_setting('min_withdraw', '10.0')
     ref_r = get_setting('refer_reward', '0.2')
     cooldown = get_setting('cooldown', '5')
-    num_req = get_setting('num_req', '1')
+    num_req = get_setting('num_req', '3')
     w_group = get_setting('w_group', 'NOT SET')
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"MIN WITHDRAW: {min_w}", callback_data="air_min_w", style=KBS.SUCCESS,
@@ -1547,9 +1543,6 @@ def get_back_only_keyboard():
     return InlineKeyboardMarkup([[InlineKeyboardButton("BACK", callback_data="back_to_admin", style=KBS.DANGER,
                                                        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
 
-def get_admin_inline_keyboard():
-    return admin_panel_keyboard()  # reuse
-
 # ================= PERSISTENT WELCOME =================
 async def ensure_persistent_welcome(context: ContextTypes.DEFAULT_TYPE, user_id: int):
     welcome_html = start_welcome_html()
@@ -1586,32 +1579,10 @@ def start_welcome_html():
     sub = f'<b>{inbox} RECEIVE OTP\'S AND START EARNING MONEY {money}</b>'
     return f'{block}\n{sub}'
 
-# ================= AUTO CLEAN =================
-async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    try:
-        if update.message:
-            await update.message.delete()
-    except:
-        pass
-    row = db_fetch_one("SELECT last_bot_message_id FROM users WHERE user_id=?", (user_id,))
-    if row and row[0]:
-        try:
-            await context.bot.delete_message(chat_id=user_id, message_id=row[0])
-        except:
-            pass
-        db_exec("UPDATE users SET last_bot_message_id=NULL WHERE user_id=?", (user_id,))
-
-async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = AUTO_DELETE_DELAY):
-    if context.job_queue:
-        context.job_queue.run_once(
-            lambda ctx: ctx.bot.delete_message(chat_id=chat_id, message_id=message_id),
-            when=delay
-        )
-
+# ================= SEND MESSAGES (NO AUTO-DELETE) =================
 async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = False, delete_after: int = None):
     user_id = update.effective_user.id
-    await delete_previous_messages(update, context)
+    # Do NOT delete previous messages automatically
     try:
         sent = await context.bot.send_message(chat_id=user_id, text=apply_emojis(text), reply_markup=reply_markup, parse_mode=parse_mode)
     except BadRequest as e:
@@ -1629,11 +1600,10 @@ async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     main_text = f'{emoji_tag(MAIN_MENU_EMOJI, "📱")} <b>Main Menu</b>'
     if isinstance(update, CallbackQuery):
-        await edit_or_send(update, main_text, reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML', context=context, auto_delete=False, delete_after=None)
+        await edit_or_send(update, main_text, reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML', context=context, auto_delete=False)
     else:
         await send_clean_message(update, context, main_text, reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML', auto_delete=False)
 
-# ================= SAFE EDIT/SEND =================
 async def edit_or_send(query: CallbackQuery, text: str, reply_markup=None, parse_mode=None, context: ContextTypes.DEFAULT_TYPE = None, auto_delete: bool = False, delete_after: int = None):
     user_id = query.from_user.id
     try:
@@ -1697,6 +1667,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_temp_data.pop(user_id, None)
     last_activation_data.pop(user_id, None)
     db_exec("UPDATE users SET current_number = NULL, current_country = NULL, current_service = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
+    # Delete only previous bot messages on start
     await delete_previous_messages(update, context)
     await ensure_persistent_welcome(context, user_id)
     # Handle referral
@@ -1730,7 +1701,6 @@ async def ban_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(text, reply_markup=support_keyboard(), parse_mode='HTML')
         return True
-    # Force Join check
     if get_force_join_status() and not is_admin(user_id):
         channels = get_force_join_channels()
         joined = True
@@ -1773,6 +1743,28 @@ def is_admin(user_id):
 def is_super_admin(user_id):
     return user_id in SUPER_ADMIN_IDS
 
+async def delete_previous_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        if update.message:
+            await update.message.delete()
+    except:
+        pass
+    row = db_fetch_one("SELECT last_bot_message_id FROM users WHERE user_id=?", (user_id,))
+    if row and row[0]:
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=row[0])
+        except:
+            pass
+        db_exec("UPDATE users SET last_bot_message_id=NULL WHERE user_id=?", (user_id,))
+
+async def schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = AUTO_DELETE_DELAY):
+    if context.job_queue:
+        context.job_queue.run_once(
+            lambda ctx: ctx.bot.delete_message(chat_id=chat_id, message_id=message_id),
+            when=delay
+        )
+
 # ================= MAIN MENU CALLBACKS =================
 async def show_main_menu(update: Update, user_id, first_name, context: ContextTypes.DEFAULT_TYPE = None):
     username = None
@@ -1793,7 +1785,7 @@ async def show_get_number(update: Update, context, user_id, first_name):
     else:
         await send_clean_message(update, context, text, reply_markup=services_keyboard(), parse_mode='HTML', auto_delete=False)
 
-# ================= BALANCE & WITHDRAW (with AIR control) =================
+# ================= BALANCE & WITHDRAW =================
 async def show_balance(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
     ensure_user(user_id, update.effective_user.username, update.effective_user.first_name)
     user = db_fetch_one("SELECT first_name, balance, withdrawn, total_otp FROM users WHERE user_id = ?", (user_id,))
@@ -1865,7 +1857,7 @@ async def show_withdraw(update: Update, user_id, context: ContextTypes.DEFAULT_T
 async def user_withdraw_method(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    method = query.data[14:]  # "user_withdraw_" removed
+    method = query.data[14:]
     user_data = db_fetch_one("SELECT balance FROM users WHERE user_id=?", (user_id,))
     if not user_data:
         await query.answer("User not found.", show_alert=True)
@@ -1888,7 +1880,7 @@ async def handle_withdraw_text(update: Update, context: ContextTypes.DEFAULT_TYP
     target_msg_id = state_data.get("msg_id")
     if not state or not state.startswith("waiting_withdraw_amount_"):
         return False
-    method = state[24:]  # extract method
+    method = state[24:]
     text = update.message.text.strip()
     try:
         amount = float(text)
@@ -1994,7 +1986,7 @@ async def admin_withdraw_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.answer("⚠️ Access Denied! You cannot perform this action.", show_alert=True)
         return
     parts = data.split("_")
-    action = parts[2]  # approve or reject
+    action = parts[2]
     req_user_id = int(parts[3])
     amount = float(parts[4])
     acc_number = parts[5]
@@ -2798,7 +2790,8 @@ async def stock_get_number_callback(update: Update, context: ContextTypes.DEFAUL
         return
     country = parts[1]
     service = parts[2]
-    numbers = get_numbers_from_stock(country, service, 3)
+    num_req = int(get_setting('num_req', 3))
+    numbers = get_numbers_from_stock(country, service, num_req)
     if not numbers:
         await query.answer("No numbers available right now!", show_alert=True)
         return
@@ -2924,6 +2917,11 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer()
+    # Delete the current message (the inline menu) and send main menu
+    try:
+        await query.message.delete()
+    except:
+        pass
     await send_main_menu(query, context, user_id)
 
 async def toggle_cc_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2963,7 +2961,7 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
         return
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
-    await query.answer("Allocating 3 numbers...")
+    await query.answer("Allocating numbers...")
     parts = query.data.split('|')
     if len(parts) < 3:
         await query.answer("Invalid selection.", show_alert=True)
@@ -2972,7 +2970,8 @@ async def country_selection_callback(update: Update, context: ContextTypes.DEFAU
     service = parts[2]
     await edit_or_send(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML', context=context, auto_delete=False)
     await asyncio.sleep(1)
-    numbers = get_numbers_from_stock(country, service, 3)
+    num_req = int(get_setting('num_req', 3))
+    numbers = get_numbers_from_stock(country, service, num_req)
     if not numbers:
         await query.answer("No numbers available for this country/service!", show_alert=True)
         await edit_or_send(query, "Select a Country:", reply_markup=countries_for_service_keyboard(service), context=context, auto_delete=False)
@@ -3016,7 +3015,7 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
-    await query.answer("Getting next 3 numbers...")
+    await query.answer("Getting next numbers...")
     await edit_or_send(query, f'{emoji_tag("5976826804931928647", "⏳")}', parse_mode='HTML', context=context, auto_delete=False)
     await asyncio.sleep(1)
     result = db_fetch_one("SELECT current_country, current_service FROM users WHERE user_id = ?", (user_id,))
@@ -3031,7 +3030,8 @@ async def next_number_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("Please select a service and country first!", show_alert=True)
         await edit_or_send(query, "Select a Service:", reply_markup=services_keyboard(), context=context, auto_delete=False)
         return
-    numbers = get_numbers_from_stock(country, service, 3)
+    num_req = int(get_setting('num_req', 3))
+    numbers = get_numbers_from_stock(country, service, num_req)
     if not numbers:
         await query.answer(f"No more {country} {service} numbers!", show_alert=True)
         await edit_or_send(query, f"Select a Country for {service}:", reply_markup=countries_for_service_keyboard(service), context=context, auto_delete=False)
@@ -4427,8 +4427,8 @@ async def poll_single_api_curl_based(api_id: int):
                     placeholders["YOUR_TOKEN"] = token
                     placeholders["API_TOKEN"] = token
                     placeholders["AUTH_TOKEN"] = token
-                placeholders["RECORDS"] = str(config.get('max_records', 200))
-                placeholders["records"] = str(config.get('max_records', 200))
+                placeholders["RECORDS"] = str(config.get('max_records', 10000))
+                placeholders["records"] = str(config.get('max_records', 10000))
                 if curl_command:
                     parsed = parse_curl_complete(curl_command)
                     parsed["placeholders"].update(placeholders)
@@ -5799,7 +5799,7 @@ async def api_test_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 placeholders["YOUR_TOKEN"] = token
                 placeholders["API_TOKEN"] = token
                 placeholders["AUTH_TOKEN"] = token
-            placeholders["RECORDS"] = str(config.get('max_records', 200))
+            placeholders["RECORDS"] = str(config.get('max_records', 10000))
             if curl_command:
                 parsed = parse_curl_complete(curl_command)
                 parsed["placeholders"].update(placeholders)
@@ -5994,7 +5994,7 @@ async def api_force_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 placeholders["YOUR_TOKEN"] = token
                 placeholders["API_TOKEN"] = token
                 placeholders["AUTH_TOKEN"] = token
-            placeholders["RECORDS"] = str(config.get('max_records', 200))
+            placeholders["RECORDS"] = str(config.get('max_records', 10000))
             if curl_command:
                 parsed = parse_curl_complete(curl_command)
                 parsed["placeholders"].update(placeholders)
@@ -6187,7 +6187,7 @@ def get_api_config(api_id: int) -> dict | None:
             'total_otps','last_otp_time','placeholder_config','curl_command']
     return dict(zip(cols, row))
 
-# ================= OTP PROCESSING (with new formatting) =================
+# ================= OTP PROCESSING =================
 async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot=None):
     if context:
         bot = context.bot
@@ -6235,7 +6235,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
         if not number:
             return 0
 
-        # Deduplication: 1 second window (global)
         existing = db_fetch_one(
             "SELECT id, timestamp FROM otps WHERE number=? AND otp=? AND (user_id=0 OR user_id>0) ORDER BY timestamp DESC LIMIT 1",
             (number, otp_code)
@@ -6252,7 +6251,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
             db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,0)",
                     (number, otp_code, message, otp_timestamp_str))
             
-            # Send to groups (using new format)
             if group_ids:
                 try:
                     lang = detect_language(message)
@@ -6279,7 +6277,6 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     assigned_date = now
                 if otp_timestamp < assigned_date:
                     continue
-                # Check duplicate for this specific user
                 user_otp_exists = db_fetch_one("SELECT id FROM otps WHERE number=? AND otp=? AND user_id=?", (number, otp_code, uid))
                 if user_otp_exists:
                     continue
@@ -6295,13 +6292,11 @@ async def process_otps(otps_list, context: ContextTypes.DEFAULT_TYPE = None, bot
                     except:
                         pass
 
-                # Reward and send to user
                 reward = get_otp_reward(service_name)
                 db_exec("UPDATE users SET balance = balance + ?, total_otp = total_otp + 1 WHERE user_id = ?",
                         (reward, uid))
                 db_exec("INSERT INTO otps (number, otp, message, timestamp, forwarded, user_id) VALUES (?,?,?,?,1,?)",
                         (number, otp_code, message, otp_timestamp_str, uid))
-                # Get updated balance
                 new_bal = db_fetch_one("SELECT balance FROM users WHERE user_id=?", (uid,))[0] or 0.0
                 lang_user = detect_language(message)
                 user_text, user_kb = deliver_to_inbox(uid, service_name, number, message, new_bal, reward, lang_user)
