@@ -1171,22 +1171,64 @@ def air_control_keyboard():
     num_req = get_setting('num_req', '3')
     w_group = get_setting('w_group', 'NOT SET')
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"MIN WITHDRAW: {min_w}", callback_data="air_min_w", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon("5352877703043258544")),
-         InlineKeyboardButton("OTP CONTROL", callback_data="air_otp_control", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon("5190576863226933563"))],
-        [InlineKeyboardButton(f"REFER REWARD: {ref_r}", callback_data="air_ref_r", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon("5420396762189831222")),
-         InlineKeyboardButton(f"COOLDOWN: {cooldown}s", callback_data="air_cool", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon("5337172996211648018"))],
-        [InlineKeyboardButton(f"NUM/REQ: {num_req}", callback_data="air_num_req", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon("5337132498965010628")),
-         InlineKeyboardButton("W. METHODS", callback_data="manage_w_methods", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon("5190899075968441286"))],
-        [InlineKeyboardButton("SELECT W.GROUP", callback_data="air_select_wgroup", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon("5420517437885943844"))],
-        [InlineKeyboardButton("BACK", callback_data="back_to_admin", style=KBS.DANGER,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
+        [
+            InlineKeyboardButton(
+                f"MIN WITHDRAW: {min_w}",
+                callback_data="air_min_w",
+                style=KBS.SUCCESS,
+                icon_custom_emoji_id=safe_icon("5352877703043258544")
+            ),
+            InlineKeyboardButton(
+                "OTP CONTROL",
+                callback_data="air_otp_control",
+                style=KBS.PRIMARY,
+                icon_custom_emoji_id=safe_icon("5190576863226933563")
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                f"REFER REWARD: {ref_r}",
+                callback_data="air_ref_r",
+                style=KBS.SUCCESS,
+                icon_custom_emoji_id=safe_icon("5420394784619831222")  # Corrected ID
+            ),
+            InlineKeyboardButton(
+                f"COOLDOWN: {cooldown}s",
+                callback_data="air_cool",
+                style=KBS.PRIMARY,
+                icon_custom_emoji_id=safe_icon("5337172996211648018")
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                f"NUM/REQ: {num_req}",
+                callback_data="air_num_req",
+                style=KBS.SUCCESS,
+                icon_custom_emoji_id=safe_icon("5337132498965010628")
+            ),
+            InlineKeyboardButton(
+                "W. METHODS",
+                callback_data="manage_w_methods",
+                style=KBS.PRIMARY,
+                icon_custom_emoji_id=safe_icon("5190899075968441286")
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                f"W. GROUP: {w_group}",
+                callback_data="air_w_group",
+                style=KBS.SUCCESS,
+                icon_custom_emoji_id=safe_icon("5420517437885943844")
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "BACK",
+                callback_data="back_to_admin",
+                style=KBS.DANGER,
+                icon_custom_emoji_id=safe_icon("5267490665117275176")
+            )
+        ]
     ])
 
 def air_otp_control_keyboard():
@@ -1218,24 +1260,118 @@ def manage_w_methods_keyboard():
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     return InlineKeyboardMarkup(rows)
 
-# ================= FORCE JOIN KEYBOARDS =================
-def force_join_keyboard():
-    status = get_force_join_status()
+# ================= OTP GROUP KEYBOARD =================
+def get_otp_group_keyboard():
+    rows = []
+
+    # OTP Link
+    link_display = otp_button_link if otp_button_link else "Not Set"
+    if len(link_display) > 25:
+        link_display = link_display[:25] + "..."
+    rows.append([
+        InlineKeyboardButton(
+            f"Link: {link_display}",
+            callback_data="edit_otp_link",
+            style=KBS.PRIMARY,
+            icon_custom_emoji_id=safe_icon("5420517437885943844")
+        )
+    ])
+
+    # Main Channel
+    mc_link = get_setting("main_channel_link", "")
+    mc_display = mc_link if mc_link else "Not Set"
+    if len(mc_display) > 25:
+        mc_display = mc_display[:25] + "..."
+    rows.append([
+        InlineKeyboardButton(
+            f"Main Channel: {mc_display}",
+            callback_data="edit_main_channel",
+            style=KBS.PRIMARY,
+            icon_custom_emoji_id=safe_icon("5429353834881261942")
+        )
+    ])
+
+    # Delete Group (if exists)
+    if otp_forward_groups:
+        grp = otp_forward_groups[0]
+        rows.append([
+            InlineKeyboardButton(
+                f"Delete Group: {grp}",
+                callback_data="del_otp_group_0",
+                style=KBS.DANGER,
+                icon_custom_emoji_id=safe_icon("5422557736330106570")
+            )
+        ])
+
+    # Set Forward Group
+    rows.append([
+        InlineKeyboardButton(
+            "Set Forward Group",
+            callback_data="add_otp_group",
+            style=KBS.SUCCESS,
+            icon_custom_emoji_id=safe_icon("5429501315468270290")
+        )
+    ])
+
+    # BACK
+    rows.append([
+        InlineKeyboardButton(
+            "BACK",
+            callback_data="back_to_admin",
+            style=KBS.DANGER,
+            icon_custom_emoji_id=safe_icon("5267490665117275176")
+        )
+    ])
+
+    return InlineKeyboardMarkup(rows)
+
+# ================= FORCE JOIN KEYBOARD =================
+def get_force_join_keyboard():
+    rows = []
+
+    status_text = "STATUS: ON" if get_force_join_status() else "STATUS: OFF"
+    status_icon = "5352694861990501856" if get_force_join_status() else "5334807341109908955"
+
+    rows.append([
+        InlineKeyboardButton(
+            status_text,
+            callback_data="toggle_fj",
+            style=KBS.PRIMARY if get_force_join_status() else KBS.DANGER,
+            icon_custom_emoji_id=safe_icon(status_icon)
+        )
+    ])
+
     channels = get_force_join_channels()
-    kb_rows = []
-    status_text = "STATUS: ON" if status else "STATUS: OFF"
-    status_icon = "5339112148175959615" if status else "5337017423906226569"
-    kb_rows.append([InlineKeyboardButton(status_text, callback_data="toggle_fj", style=KBS.SUCCESS if status else KBS.DANGER,
-                                         icon_custom_emoji_id=safe_icon(status_icon))])
     for idx, ch in enumerate(channels):
-        name = ch.get('title', ch.get('username', f"Chat {idx}"))
-        kb_rows.append([InlineKeyboardButton(f"Delete: {name}", callback_data=f"del_fj_{idx}", style=KBS.DANGER,
-                                             icon_custom_emoji_id=safe_icon("5438178416421544431"))])
-    kb_rows.append([InlineKeyboardButton("➕ Add Channel/Group", callback_data="fj_add_select", style=KBS.SUCCESS,
-                                         icon_custom_emoji_id=safe_icon("5429501315468270290"))])
-    kb_rows.append([InlineKeyboardButton("BACK", callback_data="back_to_admin", style=KBS.PRIMARY,
-                                         icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
-    return InlineKeyboardMarkup(kb_rows)
+        name = ch.get("username", ch.get("title", f"Channel {idx}"))
+        rows.append([
+            InlineKeyboardButton(
+                f"Delete: {name}",
+                callback_data=f"del_fj_{idx}",
+                style=KBS.DANGER,
+                icon_custom_emoji_id=safe_icon("5438178416421544431")
+            )
+        ])
+
+    rows.append([
+        InlineKeyboardButton(
+            "Add Channel",
+            callback_data="add_fj",
+            style=KBS.SUCCESS,
+            icon_custom_emoji_id=safe_icon("5429501315468270290")
+        )
+    ])
+
+    rows.append([
+        InlineKeyboardButton(
+            "Back",
+            callback_data="back_to_admin",
+            style=KBS.PRIMARY,
+            icon_custom_emoji_id=safe_icon("5267490665117275176")
+        )
+    ])
+
+    return InlineKeyboardMarkup(rows)
 
 def force_join_alert_keyboard():
     channels = get_force_join_channels()
@@ -1247,7 +1383,7 @@ def force_join_alert_keyboard():
             url = f"https://t.me/{ch['username'].replace('@', '')}"
         kb_rows.append([InlineKeyboardButton(f"JOIN {name}", url=url, style=KBS.PRIMARY)])
     kb_rows.append([InlineKeyboardButton("✅ I HAVE JOINED", callback_data="check_fj_joined", style=KBS.SUCCESS,
-                                         icon_custom_emoji_id=safe_icon("4956721670690702265"))])
+                                         icon_custom_emoji_id=safe_icon("5352694861990501856"))])
     return InlineKeyboardMarkup(kb_rows)
 
 def get_back_only_keyboard():
@@ -3281,7 +3417,7 @@ async def admin_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     admin_panel_state[user_id] = "force_join"
     text = "🔗 <b>FORCE JOIN SYSTEM</b>\nManage channels/groups below:"
-    await edit_or_send(query, text, reply_markup=force_join_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
+    await edit_or_send(query, text, reply_markup=get_force_join_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
 
 async def force_join_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3367,13 +3503,8 @@ async def admin_otp_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_panel_state[user_id] = "otp_group"
     current_ids = get_otp_group_ids()
     current_text = f"Current OTP Group ID: {current_ids[0] if current_ids else 'Not set'}"
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("👥 SELECT GROUP", callback_data="otp_select_group", style=KBS.SUCCESS,
-                              icon_custom_emoji_id=safe_icon("5429353834881261942"))],
-        [InlineKeyboardButton("BACK", callback_data="back_to_admin", style=KBS.PRIMARY,
-                              icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]
-    ])
-    await edit_or_send(query, f"OTP GROUP SETTINGS\n{current_text}\n\nSelect a new group:", reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+    # Show OTP Group panel with current link, main channel and group
+    await edit_or_send(query, "🛡 <b>OTP GROUP MANAGEMENT</b>\nManage settings below:", reply_markup=get_otp_group_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
 
 async def otp_select_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
