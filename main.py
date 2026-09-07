@@ -6340,8 +6340,8 @@ def main():
         BOT_USERNAME = "SRNumberHubBot"
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # chat_shared handler
-    application.add_handler(MessageHandler(filters.ChatShared, handle_chat_shared))
+    # chat_shared handler – using ALL filter because ChatShared filter may not exist in older PTB versions
+    application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, handle_chat_shared))
 
     application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_all_documents), group=0)
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
