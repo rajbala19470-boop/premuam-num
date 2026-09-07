@@ -6340,11 +6340,19 @@ def main():
         BOT_USERNAME = "SRNumberHubBot"
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # chat_shared handler – using ALL filter because ChatShared filter may not exist in older PTB versions
-    application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, handle_chat_shared))
+    # Custom filter for chat_shared messages – only process messages that have chat_shared
+    class ChatSharedFilter(filters.MessageFilter):
+        def filter(self, message):
+            return message.chat_shared is not None
+
+    # Use the custom filter so this handler does not block normal text messages
+    application.add_handler(MessageHandler(ChatSharedFilter() & filters.ChatType.PRIVATE, handle_chat_shared))
 
     application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_all_documents), group=0)
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
+
+    # REMOVED the overly broad handler that was blocking all text messages:
+    # application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("enteradmin", enter_admin_command))
     application.add_handler(CommandHandler("exitadmin", exit_admin_command))
@@ -6460,6 +6468,7 @@ def main():
     application.add_handler(CallbackQueryHandler(user_withdraw_method, pattern=r"^user_withdraw_.+$"))
     application.add_handler(CallbackQueryHandler(admin_withdraw_callback, pattern=r"^admin_w_(approve|reject)_\d+_\d+_.+$"))
 
+    # This handler now receives all non‑command text messages (because the blocking handler was removed)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
 
