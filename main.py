@@ -2219,9 +2219,9 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await send_with_main_keyboard(query, context, user_id, "❌ No numbers found.")
     admin_panel_state[user_id] = "main"
 
-# ================= CENTRAL CHAT_SHARED HANDLER =================
+# ================= CENTRAL CHAT_SHARED HANDLER (exact test.py flow) =================
 async def handle_chat_shared(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process native Telegram chat selection."""
+    """Process native Telegram chat selection exactly like test.py."""
     if not update.message or not update.message.chat_shared:
         return
     user_id = update.effective_user.id
@@ -2232,51 +2232,70 @@ async def handle_chat_shared(update: Update, context: ContextTypes.DEFAULT_TYPE)
     shared = update.message.chat_shared
     request_id = shared.request_id
     chat_id = shared.chat_id
+    state_data = admin_panel_state.get(user_id, {})
+    state = state_data if isinstance(state_data, str) else state_data.get("state")
 
-    # Get chat info
+    # Send generic success message first (like test.py)
+    await update.message.reply_text(
+        "✅ <b>Successfully Selected!</b>",
+        reply_markup=bottom_menu_keyboard(user_id)
+    )
+
+    # Route based on request_id and state
+    if request_id == 1001 and state in ["waiting_fj_channel", "fj_add_select"]:
+        # Force Join Channel
+        await process_fj_selection(update, context, user_id, chat_id, is_channel=True)
+    elif request_id == 1002 and state in ["waiting_fj_group", "fj_add_select"]:
+        # Force Join Group
+        await process_fj_selection(update, context, user_id, chat_id, is_channel=False)
+    elif request_id == 1003 and state == "waiting_otp_group":
+        # OTP Group
+        await process_otp_group_selection(update, context, user_id, chat_id)
+    elif request_id == 1004 and state == "waiting_w_group":
+        # W.Group (AIR CONTROL)
+        await process_wgroup_selection(update, context, user_id, chat_id)
+    else:
+        await update.message.reply_text("❌ Invalid selection or session expired.")
+        admin_panel_state.pop(user_id, None)
+        await admin_panel_menu(update, user_id, context)
+
+async def process_fj_selection(update, context, user_id, chat_id, is_channel):
+    """Add selected chat to Force Join list (supports both Channel and Group)."""
     try:
         chat = await context.bot.get_chat(chat_id)
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to get chat info: {e}")
+        admin_panel_state.pop(user_id, None)
+        await admin_force_join(update, context)
         return
 
-    # Determine selection type based on request_id and current state
-    state = admin_panel_state.get(user_id)
-    if request_id == 1001 and state in ["waiting_fj_channel", "fj_add_select"]:
-        # Force Join Channel
-        await process_fj_selection(update, context, user_id, chat, is_channel=True)
-    elif request_id == 1002 and state in ["waiting_fj_group", "fj_add_select"]:
-        # Force Join Group
-        await process_fj_selection(update, context, user_id, chat, is_channel=False)
-    elif request_id == 1003 and state == "waiting_otp_group":
-        # OTP Group
-        await process_otp_group_selection(update, context, user_id, chat)
-    elif request_id == 1004 and state == "waiting_w_group":
-        # W.Group
-        await process_wgroup_selection(update, context, user_id, chat)
-    else:
-        await update.message.reply_text("❌ Invalid selection or session expired.")
-
-async def process_fj_selection(update, context, user_id, chat, is_channel):
-    """Add selected chat to Force Join list."""
     chat_type = chat.type
     if is_channel and chat_type not in ["channel"]:
         await update.message.reply_text("❌ Selected chat is not a channel. Please select a channel.")
+        admin_panel_state.pop(user_id, None)
+        await admin_force_join(update, context)
         return
     if not is_channel and chat_type not in ["group", "supergroup"]:
         await update.message.reply_text("❌ Selected chat is not a group/supergroup. Please select a group.")
+        admin_panel_state.pop(user_id, None)
+        await admin_force_join(update, context)
         return
+
     # Check bot is admin
     try:
         member = await context.bot.get_chat_member(chat.id, context.bot.id)
         if member.status not in ["administrator", "creator"]:
             await update.message.reply_text("❌ Bot is not an admin in this chat. Please add the bot as admin and try again.")
+            admin_panel_state.pop(user_id, None)
+            await admin_force_join(update, context)
             return
     except Exception as e:
         await update.message.reply_text(f"❌ Could not verify bot permissions: {e}")
+        admin_panel_state.pop(user_id, None)
+        await admin_force_join(update, context)
         return
 
-    # Get invite link if possible
+    # Get invite link (if possible)
     invite_link = ""
     try:
         if chat.username:
@@ -2302,18 +2321,32 @@ async def process_fj_selection(update, context, user_id, chat, is_channel):
         set_force_join_channels(channels)
         await update.message.reply_text(f"✅ {chat_type.capitalize()} '{chat.title}' added to Force Join list!")
 
-    admin_panel_state[user_id] = "force_join"
+    admin_panel_state.pop(user_id, None)
     await admin_force_join(update, context)
 
-async def process_otp_group_selection(update, context, user_id, chat):
-    """Set OTP Group."""
+async def process_otp_group_selection(update, context, user_id, chat_id):
+    """Set OTP Group (exact test.py flow)."""
+    try:
+        chat = await context.bot.get_chat(chat_id)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to get chat info: {e}")
+        admin_panel_state.pop(user_id, None)
+        await admin_otp_group(update, context)
+        return
+
     if chat.type not in ["group", "supergroup"]:
         await update.message.reply_text("❌ Selected chat is not a group. Please select a group.")
+        admin_panel_state.pop(user_id, None)
+        await admin_otp_group(update, context)
         return
+
+    # Check bot is admin
     try:
         member = await context.bot.get_chat_member(chat.id, context.bot.id)
         if member.status not in ["administrator", "creator"]:
             await update.message.reply_text("❌ Bot is not an admin in this group. Please add the bot as admin and try again.")
+            admin_panel_state.pop(user_id, None)
+            await admin_otp_group(update, context)
             return
     except:
         pass
@@ -2328,18 +2361,32 @@ async def process_otp_group_selection(update, context, user_id, chat):
     else:
         await update.message.reply_text("ℹ️ This group is already the OTP group.")
 
-    admin_panel_state[user_id] = "main"
-    await admin_panel_menu(update, user_id, context)
+    admin_panel_state.pop(user_id, None)
+    await admin_otp_group(update, context)
 
-async def process_wgroup_selection(update, context, user_id, chat):
-    """Set W.Group."""
+async def process_wgroup_selection(update, context, user_id, chat_id):
+    """Set W.Group (AIR CONTROL) – exact test.py flow."""
+    try:
+        chat = await context.bot.get_chat(chat_id)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to get chat info: {e}")
+        admin_panel_state.pop(user_id, None)
+        await admin_air_control(update, context)
+        return
+
     if chat.type not in ["group", "supergroup"]:
         await update.message.reply_text("❌ Selected chat is not a group. Please select a group.")
+        admin_panel_state.pop(user_id, None)
+        await admin_air_control(update, context)
         return
+
+    # Check bot is admin
     try:
         member = await context.bot.get_chat_member(chat.id, context.bot.id)
         if member.status not in ["administrator", "creator"]:
             await update.message.reply_text("❌ Bot is not an admin in this group. Please add the bot as admin and try again.")
+            admin_panel_state.pop(user_id, None)
+            await admin_air_control(update, context)
             return
     except:
         pass
@@ -2347,7 +2394,7 @@ async def process_wgroup_selection(update, context, user_id, chat):
     update_setting('w_group', str(chat.id))
     await update.message.reply_text(f"✅ W.Group set to '{chat.title}' (ID: {chat.id})")
 
-    admin_panel_state[user_id] = "air_control"
+    admin_panel_state.pop(user_id, None)
     await admin_air_control(update, context)
 
 # ================= ADMIN TEXT HANDLER (modified) =================
@@ -3207,8 +3254,8 @@ async def air_control_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await edit_or_send(query, "📱 Enter how many numbers a user gets per request (e.g., 3):", reply_markup=admin_cancel_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
     elif data == "air_select_wgroup":
         admin_panel_state[user_id] = "waiting_w_group"
-        kb = selection_reply_keyboard("👥 SELECT W.GROUP", 1004)
-        await edit_or_send(query, "Please select a group for W.Group:", reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+        kb = selection_reply_keyboard("SELECT W.GROUP", 1004)
+        await edit_or_send(query, "👇 <b>Select Withdraw Group from below:</b>", reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
     elif data == "manage_w_methods":
         await edit_or_send(query, "💳 <b>WITHDRAW METHODS</b>\nManage methods below:", reply_markup=manage_w_methods_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
     elif data == "add_w_method":
@@ -3254,6 +3301,7 @@ async def force_join_add_select(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer("Unauthorized!", show_alert=True)
         return
     admin_panel_state[user_id] = "fj_add_select"
+    # Two separate selection buttons: Channel and Group
     keyboard = [
         [KeyboardButton("📢 SELECT CHANNEL", request_chat=1001)],
         [KeyboardButton("👥 SELECT GROUP", request_chat=1002)],
@@ -3330,11 +3378,11 @@ async def otp_select_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     admin_panel_state[user_id] = "waiting_otp_group"
     kb = selection_reply_keyboard("👥 SELECT GROUP", 1003)
-    await edit_or_send(query, "Please select a group for OTP forwarding:", reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+    await edit_or_send(query, "👇 <b>Select OTP Group from below:</b>", reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 # ================= BACK HANDLER FOR SELECTION KEYBOARD =================
 async def handle_back_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle the BACK button in selection keyboards."""
+    """Handle the BACK button in selection keyboards (exact test.py flow)."""
     if not update.message or not update.message.text:
         return False
     if update.message.text == "🔙 BACK":
