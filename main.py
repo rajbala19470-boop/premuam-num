@@ -50,7 +50,7 @@ ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
-GROUP_ID = "-1004334030635"
+GROUP_ID = "-1003716770621","-1004309109716"
 CHANNEL_URL = "https://t.me/A_S_COMMUNITY_9_x"
 BOT_URL = "https://t.me/AIR_NUMBER_BOT?start=1"
 
@@ -69,7 +69,7 @@ if GROUP_ID:
         except (ValueError, TypeError):
             GROUP_IDS = []
 
-# ================= EMOJIS (PREMIUM – add more as needed) =================
+# ================= EMOJIS (PREMIUM – add more) =================
 GLOBAL_BODY_EMOJIS = {
     "🇺🇸": "5913463998522592692", "🇺🇦": "5911406692007941050", "🇵🇱": "5913550391789752571",
     "🇰🇿": "5913724621433082323", "🇨🇳": "5913779335021466780", "🇦🇿": "5911197578640233518",
@@ -420,7 +420,7 @@ for service in default_services:
 conn.commit()
 print("✅ Database setup completed")
 
-# ================= PREMIUM APPS (add more as needed) =================
+# ================= PREMIUM APPS (add more) =================
 PREMIUM_APPS = {
     "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
     "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
@@ -470,7 +470,7 @@ SERVICE_SMS_KEYWORDS = {
     "Imo": ["imo code", "imo"]
 }
 
-# ================= COUNTRY CODES (MINIMAL – only Bangladesh) =================
+# ================= COUNTRY CODES (add more) =================
 COUNTRY_CODES = {
     "1": {"flag": "🇺🇸", "name": "United States / Canada", "iso2": "US"},
     "7": {"flag": "🇷🇺", "name": "Russia / Kazakhstan", "iso2": "RU"},
@@ -712,7 +712,7 @@ def get_country_info(range_str):
     for code, info in sorted(COUNTRY_CODES.items(), key=lambda x: len(x[0]), reverse=True):
         if clean_range.startswith(code):
             return code, info["flag"], info["name"], info["iso2"]
-    return clean_range[:3], "🌍", "Other", clean_range[:3].upper()
+    return clean_range[:3], "🏳️", "Other", clean_range[:3].upper()
 
 # ================= LANGUAGE DETECTION =================
 def detect_language(text):
@@ -831,7 +831,7 @@ def generate_otp_display(service_name, raw_number, message_text, lang):
     try:
         code, flag, name, iso2 = get_country_info(raw_number)
     except:
-        flag, name, iso2 = "🌍", "Unknown", "XX"
+        flag, name, iso2 = "🏳️", "Unknown", "XX"
         code = ""
     
     app_info = PREMIUM_APPS.get(service_name, {"emoji": "📱", "id": "5465590345108589516"})
@@ -1062,7 +1062,7 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-# ================= COUNTRY MAP (add more as needed) =================
+# ================= COUNTRY MAP (add more) =================
 COUNTRY_CODE_MAP = {
     "880": ("BD", "🇧🇩", "Bangladesh"),
 }
@@ -1318,8 +1318,11 @@ def bottom_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     ]
     if is_admin(user_id):
         rows.append([KeyboardButton(BTN_ADMIN, style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADMIN", "")))])
-    # Using the required structure
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True, input_field_placeholder="")
+
+async def send_with_main_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str = "Main Menu"):
+    """Send a message with the main chat reply keyboard restored."""
+    await send_clean_message(update, context, text, reply_markup=bottom_menu_keyboard(user_id), parse_mode='HTML', auto_delete=False)
 
 def back_to_main_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
@@ -1668,10 +1671,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_temp_data.pop(user_id, None)
     last_activation_data.pop(user_id, None)
     db_exec("UPDATE users SET current_number = NULL, current_country = NULL, current_service = NULL, number_expiry = NULL WHERE user_id = ?", (user_id,))
-    # Delete only previous bot messages on start
     await delete_previous_messages(update, context)
     await ensure_persistent_welcome(context, user_id)
-    # Handle referral
     if update.message and update.message.text and len(update.message.text.split()) > 1:
         params = update.message.text.split()[1]
         if params.isdigit():
@@ -2062,6 +2063,7 @@ async def exit_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         admin_mode.pop(user_id, None)
         admin_panel_state.pop(user_id, None)
         await update.message.reply_text("Admin mode deactivated!")
+        await send_with_main_keyboard(update, context, user_id, "Main Menu")
     else:
         await update.message.reply_text("You're not in admin mode!")
 
@@ -2080,6 +2082,7 @@ async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     db_exec("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (target_uid,))
     await update.message.reply_text(f"✅ User {target_uid} has been added as an admin.")
+    await send_with_main_keyboard(update, context, user_id, "Main Menu")
 
 async def remove_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -2101,6 +2104,7 @@ async def remove_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
     admin_mode.pop(target_uid, None)
     admin_panel_state.pop(target_uid, None)
     await update.message.reply_text(f"❌ User {target_uid} has been removed from admin list.")
+    await send_with_main_keyboard(update, context, user_id, "Main Menu")
 
 async def admin_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -2116,6 +2120,7 @@ async def admin_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         super_label = " (Super)" if uid in SUPER_ADMIN_IDS else ""
         lines.append(f"• {uid}{super_label}")
     await update.message.reply_text("\n".join(lines))
+    await send_with_main_keyboard(update, context, user_id, "Main Menu")
 
 # ================= ADMIN PANEL MENU =================
 async def admin_panel_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE = None):
@@ -2398,6 +2403,7 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
                 except Exception:
                     continue
             await send_stock_management_menu(update, context, user_id)
+            await send_with_main_keyboard(update, context, user_id, "✅ Stock uploaded. Main menu restored.")
             admin_panel_state[user_id] = "main"
         else:
             admin_temp_data[user_id] = {"pending_file_path": file_path, "pending_filename": document.file_name}
@@ -2445,7 +2451,8 @@ async def handle_all_documents(update: Update, context: ContextTypes.DEFAULT_TYP
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
         admin_panel_state[user_id] = "main"
-        await update.message.reply_text("✅ Database restored successfully!", reply_markup=admin_panel_keyboard())
+        await update.message.reply_text("✅ Database restored successfully!")
+        await send_with_main_keyboard(update, context, user_id, "✅ Database restored.")
         return
     else:
         await update.message.reply_text("No action taken – please use the admin panel.")
@@ -2492,8 +2499,10 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 pass
         await send_stock_management_menu(query, context, user_id)
+        await send_with_main_keyboard(query, context, user_id, "✅ Stock uploaded.")
     else:
         await edit_or_send(query, "No valid numbers found in the file.", reply_markup=admin_panel_keyboard(), context=context, auto_delete=False)
+        await send_with_main_keyboard(query, context, user_id, "❌ No numbers found.")
     admin_panel_state[user_id] = "main"
 
 # ================= ADMIN TEXT HANDLER =================
@@ -2519,7 +2528,8 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tasks = [asyncio.create_task(send_to_user(uid)) for uid in user_ids]
         await asyncio.gather(*tasks)
         admin_panel_state[user_id] = "main"
-        await msg.reply_text(f"Broadcast sent to {sent_counter} users!", reply_markup=admin_panel_keyboard())
+        await msg.reply_text(f"Broadcast sent to {sent_counter} users!")
+        await send_with_main_keyboard(update, context, user_id, "✅ Broadcast complete.")
         return True
     if state == "waiting_db_upload":
         return False
@@ -2555,6 +2565,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_exec("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, target_uid))
         save_user_data_json()
         await update.message.reply_text(f"Balance updated for {target_uid}. New balance: ${new_balance:.3f}")
+        await send_with_main_keyboard(update, context, user_id, "✅ Balance updated.")
         admin_panel_state[user_id] = "main"
         await admin_panel_menu(update, user_id, context)
         return True
@@ -2562,7 +2573,8 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = text.split()
         try:
             target, count = int(parts[0]), int(parts[1]) if len(parts) > 1 else 1
-            await update.message.reply_text(f"Given {count} free account(s) to {target}.", reply_markup=admin_panel_keyboard())
+            await update.message.reply_text(f"Given {count} free account(s) to {target}.")
+            await send_with_main_keyboard(update, context, user_id, "✅ Giveaway done.")
             admin_panel_state[user_id] = "main"
         except:
             await update.message.reply_text("Invalid format!")
@@ -2578,6 +2590,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             COUNTRIES_DATA[name] = {"code": code, "iso": iso, "payout": payout, "emoji_id": emoji_id}
             save_countries_db(COUNTRIES_DATA)
             await country_add_service_selection(update, user_id, name, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ Country added.")
             return True
         except Exception as e:
             await update.message.reply_text(f"Error: {e}")
@@ -2587,6 +2600,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             admin_panel_state[user_id] = "country_manager"
             await update.message.reply_text("No changes.")
             await country_manager_menu(update, user_id, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ Country unchanged.")
             return True
         try:
             parts = [p.strip() for p in text.split('|')]
@@ -2601,6 +2615,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             admin_panel_state[user_id] = "country_manager"
             await update.message.reply_text(f"Country {country_name} updated!")
             await country_manager_menu(update, user_id, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ Country updated.")
         except Exception as e:
             await update.message.reply_text(f"Error: {e}")
         return True
@@ -2612,6 +2627,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Service {text} already exists!")
         admin_panel_state[user_id] = "service_manager"
         await service_manager_menu(update, user_id, context)
+        await send_with_main_keyboard(update, context, user_id, "✅ Service added.")
         return True
     elif state == "waiting_service_emoji":
         return await handle_service_emoji_set(update, context)
@@ -2636,6 +2652,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 continue
         await send_stock_management_menu(update, context, user_id)
+        await send_with_main_keyboard(update, context, user_id, "✅ Stock uploaded with new service.")
         admin_panel_state[user_id] = "main"
         admin_temp_data.pop(user_id, None)
         return True
@@ -2646,6 +2663,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_setting('min_withdraw', str(val))
             await update.message.reply_text(f"✅ Min withdraw set to ${val}")
             await admin_air_control(update, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ Min withdraw updated.")
             return True
         except:
             await update.message.reply_text("Invalid number.")
@@ -2656,6 +2674,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_setting('refer_reward', str(val))
             await update.message.reply_text(f"✅ Referral reward set to ${val}")
             await admin_air_control(update, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ Referral reward updated.")
             return True
         except:
             await update.message.reply_text("Invalid number.")
@@ -2667,6 +2686,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_setting('cooldown', str(val))
             await update.message.reply_text(f"✅ Cooldown set to {val}s")
             await admin_air_control(update, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ Cooldown updated.")
             return True
         except:
             await update.message.reply_text("Invalid number.")
@@ -2678,6 +2698,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_setting('num_req', str(val))
             await update.message.reply_text(f"✅ Number per request set to {val}")
             await admin_air_control(update, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ Number per request updated.")
             return True
         except:
             await update.message.reply_text("Invalid number.")
@@ -2692,6 +2713,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text("Invalid group ID. Please send a valid group ID.")
             await admin_air_control(update, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ Withdraw group updated.")
             return True
         except:
             await update.message.reply_text("Invalid group ID.")
@@ -2705,6 +2727,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("Method already exists.")
         await admin_air_control(update, context)
+        await send_with_main_keyboard(update, context, user_id, "✅ Withdraw method updated.")
         return True
     elif state == "waiting_air_def_rate":
         try:
@@ -2712,6 +2735,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_setting('otp_default_rate', str(val))
             await update.message.reply_text(f"✅ Default OTP rate set to {val}")
             await admin_air_otp_control(update, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ OTP rate updated.")
             return True
         except:
             await update.message.reply_text("Invalid number.")
@@ -2729,6 +2753,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_setting('otp_service_rates', rates)
             await update.message.reply_text(f"✅ Rate for {srv} set to {rate}")
             await admin_air_otp_control(update, context)
+            await send_with_main_keyboard(update, context, user_id, "✅ OTP service rate updated.")
             return True
         except:
             await update.message.reply_text("Invalid format. Use ServiceName - Rate")
@@ -2741,6 +2766,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Invalid URL. Must start with http/https.")
         admin_panel_state[user_id] = "main"
         await admin_panel_menu(update, user_id, context)
+        await send_with_main_keyboard(update, context, user_id, "✅ Main channel link updated.")
         return True
     # Force Join text handler
     elif state == "waiting_fj_channel":
@@ -2769,6 +2795,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(f"✅ Channel '{chat.get('title')}' added successfully!")
                     await admin_force_join(update, context)
                     admin_panel_state[user_id] = None
+                    await send_with_main_keyboard(update, context, user_id, "✅ Channel added.")
                 else:
                     await update.message.reply_text("❌ This is not a channel or supergroup.")
             else:
@@ -2918,7 +2945,6 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = query.from_user.id
     first_name = query.from_user.first_name or "User"
     await query.answer()
-    # Delete the current message (the inline menu) and send main menu
     try:
         await query.message.delete()
     except:
@@ -3178,12 +3204,14 @@ async def stock_remove_yes_callback(update: Update, context: ContextTypes.DEFAUL
     else:
         await query.answer(f"❌ Failed to remove stock.", show_alert=True)
     await stock_remove_callback(update, context)
+    await send_with_main_keyboard(query, context, user_id, "✅ Stock removed.")
 
 async def stock_remove_no_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer("Cancelled.")
     await send_stock_management_menu(query, context, user_id)
+    await send_with_main_keyboard(query, context, user_id, "Cancelled.")
 
 async def stock_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3241,6 +3269,7 @@ async def stock_toggle_do_callback(update: Update, context: ContextTypes.DEFAULT
     db_exec("UPDATE countries SET active = ? WHERE name = ? AND service = ?", (new_active, country, service))
     await query.answer(f"Toggled {country} — {service} to {'Active' if new_active else 'Inactive'}.")
     await stock_toggle_callback(update, context)
+    await send_with_main_keyboard(query, context, user_id, "✅ Toggle done.")
 
 # ================= ADMIN STATS =================
 async def show_admin_stats(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
@@ -3587,6 +3616,7 @@ async def country_add_service_callback(update: Update, context: ContextTypes.DEF
     await query.answer(f"{country_name} now available for {service_name}!")
     admin_panel_state[user_id] = "main"
     await edit_or_send(query, "Country linked successfully.", reply_markup=admin_panel_keyboard(), context=context, auto_delete=False)
+    await send_with_main_keyboard(query, context, user_id, "✅ Country linked.")
 
 # ================= SERVICE MANAGER =================
 async def service_manager_menu(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
@@ -3650,6 +3680,7 @@ async def service_remove_execute(query, service_name, context: ContextTypes.DEFA
     db_exec("DELETE FROM countries WHERE service = ?", (service_name,))
     await query.answer(f"Service '{service_name}' removed!")
     await service_remove_select(query, query.from_user.id, context)
+    await send_with_main_keyboard(query, context, query.from_user.id, "✅ Service removed.")
 
 async def service_toggle_select(target, user_id, context: ContextTypes.DEFAULT_TYPE):
     services = db_fetch_all("SELECT name, display_name, active FROM services ORDER BY name")
@@ -3670,6 +3701,7 @@ async def service_toggle_execute(query, service_name, context: ContextTypes.DEFA
         db_exec("UPDATE services SET active = ? WHERE name = ?", (new_status, service_name))
         await query.answer(f"Service {'activated' if new_status else 'deactivated'}!")
     await service_toggle_select(query, query.from_user.id, context)
+    await send_with_main_keyboard(query, context, query.from_user.id, "✅ Service toggled.")
 
 async def service_set_emoji_select(update: Update, user_id, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id):
@@ -3702,6 +3734,7 @@ async def handle_service_emoji_set(update: Update, context: ContextTypes.DEFAULT
     await update.message.reply_text(f"Emoji for {service_name} updated!")
     admin_panel_state[user_id] = "service_manager"
     await service_manager_menu(update, user_id, context)
+    await send_with_main_keyboard(update, context, user_id, "✅ Emoji set.")
     return True
 
 # ================= /setcountry & /setservice =================
@@ -3721,6 +3754,7 @@ async def set_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('country', ?, ?)", (iso, eid))
     DEFAULT_EMOJIS["countries"][iso.lower()] = eid
     await update.message.reply_text(f"✅ Country emoji for {iso} set to <code>{eid}</code>", parse_mode="HTML")
+    await send_with_main_keyboard(update, context, update.effective_user.id, "Main Menu")
 
 async def set_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
@@ -3738,6 +3772,7 @@ async def set_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('service', ?, ?)", (name, eid))
     DEFAULT_EMOJIS["services"][name.lower()] = eid
     await update.message.reply_text(f"✅ Service emoji for {name} set to <code>{eid}</code>", parse_mode="HTML")
+    await send_with_main_keyboard(update, context, update.effective_user.id, "Main Menu")
 
 async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
@@ -3755,6 +3790,7 @@ async def group_country_command(update: Update, context: ContextTypes.DEFAULT_TY
     db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('country', ?, ?)", (iso, eid))
     DEFAULT_EMOJIS["countries"][iso.lower()] = eid
     await update.message.reply_text(f"✅ Group country emoji for {iso} set to <code>{eid}</code>", parse_mode="HTML")
+    await send_with_main_keyboard(update, context, update.effective_user.id, "Main Menu")
 
 async def group_service_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
@@ -3772,6 +3808,7 @@ async def group_service_command(update: Update, context: ContextTypes.DEFAULT_TY
     db_exec("INSERT OR REPLACE INTO group_emojis (type, key, emoji_id) VALUES ('service', ?, ?)", (name, eid))
     DEFAULT_EMOJIS["services"][name.lower()] = eid
     await update.message.reply_text(f"✅ Group service emoji for {name} set to <code>{eid}</code>", parse_mode="HTML")
+    await send_with_main_keyboard(update, context, update.effective_user.id, "Main Menu")
 
 # ================= BOTTOM MENU TEXT ROUTERS =================
 async def send_get_number_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4372,6 +4409,7 @@ async def api_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
 4. Check <b>LOGS</b> for polling status
 """
     await query.edit_message_text(success_text, reply_markup=admin_panel_keyboard(), parse_mode='HTML')
+    await send_with_main_keyboard(query, context, user_id, "✅ API added.")
 
 async def api_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4379,6 +4417,7 @@ async def api_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE)
     admin_temp_data.pop(user_id, None)
     admin_panel_state[user_id] = "main"
     await query.edit_message_text("❌ API addition cancelled.", reply_markup=admin_panel_keyboard())
+    await send_with_main_keyboard(query, context, user_id, "Main Menu")
 
 async def api_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4821,6 +4860,7 @@ async def cdr_add_confirm_yes(update: Update, context: ContextTypes.DEFAULT_TYPE
 ✅ Polling started automatically.
 """
     await query.edit_message_text(success_text, reply_markup=admin_panel_keyboard(), parse_mode='HTML')
+    await send_with_main_keyboard(query, context, user_id, "✅ Panel added.")
 
 async def cdr_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4828,6 +4868,7 @@ async def cdr_add_confirm_no(update: Update, context: ContextTypes.DEFAULT_TYPE)
     admin_temp_data.pop(user_id, None)
     admin_panel_state[user_id] = "main"
     await query.edit_message_text("❌ Panel addition cancelled.", reply_markup=admin_panel_keyboard())
+    await send_with_main_keyboard(query, context, user_id, "Main Menu")
 
 async def cdr_add_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -5357,7 +5398,6 @@ async def cdr_edit_value_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     admin_panel_state[user_id] = "main"
     await update.message.reply_text(f"✅ {field} updated successfully!")
     await cdr_panel_detail(update, context, panel_id, user_id)
-    return True
 
 async def cdr_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -6381,6 +6421,7 @@ async def force_join_text_handler(update: Update, context: ContextTypes.DEFAULT_
                     await update.message.reply_text(f"✅ Channel '{chat.get('title')}' added successfully!")
                     await admin_force_join(update, context)
                     admin_panel_state[user_id] = None
+                    await send_with_main_keyboard(update, context, user_id, "✅ Channel added.")
                 else:
                     await update.message.reply_text("❌ This is not a channel or supergroup.")
             else:
