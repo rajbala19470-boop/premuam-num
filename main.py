@@ -10,7 +10,7 @@ import requests
 from telegram import (
     InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, ReplyKeyboardMarkup, Update, CopyTextButton,
-    CallbackQuery
+    CallbackQuery, KeyboardButtonRequestChat
 )
 from telegram.constants import KeyboardButtonStyle as KBS
 from telegram.ext import (
@@ -1255,9 +1255,10 @@ def get_back_only_keyboard():
                                                        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
 
 # ================= NATIVE SELECTION REPLY KEYBOARD HELPER =================
-def selection_reply_keyboard(button_text: str, request_id: int) -> ReplyKeyboardMarkup:
+def selection_reply_keyboard(button_text: str, request_id: int, is_channel: bool = False) -> ReplyKeyboardMarkup:
+    request_chat = KeyboardButtonRequestChat(request_id=request_id, chat_is_channel=is_channel)
     keyboard = [
-        [KeyboardButton(button_text, request_chat=request_id)],
+        [KeyboardButton(button_text, request_chat=request_chat)],
         [KeyboardButton("🔙 BACK")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -2219,7 +2220,7 @@ async def fu_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await send_with_main_keyboard(query, context, user_id, "❌ No numbers found.")
     admin_panel_state[user_id] = "main"
 
-# ================= CENTRAL CHAT_SHARED HANDLER (exact test.py flow) =================
+# ================= CENTRAL CHAT_SHARED HANDLER =================
 async def handle_chat_shared(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Process native Telegram chat selection exactly like test.py."""
     if not update.message or not update.message.chat_shared:
@@ -2232,8 +2233,7 @@ async def handle_chat_shared(update: Update, context: ContextTypes.DEFAULT_TYPE)
     shared = update.message.chat_shared
     request_id = shared.request_id
     chat_id = shared.chat_id
-    state_data = admin_panel_state.get(user_id, {})
-    state = state_data if isinstance(state_data, str) else state_data.get("state")
+    state = admin_panel_state.get(user_id)
 
     # Send generic success message first (like test.py)
     await update.message.reply_text(
@@ -3254,7 +3254,7 @@ async def air_control_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await edit_or_send(query, "📱 Enter how many numbers a user gets per request (e.g., 3):", reply_markup=admin_cancel_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
     elif data == "air_select_wgroup":
         admin_panel_state[user_id] = "waiting_w_group"
-        kb = selection_reply_keyboard("SELECT W.GROUP", 1004)
+        kb = selection_reply_keyboard("SELECT W.GROUP", 1004, is_channel=False)
         await edit_or_send(query, "👇 <b>Select Withdraw Group from below:</b>", reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
     elif data == "manage_w_methods":
         await edit_or_send(query, "💳 <b>WITHDRAW METHODS</b>\nManage methods below:", reply_markup=manage_w_methods_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
@@ -3301,13 +3301,18 @@ async def force_join_add_select(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer("Unauthorized!", show_alert=True)
         return
     admin_panel_state[user_id] = "fj_add_select"
-    # Two separate selection buttons: Channel and Group
+
+    # Two separate native selection buttons
+    channel_request = KeyboardButtonRequestChat(request_id=1001, chat_is_channel=True)
+    group_request = KeyboardButtonRequestChat(request_id=1002, chat_is_channel=False)
+
     keyboard = [
-        [KeyboardButton("📢 SELECT CHANNEL", request_chat=1001)],
-        [KeyboardButton("👥 SELECT GROUP", request_chat=1002)],
+        [KeyboardButton("📢 SELECT CHANNEL", request_chat=channel_request)],
+        [KeyboardButton("👥 SELECT GROUP", request_chat=group_request)],
         [KeyboardButton("🔙 BACK")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
     await edit_or_send(query, "Select a channel or group to add to Force Join:", reply_markup=reply_markup, parse_mode='HTML', context=context, auto_delete=False)
 
 async def force_join_delete_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3377,7 +3382,7 @@ async def otp_select_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Unauthorized!", show_alert=True)
         return
     admin_panel_state[user_id] = "waiting_otp_group"
-    kb = selection_reply_keyboard("👥 SELECT GROUP", 1003)
+    kb = selection_reply_keyboard("👥 SELECT GROUP", 1003, is_channel=False)
     await edit_or_send(query, "👇 <b>Select OTP Group from below:</b>", reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
 
 # ================= BACK HANDLER FOR SELECTION KEYBOARD =================
