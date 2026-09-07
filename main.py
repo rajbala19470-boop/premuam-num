@@ -1,4 +1,3 @@
-
 # THIS PREMIUM BOT IS DEVELOPED BY RAKESH DEV
 # TG: @SR_ADMIN_RAKESH
 
@@ -54,20 +53,8 @@ ADMIN2_TELEGRAM = ""
 CHANNEL_URL = "https://t.me/A_S_COMMUNITY_9_x"
 BOT_URL = "https://t.me/AIR_NUMBER_BOT?start=1"
 
-# ================= GROUP IDS (now managed by DB) =================
-def get_otp_group_ids():
-    val = get_bot_setting("otp_group_ids", "")
-    if val:
-        try:
-            return [int(x.strip()) for x in val.split(',') if x.strip()]
-        except:
-            return []
-    return []
-
-def set_otp_group_ids(group_ids):
-    set_bot_setting("otp_group_ids", ','.join(str(g) for g in group_ids))
-
-GROUP_IDS = get_otp_group_ids()
+# GROUP_IDS will be defined after bot_settings are loaded
+GROUP_IDS = []
 
 # ================= EMOJIS (PREMIUM – add more) =================
 GLOBAL_BODY_EMOJIS = {
@@ -830,6 +817,21 @@ def get_setting(key, default=None):
 def update_setting(key, value):
     bot_settings[key] = value
     set_bot_setting(key, value)
+
+# ================= GROUP IDS (now managed by DB) =================
+def get_otp_group_ids():
+    val = get_bot_setting("otp_group_ids", "")
+    if val:
+        try:
+            return [int(x.strip()) for x in val.split(',') if x.strip()]
+        except:
+            return []
+    return []
+
+def set_otp_group_ids(group_ids):
+    set_bot_setting("otp_group_ids", ','.join(str(g) for g in group_ids))
+
+GROUP_IDS = get_otp_group_ids()
 
 # Force join helpers
 def get_force_join_channels():
@@ -6355,10 +6357,110 @@ def main():
     application.add_handler(CommandHandler("setservice", set_service_command))
     application.add_handler(CommandHandler("testgroup", testgroup_command))
 
-    # ... (all existing callback handlers remain as in the original code)
-    # To keep the answer concise, the rest of the handlers are identical to the previous version.
-    # The full code is provided in the final answer.
+    application.add_handler(CallbackQueryHandler(service_selection_callback, pattern="^svc_sel\|"))
+    application.add_handler(CallbackQueryHandler(country_selection_callback, pattern="^cnt_sel\|"))
+    application.add_handler(CallbackQueryHandler(back_to_services_callback, pattern="^back_to_services$"))
+    application.add_handler(CallbackQueryHandler(country_add_service_callback, pattern="^cnt_add_svc\|"))
+    application.add_handler(CallbackQueryHandler(next_number_callback, pattern="^next_number$"))
+    application.add_handler(CallbackQueryHandler(back_to_menu_callback, pattern="^back_to_menu$"))
+    application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
+    application.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin_del\|"))
+    application.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
+    application.add_handler(CallbackQueryHandler(country_callback, pattern="^country_"))
+    application.add_handler(CallbackQueryHandler(service_callback, pattern="^service_"))
+    application.add_handler(CallbackQueryHandler(service_callback, pattern="^service_set_emoji$"))
+    application.add_handler(CallbackQueryHandler(service_callback, pattern=r"^service_emoji_set\|"))
+    application.add_handler(CallbackQueryHandler(balance_menu_callback, pattern="^menu_balance$"))
+    application.add_handler(CallbackQueryHandler(withdraw_callback, pattern="^withdraw$"))
+    application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
+    application.add_handler(CallbackQueryHandler(toggle_cc_callback, pattern="^toggle_cc$"))
+    application.add_handler(CallbackQueryHandler(fu_country_callback, pattern=r"^fu_country\|"))
+    application.add_handler(CallbackQueryHandler(fu_service_callback, pattern=r"^fu_service\|"))
 
+    application.add_handler(CallbackQueryHandler(_user_manager_wrapper, pattern="^admin_user_manager$"))
+    application.add_handler(CallbackQueryHandler(_um_search_wrapper, pattern="^um_search$"))
+    application.add_handler(CallbackQueryHandler(send_user_list_file, pattern="^um_download$"))
+    application.add_handler(CallbackQueryHandler(um_stats, pattern="^um_stats$"))
+    application.add_handler(CallbackQueryHandler(_um_edit_balance_wrapper, pattern=r"^um_editbal\|"))
+    application.add_handler(CallbackQueryHandler(_um_ban_toggle_wrapper, pattern=r"^um_ban\|"))
+    application.add_handler(CallbackQueryHandler(_user_manager_wrapper, pattern="^um_back$"))
+
+    application.add_handler(CallbackQueryHandler(_database_wrapper, pattern="^admin_database$"))
+    application.add_handler(CallbackQueryHandler(db_download, pattern="^db_download$"))
+    application.add_handler(CallbackQueryHandler(db_upload_prompt, pattern="^db_upload$"))
+
+    application.add_handler(CallbackQueryHandler(stock_management_menu, pattern="^admin_stock_management$"))
+    application.add_handler(CallbackQueryHandler(stock_upload_callback, pattern="^stock_upload$"))
+    application.add_handler(CallbackQueryHandler(stock_remove_callback, pattern="^stock_remove$"))
+    application.add_handler(CallbackQueryHandler(stock_remove_confirm_callback, pattern=r"^stock_remove_confirm\|"))
+    application.add_handler(CallbackQueryHandler(stock_remove_yes_callback, pattern=r"^stock_remove_yes\|"))
+    application.add_handler(CallbackQueryHandler(stock_remove_no_callback, pattern="^stock_remove_no$"))
+    application.add_handler(CallbackQueryHandler(stock_status_callback, pattern="^stock_status$"))
+    application.add_handler(CallbackQueryHandler(stock_toggle_callback, pattern="^stock_toggle$"))
+    application.add_handler(CallbackQueryHandler(stock_toggle_do_callback, pattern=r"^stock_toggle_do\|"))
+    application.add_handler(CallbackQueryHandler(stock_get_number_callback, pattern=r"^stock_get_number\|"))
+
+    application.add_handler(CallbackQueryHandler(manage_api_menu_wrapper, pattern="^admin_manage_api$"))
+    application.add_handler(CallbackQueryHandler(api_add_choice, pattern="^api_add_choice$"))
+    application.add_handler(CallbackQueryHandler(api_choice_handler, pattern="^api_choice_(api|cdr)$"))
+    application.add_handler(CallbackQueryHandler(api_add_start_wrapper, pattern="^api_add$"))
+    application.add_handler(CallbackQueryHandler(handle_api_add_skip, pattern="^api_add_skip$"))
+    application.add_handler(CallbackQueryHandler(handle_api_add_cancel, pattern="^api_add_cancel$"))
+    application.add_handler(CallbackQueryHandler(api_add_confirm_yes, pattern=r"^api_add_confirm_yes\|"))
+    application.add_handler(CallbackQueryHandler(api_add_confirm_no, pattern=r"^api_add_confirm_no\|"))
+    application.add_handler(CallbackQueryHandler(api_add_edit, pattern=r"^api_add_edit\|"))
+    application.add_handler(CallbackQueryHandler(api_system_grid_wrapper, pattern="^api_system$"))
+    application.add_handler(CallbackQueryHandler(api_detail_page_wrapper, pattern=r"^api_detail\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_toggle_callback, pattern=r"^api_toggle\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_edit_menu_wrapper, pattern=r"^api_edit\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_edit_field_prompt, pattern=r"^api_edit_field\|(\d+)\|(.+)$"))
+    application.add_handler(CallbackQueryHandler(api_test_callback, pattern=r"^api_test\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_stats_callback, pattern=r"^api_stats\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_logs_callback, pattern=r"^api_logs\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_delete_prompt, pattern=r"^api_delete\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_delete_confirm, pattern=r"^api_delete_(yes|no)\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_force_poll, pattern=r"^api_force\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(api_list_wrapper, pattern="^api_list$"))
+    application.add_handler(CallbackQueryHandler(api_add_curl_continue, pattern="^api_add_curl_continue$"))
+    application.add_handler(CallbackQueryHandler(api_add_curl_cancel, pattern="^api_add_curl_cancel$"))
+
+    application.add_handler(CallbackQueryHandler(cdr_add_choice_wrapper, pattern="^cdr_add_choice$"))
+    application.add_handler(CallbackQueryHandler(cdr_handle_add_skip, pattern="^cdr_add_skip$"))
+    application.add_handler(CallbackQueryHandler(cdr_handle_add_cancel, pattern="^cdr_add_cancel$"))
+    application.add_handler(CallbackQueryHandler(cdr_add_confirm_yes, pattern="^cdr_add_confirm_yes$"))
+    application.add_handler(CallbackQueryHandler(cdr_add_confirm_no, pattern="^cdr_add_confirm_no$"))
+    application.add_handler(CallbackQueryHandler(cdr_add_edit, pattern="^cdr_add_edit$"))
+    application.add_handler(CallbackQueryHandler(cdr_list_wrapper, pattern="^cdr_list$"))
+    application.add_handler(CallbackQueryHandler(cdr_detail_wrapper, pattern=r"^cdr_detail\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_toggle, pattern=r"^cdr_toggle\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_edit_menu, pattern=r"^cdr_edit\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_edit_field_prompt, pattern=r"^cdr_edit_field\|(\d+)\|(.+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_delete, pattern=r"^cdr_delete\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_delete_confirm, pattern=r"^cdr_delete_(yes|no)\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_test_login, pattern=r"^cdr_test_login\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_test_fetch, pattern=r"^cdr_test_fetch\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_force, pattern=r"^cdr_force\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_stats, pattern=r"^cdr_stats\|(\d+)$"))
+    application.add_handler(CallbackQueryHandler(cdr_logs, pattern=r"^cdr_logs\|(\d+)$"))
+
+    application.add_handler(CallbackQueryHandler(admin_air_control, pattern="^admin_air_control$"))
+    application.add_handler(CallbackQueryHandler(admin_air_otp_control, pattern="^air_otp_control$"))
+    application.add_handler(CallbackQueryHandler(admin_air_otp_control_edit, pattern="^(air_def_rate|air_srv_rate|del_srv_rate_.+)$"))
+    application.add_handler(CallbackQueryHandler(air_control_edit, pattern="^(air_min_w|air_ref_r|air_cool|air_num_req|air_select_wgroup|manage_w_methods|add_w_method|del_w_method_.+)$"))
+
+    application.add_handler(CallbackQueryHandler(admin_force_join, pattern="^admin_force_join$"))
+    application.add_handler(CallbackQueryHandler(force_join_toggle, pattern="^toggle_fj$"))
+    application.add_handler(CallbackQueryHandler(force_join_add_select, pattern="^fj_add_select$"))
+    application.add_handler(CallbackQueryHandler(force_join_delete_channel, pattern=r"^del_fj_\d+$"))
+    application.add_handler(CallbackQueryHandler(force_join_check, pattern="^check_fj_joined$"))
+
+    application.add_handler(CallbackQueryHandler(admin_otp_group, pattern="^admin_otp_group$"))
+    application.add_handler(CallbackQueryHandler(otp_select_group, pattern="^otp_select_group$"))
+
+    application.add_handler(CallbackQueryHandler(user_withdraw_method, pattern=r"^user_withdraw_.+$"))
+    application.add_handler(CallbackQueryHandler(admin_withdraw_callback, pattern=r"^admin_w_(approve|reject)_\d+_\d+_.+$"))
+
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     application.add_error_handler(error_handler)
 
     if application.job_queue:
