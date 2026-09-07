@@ -1216,7 +1216,7 @@ def air_control_keyboard():
         [
             InlineKeyboardButton(
                 f"W. GROUP: {w_group}",
-                callback_data="air_w_group",
+                callback_data="air_select_wgroup",
                 style=KBS.SUCCESS,
                 icon_custom_emoji_id=safe_icon("5420517437885943844")
             )
@@ -1224,7 +1224,7 @@ def air_control_keyboard():
         [
             InlineKeyboardButton(
                 "BACK",
-                callback_data="back_to_admin",
+                callback_data="admin_back",  # Changed to admin_back
                 style=KBS.DANGER,
                 icon_custom_emoji_id=safe_icon("5267490665117275176")
             )
@@ -1244,7 +1244,7 @@ def air_otp_control_keyboard():
         app_info = PREMIUM_APPS.get(srv_name, {"emoji": "📱", "id": "5465590345108589516"})
         rows.append([InlineKeyboardButton(f"Delete: {srv_name} ({rate})", callback_data=f"del_srv_rate_{srv_name}", style=KBS.DANGER,
                                           icon_custom_emoji_id=safe_icon(app_info['id']))])
-    rows.append([InlineKeyboardButton("BACK", callback_data="air_control", style=KBS.DANGER,
+    rows.append([InlineKeyboardButton("BACK", callback_data="admin_air_control", style=KBS.DANGER,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     return InlineKeyboardMarkup(rows)
 
@@ -1256,16 +1256,16 @@ def manage_w_methods_keyboard():
                                           icon_custom_emoji_id=safe_icon("5438178416421544431"))])
     rows.append([InlineKeyboardButton("Add Method", callback_data="add_w_method", style=KBS.SUCCESS,
                                       icon_custom_emoji_id=safe_icon("5429501315468270290"))])
-    rows.append([InlineKeyboardButton("BACK", callback_data="air_control", style=KBS.PRIMARY,
+    rows.append([InlineKeyboardButton("BACK", callback_data="admin_air_control", style=KBS.PRIMARY,
                                       icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))])
     return InlineKeyboardMarkup(rows)
 
-# ================= OTP GROUP KEYBOARD =================
+# ================= OTP GROUP KEYBOARD (FIXED) =================
 def get_otp_group_keyboard():
     rows = []
 
-    # OTP Link
-    link_display = otp_button_link if otp_button_link else "Not Set"
+    # OTP Link (using OTP_GROUP_URL global)
+    link_display = OTP_GROUP_URL if OTP_GROUP_URL else "Not Set"
     if len(link_display) > 25:
         link_display = link_display[:25] + "..."
     rows.append([
@@ -1292,6 +1292,7 @@ def get_otp_group_keyboard():
     ])
 
     # Delete Group (if exists)
+    otp_forward_groups = get_otp_group_ids()  # Now uses DB
     if otp_forward_groups:
         grp = otp_forward_groups[0]
         rows.append([
@@ -1303,21 +1304,21 @@ def get_otp_group_keyboard():
             )
         ])
 
-    # Set Forward Group
+    # Set Forward Group – now uses correct callback
     rows.append([
         InlineKeyboardButton(
             "Set Forward Group",
-            callback_data="add_otp_group",
+            callback_data="otp_select_group",  # Changed from add_otp_group
             style=KBS.SUCCESS,
             icon_custom_emoji_id=safe_icon("5429501315468270290")
         )
     ])
 
-    # BACK
+    # BACK – now uses admin_back which exists
     rows.append([
         InlineKeyboardButton(
             "BACK",
-            callback_data="back_to_admin",
+            callback_data="admin_back",  # Changed from back_to_admin
             style=KBS.DANGER,
             icon_custom_emoji_id=safe_icon("5267490665117275176")
         )
@@ -1356,7 +1357,7 @@ def get_force_join_keyboard():
     rows.append([
         InlineKeyboardButton(
             "Add Channel",
-            callback_data="add_fj",
+            callback_data="fj_add_select",
             style=KBS.SUCCESS,
             icon_custom_emoji_id=safe_icon("5429501315468270290")
         )
@@ -1365,7 +1366,7 @@ def get_force_join_keyboard():
     rows.append([
         InlineKeyboardButton(
             "Back",
-            callback_data="back_to_admin",
+            callback_data="admin_back",  # Changed to admin_back
             style=KBS.PRIMARY,
             icon_custom_emoji_id=safe_icon("5267490665117275176")
         )
@@ -1387,7 +1388,7 @@ def force_join_alert_keyboard():
     return InlineKeyboardMarkup(kb_rows)
 
 def get_back_only_keyboard():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("BACK", callback_data="back_to_admin", style=KBS.DANGER,
+    return InlineKeyboardMarkup([[InlineKeyboardButton("BACK", callback_data="admin_back", style=KBS.DANGER,
                                                        icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("BACK", "")))]])
 
 # ================= NATIVE SELECTION REPLY KEYBOARD HELPER =================
@@ -3390,8 +3391,11 @@ async def air_control_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await edit_or_send(query, "📱 Enter how many numbers a user gets per request (e.g., 3):", reply_markup=admin_cancel_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
     elif data == "air_select_wgroup":
         admin_panel_state[user_id] = "waiting_w_group"
+        # Send a new message with the selection keyboard, not edit
         kb = selection_reply_keyboard("SELECT W.GROUP", 1004, is_channel=False)
-        await edit_or_send(query, "👇 <b>Select Withdraw Group from below:</b>", reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+        await query.message.reply_text("👇 <b>Select Withdraw Group from below:</b>", reply_markup=kb, parse_mode='HTML')
+        await query.message.delete()  # remove the previous inline message
+        return
     elif data == "manage_w_methods":
         await edit_or_send(query, "💳 <b>WITHDRAW METHODS</b>\nManage methods below:", reply_markup=manage_w_methods_keyboard(), parse_mode='HTML', context=context, auto_delete=False)
     elif data == "add_w_method":
@@ -3449,7 +3453,9 @@ async def force_join_add_select(update: Update, context: ContextTypes.DEFAULT_TY
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-    await edit_or_send(query, "Select a channel or group to add to Force Join:", reply_markup=reply_markup, parse_mode='HTML', context=context, auto_delete=False)
+    # Send new message with the selection keyboard, not edit
+    await query.message.reply_text("Select a channel or group to add to Force Join:", reply_markup=reply_markup, parse_mode='HTML')
+    await query.message.delete()  # remove the previous inline message
 
 async def force_join_delete_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3514,7 +3520,9 @@ async def otp_select_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     admin_panel_state[user_id] = "waiting_otp_group"
     kb = selection_reply_keyboard("👥 SELECT GROUP", 1003, is_channel=False)
-    await edit_or_send(query, "👇 <b>Select OTP Group from below:</b>", reply_markup=kb, parse_mode='HTML', context=context, auto_delete=False)
+    # Send new message with the selection keyboard
+    await query.message.reply_text("👇 <b>Select OTP Group from below:</b>", reply_markup=kb, parse_mode='HTML')
+    await query.message.delete()
 
 # ================= BACK HANDLER FOR SELECTION KEYBOARD =================
 async def handle_back_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4554,7 +4562,7 @@ async def poll_single_api_curl_based(api_id: int):
                         raw_bytes = await response.read()
                         status = response.status
                 elif method.upper() == 'DELETE':
-                    async with session.delete(url, headers=headers, timeout=30) as response:
+                    async with session.delete(url, headers=headers, json=data, timeout=30) as response:
                         raw_bytes = await response.read()
                         status = response.status
                 else:
@@ -6533,9 +6541,6 @@ def main():
     application.add_handler(MessageHandler(ChatSharedFilter() & filters.ChatType.PRIVATE, handle_chat_shared))
 
     application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_all_documents), group=0)
-
-    # REMOVED the overly broad handler that was blocking all text messages:
-    # application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_admin_text), group=1)
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("enteradmin", enter_admin_command))
