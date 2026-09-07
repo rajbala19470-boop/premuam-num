@@ -50,8 +50,8 @@ ADMIN_WHATSAPP = "https://wa.me/8801962636806"
 ADMIN_TELEGRAM = "t.me/SR_ADMIN_RAKESH"
 ADMIN2_WHATSAPP = ""
 ADMIN2_TELEGRAM = ""
-GROUP_ID = "-1004334030635"
-CHANNEL_URL = "https://t.me/AIR_MAIN_CHANEL"
+GROUP_ID = "-1003716770621","-1004309109716"
+CHANNEL_URL = "https://t.me/A_S_COMMUNITY_9_x"
 BOT_URL = "https://t.me/AIR_NUMBER_BOT?start=1"
 
 GROUP_IDS = []
@@ -69,7 +69,7 @@ if GROUP_ID:
         except (ValueError, TypeError):
             GROUP_IDS = []
 
-# ================= EMOJIS (DEMO – add more later) =================
+# ================= EMOJIS (PREMIUM – add more as needed) =================
 GLOBAL_BODY_EMOJIS = {
     "🇺🇸": "5913463998522592692", "🇺🇦": "5911406692007941050", "🇵🇱": "5913550391789752571",
     "🇰🇿": "5913724621433082323", "🇨🇳": "5913779335021466780", "🇦🇿": "5911197578640233518",
@@ -420,7 +420,7 @@ for service in default_services:
 conn.commit()
 print("✅ Database setup completed")
 
-# ================= PREMIUM APPS (DEMO – add more) =================
+# ================= PREMIUM APPS (add more as needed) =================
 PREMIUM_APPS = {
     "Facebook": {"emoji": "📘", "id": "5429172110520003976"},
     "WhatsApp": {"emoji": "💬", "id": "5429612632430654504"},
@@ -470,7 +470,7 @@ SERVICE_SMS_KEYWORDS = {
     "Imo": ["imo code", "imo"]
 }
 
-# ================= COUNTRY CODES (DEMO – add more) =================
+# ================= COUNTRY CODES (MINIMAL – only Bangladesh) =================
 COUNTRY_CODES = {
     "1": {"flag": "🇺🇸", "name": "United States / Canada", "iso2": "US"},
     "7": {"flag": "🇷🇺", "name": "Russia / Kazakhstan", "iso2": "RU"},
@@ -1062,7 +1062,7 @@ def get_numbers_from_stock(country, service, count=3):
         print(f"Error getting numbers: {e}")
         return []
 
-# ================= COUNTRY MAP (DEMO) =================
+# ================= COUNTRY MAP (add more as needed) =================
 COUNTRY_CODE_MAP = {
     "880": ("BD", "🇧🇩", "Bangladesh"),
 }
@@ -1318,6 +1318,7 @@ def bottom_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     ]
     if is_admin(user_id):
         rows.append([KeyboardButton(BTN_ADMIN, style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADMIN", "")))])
+    # Using the required structure
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True, input_field_placeholder="")
 
 def back_to_main_keyboard() -> InlineKeyboardMarkup:
@@ -1579,7 +1580,7 @@ def start_welcome_html():
     sub = f'<b>{inbox} RECEIVE OTP\'S AND START EARNING MONEY {money}</b>'
     return f'{block}\n{sub}'
 
-# ================= SEND MESSAGES (NO AUTO-DELETE) =================
+# ================= SEND MESSAGES (NO AUTO-DELETE EXCEPT BACK/CANCEL) =================
 async def send_clean_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None, parse_mode=None, auto_delete: bool = False, delete_after: int = None):
     user_id = update.effective_user.id
     # Do NOT delete previous messages automatically
