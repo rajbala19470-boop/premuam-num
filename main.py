@@ -1318,7 +1318,8 @@ def bottom_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     ]
     if is_admin(user_id):
         rows.append([KeyboardButton(BTN_ADMIN, style=KBS.DANGER, icon_custom_emoji_id=safe_icon(CUSTOM_EMOJIS.get("ADMIN", "")))])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True, input_field_placeholder="")
+    # Removed is_persistent=True as requested
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, input_field_placeholder="")
 
 async def send_with_main_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str = "Main Menu"):
     """Send a message with the main chat reply keyboard restored."""
